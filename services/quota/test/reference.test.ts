@@ -6,6 +6,7 @@ const policy = { maximumRoomsPerWindow: 5, windowMilliseconds: 60 * 60 * 1000 }
 const suite = quotaSuite(policy)
 
 suite.run("reference", makeQuotaReference(policy))
+
 suite.negativeControls(
   "reference",
   quotaGuarantees.map((guarantee) => ({ violates: guarantee.identifier, layer: makeQuotaReference(policy, new Set([guarantee.identifier])) })),

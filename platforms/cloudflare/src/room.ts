@@ -7,7 +7,8 @@
  * text it received and binary frames as the bytes it received, and never decodes or stores either.
  */
 import { constantTimeEqual, encodeBase64Url } from "@file-transfer/parcel"
-import { decodeControlMessage, encodeControlMessage, recipientToSenderTypes, type Role } from "@file-transfer/transport"
+import { decodeControlMessage, encodeControlMessage, recipientToSenderTypes } from "@file-transfer/transport"
+import type { Role } from "@file-transfer/transport"
 import { Result, Schema } from "effect"
 
 /** Written once at creation; the only thing a room stores. */
@@ -20,7 +21,7 @@ export const maximumRecipientsLimit = 16
 
 /** The body of `POST /api/rooms`. */
 export const CreateRoom = Schema.Struct({
-  roomTokenHash: Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/)),
+  roomTokenHash: Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/u)),
   maximumRecipients: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: maximumRecipientsLimit })),
 })
 
@@ -29,11 +30,12 @@ const decodeCreateRoomResult = Schema.decodeUnknownResult(CreateRoom)
 /** Validates a parsed creation body; the record keeps only the two fields the schema names. */
 export const decodeCreateRoom = (body: unknown): RoomRecord | undefined => {
   const result = decodeCreateRoomResult(body)
+
   return Result.isSuccess(result) ? { roomTokenHash: result.success.roomTokenHash, maximumRecipients: result.success.maximumRecipients } : undefined
 }
 
 /** 16 random bytes in unpadded base64url. */
-export const roomIdentifierPattern = /^[A-Za-z0-9_-]{22}$/
+export const roomIdentifierPattern = /^[A-Za-z0-9_-]{22}$/u
 
 /** Encodes 16 random bytes as a room identifier. */
 export const encodeRoomIdentifier = (bytes: Uint8Array): string => encodeBase64Url(bytes)
@@ -64,9 +66,9 @@ export type Instruction =
   /** Send text to the acting socket. */
   | { readonly type: "reply"; readonly text: string }
   /** Send text to these participants. */
-  | { readonly type: "relay"; readonly to: ReadonlyArray<string>; readonly text: string }
+  | { readonly type: "relay"; readonly to: readonly string[]; readonly text: string }
   /** Forward the binary frame unchanged to these participants. */
-  | { readonly type: "forwardFrame"; readonly to: ReadonlyArray<string> }
+  | { readonly type: "forwardFrame"; readonly to: readonly string[] }
   /** Close the acting socket. */
   | { readonly type: "close"; readonly code: number; readonly reason: string }
   /**
@@ -97,13 +99,16 @@ export const errorReasons = {
   notAllowedForRecipient: "recipients may only send accept, decline, credit, want, complete or abort",
 } as const
 
-const violation = (reason: string): ReadonlyArray<Instruction> => [
+const violation = (reason: string): readonly Instruction[] => [
   { type: "reply", text: encodeControlMessage({ type: "error", reason }) },
   { type: "close", code: violationCloseCode, reason },
 ]
 
-const identifiersOf = (participants: ReadonlyArray<Participant>, role: Role): ReadonlyArray<string> =>
-  participants.filter((participant) => participant.role === role).map((participant) => participant.participantIdentifier)
+const identifiersOf = (participants: readonly Participant[], role: Role): readonly string[] =>
+  participants.flatMap((participant) => (participant.role === role ? [participant.participantIdentifier] : []))
+
+/** The relayed recipient message types, as a set of plain strings so any message type can be looked up. */
+const recipientToSenderTypeSet: ReadonlySet<string> = new Set(recipientToSenderTypes)
 
 const opposite = (role: Role): Role => (role === "sender" ? "recipient" : "sender")
 
@@ -111,8 +116,13 @@ const opposite = (role: Role): Role => (role === "sender" ? "recipient" : "sende
 const messageType = (text: string): string | undefined => {
   try {
     const parsed: unknown = JSON.parse(text)
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return undefined
-    const type: unknown = (parsed as { readonly type?: unknown }).type
+
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      return undefined
+    }
+
+    const type: unknown = "type" in parsed ? parsed.type : undefined
+
     return typeof type === "string" ? type : undefined
   } catch {
     return undefined
@@ -121,8 +131,12 @@ const messageType = (text: string): string | undefined => {
 
 /** The roomToken of a text frame that is a valid join, so the adapter knows to hash it before deciding. */
 export const joinTokenOf = (text: string): string | undefined => {
-  if (text.length > maximumTextLength) return undefined
+  if (text.length > maximumTextLength) {
+    return undefined
+  }
+
   const decoded = decodeControlMessage(text)
+
   return Result.isSuccess(decoded) && decoded.success.type === "join" ? decoded.success.roomToken : undefined
 }
 
@@ -132,8 +146,11 @@ export const joinTokenOf = (text: string): string | undefined => {
  * the room has noticed its old socket is gone, and after a network change the room may never notice. Every holder of
  * the link can already act as either role, so newest-wins grants nothing the token did not.
  */
-const join = (participants: ReadonlyArray<Participant>, role: Role, admission: Admission): ReadonlyArray<Instruction> => {
-  if (!constantTimeEqual(admission.presentedTokenHash, admission.record.roomTokenHash)) return violation(errorReasons.wrongToken)
+const join = (participants: readonly Participant[], role: Role, admission: Admission): readonly Instruction[] => {
+  if (!constantTimeEqual(admission.presentedTokenHash, admission.record.roomTokenHash)) {
+    return violation(errorReasons.wrongToken)
+  }
+
   const capacity = role === "sender" ? 1 : admission.record.maximumRecipients
   const sameRole = identifiersOf(participants, role)
   const evicted = sameRole.slice(0, Math.max(0, sameRole.length - capacity + 1))
@@ -142,7 +159,8 @@ const join = (participants: ReadonlyArray<Participant>, role: Role, admission: A
   const recipientCount = remaining.length - (senderPresent ? 1 : 0)
   const { participantIdentifier } = admission
   const others = identifiersOf(remaining, opposite(role))
-  const instructions: Array<Instruction> = [
+
+  const instructions: Instruction[] = [
     ...evicted.map((identifier): Instruction => ({ type: "evict", participantIdentifier: identifier, reason: errorReasons.replaced })),
     { type: "admit", participant: { role, participantIdentifier } },
     {
@@ -155,7 +173,11 @@ const join = (participants: ReadonlyArray<Participant>, role: Role, admission: A
       }),
     },
   ]
-  if (others.length > 0) instructions.push({ type: "relay", to: others, text: encodeControlMessage({ type: "peer", event: "joined", role }) })
+
+  if (others.length > 0) {
+    instructions.push({ type: "relay", to: others, text: encodeControlMessage({ type: "peer", event: "joined", role }) })
+  }
+
   return instructions
 }
 
@@ -163,35 +185,71 @@ const join = (participants: ReadonlyArray<Participant>, role: Role, admission: A
  * Decides one event. `self` is the acting socket's attachment; `participants` are the admitted participants. The list
  * may include the acting socket itself: every lookup filters by the opposite role or happens before it is admitted.
  */
-export const decide = (self: Attachment, participants: ReadonlyArray<Participant>, event: RoomEvent): ReadonlyArray<Instruction> => {
+export const decide = (self: Attachment, participants: readonly Participant[], event: RoomEvent): readonly Instruction[] => {
   switch (event.type) {
     case "close": {
-      if (!self.admitted) return []
+      if (!self.admitted) {
+        return []
+      }
+
       const others = identifiersOf(participants, opposite(self.role))
+
       return others.length === 0 ? [] : [{ type: "relay", to: others, text: encodeControlMessage({ type: "peer", event: "left", role: self.role }) }]
     }
+
     case "binary": {
-      if (!self.admitted) return violation(errorReasons.joinFirst)
-      if (self.role !== "sender") return violation(errorReasons.framesFromSenderOnly)
+      if (!self.admitted) {
+        return violation(errorReasons.joinFirst)
+      }
+
+      if (self.role !== "sender") {
+        return violation(errorReasons.framesFromSenderOnly)
+      }
+
       return [{ type: "forwardFrame", to: identifiersOf(participants, "recipient") }]
     }
+
     case "text": {
-      if (event.text.length > maximumTextLength) return violation(errorReasons.textTooLong)
+      if (event.text.length > maximumTextLength) {
+        return violation(errorReasons.textTooLong)
+      }
+
       if (!self.admitted) {
         const decoded = decodeControlMessage(event.text)
-        if (Result.isFailure(decoded) || decoded.success.type !== "join" || event.admission === undefined) return violation(errorReasons.notAJoin)
+
+        if (Result.isFailure(decoded) || decoded.success.type !== "join" || event.admission === undefined) {
+          return violation(errorReasons.notAJoin)
+        }
+
         return join(participants, decoded.success.role, event.admission)
       }
+
       const type = messageType(event.text)
-      if (type === undefined) return violation(errorReasons.notAControlMessage)
-      if (type === "join") return violation(errorReasons.alreadyJoined)
+
+      if (type === undefined) {
+        return violation(errorReasons.notAControlMessage)
+      }
+
+      if (type === "join") {
+        return violation(errorReasons.alreadyJoined)
+      }
+
       if (self.role === "sender") {
-        if (type !== "abort") return violation(errorReasons.notAllowedForSender)
+        if (type !== "abort") {
+          return violation(errorReasons.notAllowedForSender)
+        }
+
         const recipients = identifiersOf(participants, "recipient")
+
         return recipients.length === 0 ? [] : [{ type: "relay", to: recipients, text: event.text }]
       }
-      if (!(recipientToSenderTypes as ReadonlyArray<string>).includes(type)) return violation(errorReasons.notAllowedForRecipient)
+
+      if (!recipientToSenderTypeSet.has(type)) {
+        return violation(errorReasons.notAllowedForRecipient)
+      }
+
       const sender = identifiersOf(participants, "sender")
+
       return sender.length === 0 ? [] : [{ type: "relay", to: sender, text: event.text }]
     }
   }

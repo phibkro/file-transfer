@@ -40,8 +40,16 @@ const WranglerConfiguration = Schema.Struct({
 
 // A computed specifier, so TypeScript does not try to resolve a .jsonc module; Bun loads it and Schema checks it.
 const wranglerPath = "./wrangler.jsonc"
-const loadWrangler = Effect.promise(() => import(wranglerPath) as Promise<{ readonly default: unknown }>).pipe(
-  Effect.flatMap((module) => Schema.decodeUnknownEffect(WranglerConfiguration)(module.default)),
+
+const WranglerModule = Schema.Struct({ default: WranglerConfiguration })
+
+const loadWrangler = Effect.promise(async () => {
+  const module: unknown = await import(wranglerPath)
+
+  return module
+}).pipe(
+  Effect.flatMap((module) => Schema.decodeUnknownEffect(WranglerModule)(module)),
+  Effect.map((module) => module.default),
   Effect.orDie,
 )
 
@@ -53,12 +61,17 @@ export default Alchemy.Stack(
     const wrangler = yield* loadWrangler
     const sqliteClasses = new Set(wrangler.migrations.flatMap((migration) => migration.new_sqlite_classes))
     const notSqlite = wrangler.durable_objects.bindings.filter((binding) => !sqliteClasses.has(binding.class_name))
-    if (notSqlite.length > 0) return yield* Effect.die(new Error(`not in new_sqlite_classes: ${notSqlite.map((binding) => binding.class_name).join(", ")}`))
+
+    if (notSqlite.length > 0) {
+      return yield* Effect.die(new Error(`not in new_sqlite_classes: ${notSqlite.map((binding) => binding.class_name).join(", ")}`))
+    }
+
     const durableObjects = Object.fromEntries(
       wrangler.durable_objects.bindings.map((binding) => [binding.name, Cloudflare.DurableObject(binding.class_name, { className: binding.class_name })]),
     )
+
     const worker = {
-      main: `./${wrangler.main.replace(/^\.\//, "")}`,
+      main: `./${wrangler.main.replace(/^\.\//u, "")}`,
       bundle: false as const,
       compatibility: { date: wrangler.compatibility_date, flags: [...wrangler.compatibility_flags] },
       env: durableObjects,
@@ -73,10 +86,12 @@ export default Alchemy.Stack(
 
     if (stage === productionStage) {
       const production = yield* Cloudflare.Worker("Site", { ...worker, name: wrangler.name, workersDev: true })
+
       return { stage, url: production.url }
     }
 
     const preview = yield* Cloudflare.Worker("Site", { ...worker, preview: { of: wrangler.name, message: `stage ${stage}` } })
+
     return { stage, url: preview.url }
   }),
 )

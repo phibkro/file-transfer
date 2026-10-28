@@ -6,6 +6,7 @@ import { makeRelayReference, RelayReference, relayGuarantees, relaySessionMachin
 import { relaySuite } from "./conformance.ts"
 
 relaySuite.run("reference", Layer.provide(RelayReference, secureCrypto))
+
 relaySuite.negativeControls(
   "reference",
   relayGuarantees.map((guarantee) => ({

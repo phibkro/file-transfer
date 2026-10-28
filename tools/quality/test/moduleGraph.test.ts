@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vite-plus/test"
-import { checkModuleGraph, describeViolation, type PackageFacts, type Violation } from "../src/moduleGraph.ts"
+import { checkModuleGraph, describeViolation } from "../src/moduleGraph.ts"
+import type { PackageFacts, Violation } from "../src/moduleGraph.ts"
 import { loadWorkspace } from "../src/workspace.ts"
 
 const root = new URL("../../../", import.meta.url).pathname
@@ -57,8 +58,8 @@ const platform: PackageFacts = {
 const valid = [library, service, platform]
 const developmentDependencies = ["fast-check", "vite-plus"]
 
-const rulesBroken = (packages: ReadonlyArray<PackageFacts>): Array<Violation["rule"]> =>
-  [...new Set(checkModuleGraph(packages, developmentDependencies).map((violation) => violation.rule))].sort()
+const rulesBroken = (packages: readonly PackageFacts[]): Violation["rule"][] =>
+  [...new Set(checkModuleGraph(packages, developmentDependencies).map((violation) => violation.rule))].toSorted()
 
 const replace = (original: PackageFacts, changes: Partial<PackageFacts>) => valid.map((facts) => (facts === original ? { ...facts, ...changes } : facts))
 
@@ -76,11 +77,14 @@ describe("module graph negative controls", () => {
       developmentDependencies: ["playwright"],
       imports: [...platform.imports, { file: "scripts/endToEnd.ts", specifier: "playwright", developmentOnly: true }],
     }
+
     expect(rulesBroken(replace(platform, withScript))).toEqual([])
+
     const shipped = {
       developmentDependencies: ["playwright"],
       imports: [...platform.imports, { file: "src/index.ts", specifier: "playwright", developmentOnly: false }],
     }
+
     expect(rulesBroken(replace(platform, shipped))).toEqual(["undeclared-dependency"])
   })
 
@@ -89,6 +93,7 @@ describe("module graph negative controls", () => {
       dependencies: ["@file-transfer/service-room"],
       imports: [{ file: "src/index.ts", specifier: "@file-transfer/service-room", developmentOnly: false }],
     })
+
     expect(rulesBroken(leaky)).toEqual(["dependency-cycle", "forbidden-kind-edge"])
   })
 
@@ -97,6 +102,7 @@ describe("module graph negative controls", () => {
       dependencies: [...service.dependencies, "partyserver"],
       imports: [...service.imports, { file: "src/index.ts", specifier: "partyserver", developmentOnly: false }],
     })
+
     expect(rulesBroken(vendor)).toEqual(["forbidden-external"])
   })
 

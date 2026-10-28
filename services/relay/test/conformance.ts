@@ -4,14 +4,16 @@
  */
 import { conformanceSuite } from "@file-transfer/conformance"
 import { expect } from "vite-plus/test"
-import { Effect, type Layer, Option } from "effect"
-import fc from "fast-check"
-import { Relay, relayGuarantees, type RelayGuarantee } from "../src/index.ts"
+import { Effect, Option } from "effect"
+import type { Layer } from "effect"
+import * as fc from "fast-check"
+import { Relay, relayGuarantees } from "../src/index.ts"
+import type { RelayGuarantee } from "../src/index.ts"
 
 const runner =
   (layer: Layer.Layer<Relay>) =>
-  <A, E>(effect: Effect.Effect<A, E, Relay>) =>
-    Effect.runPromise(Effect.provide(effect, layer))
+  async <A, E>(effect: Effect.Effect<A, E, Relay>) =>
+    await Effect.runPromise(Effect.provide(effect, layer))
 
 /** Frames that are all different, so an order check cannot pass by accident. */
 const distinctFramesArbitrary = fc
@@ -24,7 +26,7 @@ const operationArbitrary = fc.oneof(
   fc.record({ kind: fc.constant("grant" as const), credits: fc.integer({ min: 0, max: 4 }) }),
 )
 
-const asArrays = (frames: ReadonlyArray<Uint8Array>) => frames.map((frame) => Array.from(frame))
+const asArrays = (frames: readonly Uint8Array[]) => frames.map((frame) => Array.from(frame))
 
 export const relaySuite = conformanceSuite<Relay, RelayGuarantee>({
   service: "Relay",
@@ -37,15 +39,25 @@ export const relaySuite = conformanceSuite<Relay, RelayGuarantee>({
             Effect.gen(function* () {
               const relay = yield* Relay
               const sessionIdentifier = yield* relay.open({ initialCredits: frames.length })
-              for (const frame of frames) yield* relay.push({ sessionIdentifier, frame })
-              const received: Array<Uint8Array> = []
-              for (let index = 0; index < frames.length; index++) {
-                const frame = yield* relay.take(sessionIdentifier)
-                if (Option.isSome(frame)) received.push(frame.value)
+
+              for (const frame of frames) {
+                yield* relay.push({ sessionIdentifier, frame })
               }
+
+              const received: Uint8Array[] = []
+
+              for (const _sent of frames) {
+                const frame = yield* relay.take(sessionIdentifier)
+
+                if (Option.isSome(frame)) {
+                  received.push(frame.value)
+                }
+              }
+
               return received
             }),
           )
+
           expect(asArrays(delivered)).toEqual(asArrays(frames))
         }),
         { numRuns: 50 },
@@ -62,23 +74,29 @@ export const relaySuite = conformanceSuite<Relay, RelayGuarantee>({
               let modelCredits = initialCredits
               let modelQueued = 0
               let granted = initialCredits
+
               for (const operation of operations) {
                 if (operation.kind === "push") {
                   const result = yield* Effect.result(relay.push({ sessionIdentifier, frame: operation.frame }))
                   expect(result._tag).toBe(modelCredits > 0 ? "Success" : "Failure")
+
                   if (result._tag === "Success") {
                     modelCredits--
                     modelQueued++
                   }
                 } else if (operation.kind === "take") {
                   const frame = yield* relay.take(sessionIdentifier)
-                  if (Option.isSome(frame)) modelQueued--
+
+                  if (Option.isSome(frame)) {
+                    modelQueued--
+                  }
                 } else {
                   yield* relay.grant({ sessionIdentifier, credits: operation.credits })
                   modelCredits += operation.credits
                   granted += operation.credits
                 }
               }
+
               const meter = yield* relay.meter(sessionIdentifier)
               expect(meter.creditsAvailable).toBe(modelCredits)
               expect(meter.framesQueued).toBe(modelQueued)
@@ -94,15 +112,24 @@ export const relaySuite = conformanceSuite<Relay, RelayGuarantee>({
       await fc.assert(
         fc.asyncProperty(fc.array(fc.uint8Array({ minLength: 1, maxLength: 64 }), { minLength: 1, maxLength: 20 }), fc.nat(), async (frames, takeSeed) => {
           const takes = takeSeed % (frames.length + 1)
+
           const outcome = await runner(layer)(
             Effect.gen(function* () {
               const relay = yield* Relay
               const sessionIdentifier = yield* relay.open({ initialCredits: frames.length })
-              for (const frame of frames) yield* relay.push({ sessionIdentifier, frame })
-              for (let index = 0; index < takes; index++) yield* relay.take(sessionIdentifier)
+
+              for (const frame of frames) {
+                yield* relay.push({ sessionIdentifier, frame })
+              }
+
+              for (let index = 0; index < takes; index++) {
+                yield* relay.take(sessionIdentifier)
+              }
+
               return yield* relay.meter(sessionIdentifier)
             }),
           )
+
           expect(outcome.framesForwarded).toBe(takes)
           expect(outcome.bytesForwarded).toBe(frames.slice(0, takes).reduce((sum, frame) => sum + frame.length, 0))
           expect(outcome.framesQueued).toBe(frames.length - takes)
@@ -121,6 +148,7 @@ export const relaySuite = conformanceSuite<Relay, RelayGuarantee>({
           const push = yield* Effect.result(relay.push({ sessionIdentifier, frame: new Uint8Array([2]) }))
           const grant = yield* Effect.result(relay.grant({ sessionIdentifier, credits: 1 }))
           const drained = yield* relay.take(sessionIdentifier)
+
           return {
             push: push._tag === "Failure" ? push.failure._tag : "accepted",
             grant: grant._tag === "Failure" ? grant.failure._tag : "accepted",
@@ -128,6 +156,7 @@ export const relaySuite = conformanceSuite<Relay, RelayGuarantee>({
           }
         }),
       )
+
       expect(outcome).toEqual({ push: "RelaySessionClosed", grant: "RelaySessionClosed", drained: true })
     },
 
@@ -136,9 +165,11 @@ export const relaySuite = conformanceSuite<Relay, RelayGuarantee>({
         Effect.gen(function* () {
           const relay = yield* Relay
           const result = yield* Effect.result(relay.meter("no-such-session"))
+
           return result._tag === "Failure" ? result.failure._tag : "found"
         }),
       )
+
       expect(tag).toBe("RelaySessionNotFound")
     },
   },

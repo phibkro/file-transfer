@@ -6,11 +6,16 @@ import { startRecipient } from "./recipient.ts"
 import { installTestHook } from "./report.ts"
 import { startSender } from "./sender.ts"
 
-const root = document.getElementById("app")
+const root = document.querySelector<HTMLElement>("#app")
+
 if (root !== null) {
   installTestHook()
-  const recipientPath = /^\/r\/([A-Za-z0-9_-]{22})\/?$/.exec(location.pathname)
-  const roomIdentifier = recipientPath?.[1]
-  if (roomIdentifier !== undefined) startRecipient(root, roomIdentifier)
-  else startSender(root)
+  const recipientPath = /^\/r\/(?<roomIdentifier>[A-Za-z0-9_-]{22})\/?$/u.exec(location.pathname)
+  const roomIdentifier = recipientPath?.groups?.roomIdentifier
+
+  if (roomIdentifier === undefined) {
+    startSender(root)
+  } else {
+    startRecipient(root, roomIdentifier)
+  }
 }

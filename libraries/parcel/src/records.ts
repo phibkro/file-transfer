@@ -20,19 +20,25 @@ const counterAndFlag = (counter: number, isFinal: boolean): Uint8Array<ArrayBuff
   if (!Number.isSafeInteger(counter) || counter < 0 || counter >= counterLimit) {
     throw new ParcelError("invalid-argument", "record counter must be an integer from 0 to 2^40 - 1")
   }
+
   const bytes = new Uint8Array(9)
   new DataView(bytes.buffer).setBigUint64(0, BigInt(counter))
   bytes[8] = isFinal ? 0x01 : 0x00
+
   return bytes
 }
 
 /** The 12-byte nonce: the counter as 5 big-endian bytes, then the 7 synthetic bytes. */
 export const recordNonce = (counter: number, synthetic: Uint8Array): Uint8Array<ArrayBuffer> => {
-  if (synthetic.length !== syntheticLength) throw new ParcelError("invalid-argument", `the synthetic prefix is ${syntheticLength} bytes`)
+  if (synthetic.length !== syntheticLength) {
+    throw new ParcelError("invalid-argument", `the synthetic prefix is ${syntheticLength} bytes`)
+  }
+
   const nonce = new Uint8Array(nonceLength)
   const counterBytes = counterAndFlag(counter, false)
   nonce.set(counterBytes.subarray(3, 8), 0)
   nonce.set(synthetic, 5)
+
   return nonce
 }
 
@@ -45,14 +51,19 @@ export interface RecordPosition {
 }
 
 export const sealRecord = async (keys: StreamKeys, header: Uint8Array, position: RecordPosition, plaintext: Uint8Array): Promise<Uint8Array<ArrayBuffer>> => {
-  if (header.length !== headerLength) throw new ParcelError("invalid-argument", `the header must be ${headerLength} bytes`)
+  if (header.length !== headerLength) {
+    throw new ParcelError("invalid-argument", `the header must be ${headerLength} bytes`)
+  }
+
   const positionBytes = counterAndFlag(position.counter, position.isFinal)
   const synthetic = await syntheticFor(keys, positionBytes, plaintext)
+
   const sealed = await crypto.subtle.encrypt(
     { name: "AES-GCM", iv: recordNonce(position.counter, synthetic), additionalData: concatBytes(header, positionBytes), tagLength: 128 },
     keys.aeadKey,
     asBufferSource(plaintext),
   )
+
   return concatBytes(synthetic, new Uint8Array(sealed))
 }
 
@@ -64,10 +75,14 @@ export const openRecord = async (
   record: Uint8Array,
   what: string,
 ): Promise<Uint8Array<ArrayBuffer>> => {
-  if (record.length < recordOverhead) throw new ParcelError("size-mismatch", `${what} is too short`)
+  if (record.length < recordOverhead) {
+    throw new ParcelError("size-mismatch", `${what} is too short`)
+  }
+
   const positionBytes = counterAndFlag(position.counter, position.isFinal)
   const synthetic = record.subarray(0, syntheticLength)
   let plaintext: Uint8Array<ArrayBuffer>
+
   try {
     plaintext = new Uint8Array(
       await crypto.subtle.decrypt(
@@ -79,8 +94,10 @@ export const openRecord = async (
   } catch {
     throw new ParcelError("authentication-failed", `${what} failed authentication`)
   }
+
   if (!bytesEqual(await syntheticFor(keys, positionBytes, plaintext), synthetic)) {
     throw new ParcelError("authentication-failed", `${what} has a nonce that does not match its plaintext`)
   }
+
   return plaintext
 }

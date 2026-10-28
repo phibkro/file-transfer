@@ -20,13 +20,13 @@ import {
   headerLength,
   labelRecords,
   leafHash,
-  type Manifest,
   manifestRecordSize,
   recordNonce,
   recordReaderFromBytes,
   sealRecord,
   toHex,
 } from "../../src/index.ts"
+import type { Manifest } from "../../src/index.ts"
 
 export const secret = Uint8Array.from({ length: 32 }, (_, index) => index)
 export const salt = Uint8Array.from({ length: 16 }, (_, index) => 0xa0 + index)
@@ -37,6 +37,7 @@ const textEncoder = new TextEncoder()
 const expandHex = async (ikm: Uint8Array, label: string, suffix: Uint8Array) => {
   const material = await crypto.subtle.importKey("raw", new Uint8Array(ikm), "HKDF", false, ["deriveBits"])
   const info = concatBytes(textEncoder.encode(label), suffix)
+
   return toHex(new Uint8Array(await crypto.subtle.deriveBits({ name: "HKDF", hash: "SHA-256", salt: textEncoder.encode(derivationSalt), info }, material, 256)))
 }
 
@@ -57,18 +58,22 @@ const sealParcel = async (manifest: Manifest, recordSizeExponent: number, sequen
   const sealer = await createParcelSealer({ linkSecret: secret, sequence, salt, manifest, recordSizeExponent })
   const labels = await labelRecords(sealer, recordReaderFromBytes(plaintext, size))
   const contract = await sealer.sealContract(labels)
-  const dataRecords: Array<Uint8Array> = []
+  const dataRecords: Uint8Array[] = []
+
   for (let index = 0; index < sealer.recordCount; index++) {
     dataRecords.push(await sealer.sealData(index, plaintext.subarray(index * size, index * size + sealer.dataPlaintextLength(index))))
   }
-  const labelPages = await Promise.all(Array.from({ length: contract.pageCount }, (_, page) => contract.labelPage(page)))
+
+  const labelPages = await Promise.all(Array.from({ length: contract.pageCount }, async (_, page) => await contract.labelPage(page)))
+
   return { sealer, labels, contract, dataRecords, labelPages }
 }
 
 const vectorCase = async (name: string, recordSizeExponent: number, manifest: Manifest, options: { sequence?: number; recordsAsLabelsOnly?: boolean } = {}) => {
   const sequence = options.sequence ?? 0
   const sealed = await sealParcel(manifest, recordSizeExponent, sequence)
-  return {
+
+  const vector = {
     name,
     recordSizeExponent,
     sequence,
@@ -81,8 +86,14 @@ const vectorCase = async (name: string, recordSizeExponent: number, manifest: Ma
     rootHash: toHex(sealed.contract.rootHash),
     contractDigest: toHex(sealed.contract.digest),
     labelPages: sealed.labelPages.map(toHex),
-    ...(options.recordsAsLabelsOnly === true ? {} : { dataRecords: sealed.dataRecords.map(toHex) }),
   }
+
+  // Large cases keep only labels; dataRecords stays the last key, so the JSON is unchanged.
+  if (options.recordsAsLabelsOnly === true) {
+    return vector
+  }
+
+  return { ...vector, dataRecords: sealed.dataRecords.map(toHex) }
 }
 
 const singleFile = (size: number) => createManifest([{ name: "vector.bin", size, mediaType: "application/octet-stream" }])
@@ -91,6 +102,7 @@ export const generateVectors = async () => {
   const roomToken = await deriveRoomToken(secret)
   const parcelSecret = await deriveParcelSecret(secret, 0)
   const parcelSecretSeven = await deriveParcelSecret(secret, 7)
+
   return {
     description:
       "Parcel v1 test vectors (docs/parcel.md). Plaintext byte i is i mod 251, files concatenated in manifest order. Keys are for sequence 0 with the given salt; the multi-page case lists labels instead of data records.",
@@ -136,7 +148,7 @@ export const generateVectors = async () => {
 }
 
 /** Raw canonical-JSON candidates every receiver must reject, as bytes, with the reason. */
-const manifestRejections: ReadonlyArray<readonly [string, string]> = [
+const manifestRejections: readonly (readonly [string, string])[] = [
   ["byte order mark", '﻿{"version":1,"files":[{"name":"a","size":1,"mediaType":""}],"totalSize":1}'],
   ["whitespace", '{"version":1, "files":[{"name":"a","size":1,"mediaType":""}],"totalSize":1}'],
   ["keys out of order", '{"files":[{"name":"a","size":1,"mediaType":""}],"version":1,"totalSize":1}'],
@@ -161,7 +173,7 @@ const manifestRejections: ReadonlyArray<readonly [string, string]> = [
   ["zero-width space", '{"version":1,"files":[{"name":"​","size":1,"mediaType":""}],"totalSize":1}'],
   // Assigned in Unicode 16.0 (ARABIC PEPET, a combining mark): unassigned in 15.1, so rejected before NFC is checked.
   ["code point unassigned in Unicode 15.1", '{"version":1,"files":[{"name":"pepet\u0897","size":1,"mediaType":""}],"totalSize":1}'],
-  ["noncharacter", '{"version":1,"files":[{"name":"a\ufdd0","size":1,"mediaType":""}],"totalSize":1}'],
+  ["noncharacter", '{"version":1,"files":[{"name":"a\uFDD0","size":1,"mediaType":""}],"totalSize":1}'],
   ["Windows device name", '{"version":1,"files":[{"name":"CON","size":1,"mediaType":""}],"totalSize":1}'],
   ["Windows device name with extension", '{"version":1,"files":[{"name":"docs/lpt¹.txt","size":1,"mediaType":""}],"totalSize":1}'],
   ["alternate data stream colon", '{"version":1,"files":[{"name":"a.txt:Zone.Identifier","size":1,"mediaType":""}],"totalSize":1}'],
@@ -192,8 +204,13 @@ export const generateRejections = async () => {
     plaintext.set(template.subarray(0, 40), 0)
     new DataView(plaintext.buffer).setUint32(40, json.length)
     plaintext.set(json, 44)
-    if (options.dirtyPadding === true) plaintext[plaintext.length - 1] = 1
-    const records: Array<Uint8Array> = []
+
+    if (options.dirtyPadding === true) {
+      plaintext[plaintext.length - 1] = 1
+    }
+
+    const records: Uint8Array[] = []
+
     for (let counter = 0; counter * manifestRecordSize < plaintext.length; counter++) {
       records.push(
         await sealRecord(
@@ -204,6 +221,7 @@ export const generateRejections = async () => {
         ),
       )
     }
+
     return records
   }
 
@@ -212,33 +230,39 @@ export const generateRejections = async () => {
     const prefix = new Uint8Array(7).fill(0x42)
     const position = new Uint8Array(9)
     position[8] = 1
+
     const sealed = await crypto.subtle.encrypt(
       { name: "AES-GCM", iv: recordNonce(0, prefix), additionalData: concatBytes(header, position), tagLength: 128 },
       keys.content.aeadKey,
       plaintextOf(manifest),
     )
+
     return concatBytes(prefix, new Uint8Array(sealed))
   })()
+
   const forgedLabel = await leafHash(forged)
   const breached = await base.sealer.sealData(0, plaintextOf(manifest, 50))
   const tamperedPage = base.labelPages[0]?.slice() ?? new Uint8Array(32)
   tamperedPage[0] = (tamperedPage[0] ?? 0) ^ 1
+
   // The second review's S1: after a reload the sender relabels a file that changed, under the same sequence number
   // and salt. The header is byte-identical, the contract is not; only a receiver that pinned the digest rejects it.
   const relabelled = await (async () => {
     const sealer = await createParcelSealer({ linkSecret: secret, sequence: 0, salt, manifest, recordSizeExponent: 12 })
     const changed = plaintextOf(manifest, 50)
     const contract = await sealer.sealContract(await labelRecords(sealer, recordReaderFromBytes(changed, 4096)))
+
     return concatBytes(contract.header.bytes, ...contract.manifestRecords, await contract.labelPage(0), await sealer.sealData(0, changed))
   })()
-  const otherSecret = new Uint8Array(32).fill(0xee)
-  const wire = (manifestRecords: ReadonlyArray<Uint8Array>, page: Uint8Array, record: Uint8Array) =>
-    toHex(concatBytes(header, ...manifestRecords, page, record))
 
-  const parcels: Array<{ name: string; secret: string; parcel: string; reason: string; expectedDigest?: string }> = [
+  const otherSecret = new Uint8Array(32).fill(0xee)
+
+  const wire = (manifestRecords: readonly Uint8Array[], page: Uint8Array, record: Uint8Array) => toHex(concatBytes(header, ...manifestRecords, page, record))
+
+  const parcels: { name: string; secret: string; parcel: string; reason: string; expectedDigest?: string }[] = [
     { name: "wrong secret", secret: toHex(otherSecret), parcel: toHex(honest), reason: "key-commitment-mismatch" },
     { name: "header only, wrong secret", secret: toHex(otherSecret), parcel: toHex(honest.subarray(0, headerLength)), reason: "key-commitment-mismatch" },
-    { name: "cut inside the last record", secret: toHex(secret), parcel: toHex(honest.subarray(0, honest.length - 1)), reason: "truncated" },
+    { name: "cut inside the last record", secret: toHex(secret), parcel: toHex(honest.subarray(0, -1)), reason: "truncated" },
     { name: "a byte after the last record", secret: toHex(secret), parcel: toHex(concatBytes(honest, new Uint8Array([0]))), reason: "trailing-data" },
     {
       name: "another contract under a header that is byte-identical to the pinned one",
@@ -312,7 +336,12 @@ export const generateRejections = async () => {
 
 if (import.meta.main) {
   const which = process.argv[2]
-  if (which === "vectors") console.log(JSON.stringify(await generateVectors(), null, 2))
-  else if (which === "rejections") console.log(JSON.stringify(await generateRejections(), null, 2))
-  else throw new Error("usage: generate.ts vectors|rejections")
+
+  if (which === "vectors") {
+    console.log(JSON.stringify(await generateVectors(), null, 2))
+  } else if (which === "rejections") {
+    console.log(JSON.stringify(await generateRejections(), null, 2))
+  } else {
+    throw new Error("usage: generate.ts vectors|rejections")
+  }
 }

@@ -39,7 +39,8 @@ describe("machine", () => {
         { command: "stop", from: ["Done"], to: "A" },
       ],
     })
-    expect([...problems(broken)].sort()).toEqual(
+
+    expect([...problems(broken)].toSorted()).toEqual(
       [
         "command unused has no transition",
         "state B has no way out but is not declared terminal",
@@ -47,7 +48,7 @@ describe("machine", () => {
         "state Island has no way out but is not declared terminal",
         "state Island is unreachable from [*]",
         "terminal state Done has a transition to another state",
-      ].sort(),
+      ].toSorted(),
     )
   })
 

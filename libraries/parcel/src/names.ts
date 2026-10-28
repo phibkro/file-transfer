@@ -23,25 +23,36 @@ const byteLength = (text: string): number => textEncoder.encode(text).length
 const reservedAscii = new Set(Array.from('\\:*?"<>|', (character) => character.codePointAt(0) ?? 0))
 
 const isForbiddenCodePoint = (codePoint: number): boolean => {
-  if (reservedAscii.has(codePoint)) return true
+  if (reservedAscii.has(codePoint)) {
+    return true
+  }
+
   let low = 0
   let high = forbiddenCodePointRanges.length - 1
+
   while (low <= high) {
     const middle = (low + high) >> 1
     const [start, end] = forbiddenCodePointRanges[middle] ?? [0, -1]
-    if (codePoint < start) high = middle - 1
-    else if (codePoint > end) low = middle + 1
-    else return true
+
+    if (codePoint < start) {
+      high = middle - 1
+    } else if (codePoint > end) {
+      low = middle + 1
+    } else {
+      return true
+    }
   }
+
   return false
 }
 
 const deviceStems = new Set(["con", "prn", "aux", "nul"])
-const numberedDevice = /^(com|lpt)[1-9¹²³]$/
+const numberedDevice = /^(?:com|lpt)[1-9¹²³]$/u
 
 /** Whether Windows reads a segment as a device: its part before the first dot, trailing spaces removed, ASCII lowercased. */
 export const isWindowsDeviceName = (segment: string): boolean => {
-  const stem = (segment.split(".")[0] ?? "").replace(/ +$/, "").replace(/[A-Z]/g, (letter) => letter.toLowerCase())
+  const stem = (segment.split(".")[0] ?? "").replace(/ +$/u, "").replaceAll(/[A-Z]/gu, (letter) => letter.toLowerCase())
+
   return deviceStems.has(stem) || numberedDevice.test(stem)
 }
 
@@ -60,8 +71,12 @@ export const checkNormalizer = (normalize: (text: string) => string = (text) => 
 }
 
 let normalizerChecked = false
+
 const requireModernNormalizer = (): void => {
-  if (normalizerChecked) return
+  if (normalizerChecked) {
+    return
+  }
+
   checkNormalizer()
   normalizerChecked = true
 }
@@ -72,39 +87,71 @@ export const caseFold = (text: string): string => Array.from(text, (character) =
 /** The key two names are compared by: NFC of the case-folded name. */
 export const nameKey = (name: string): string => {
   requireModernNormalizer()
+
   return caseFold(name).normalize("NFC")
 }
 
 /** Why a single name breaks the profile, or undefined when it follows it. */
 export const nameProblem = (name: string): string | undefined => {
   requireModernNormalizer()
+
   // Forbidden code points first (rule 3 before rule 1): code points unassigned in Unicode 15.1 never reach the
   // normalizer, so runtimes with newer Unicode data name the same problem. Lone surrogates come out of the code
   // point iteration as themselves and are forbidden (Cs).
   for (const character of name) {
     const codePoint = character.codePointAt(0) ?? 0
-    if (isForbiddenCodePoint(codePoint)) return `contains the forbidden character U+${codePoint.toString(16).toUpperCase().padStart(4, "0")}`
+
+    if (isForbiddenCodePoint(codePoint)) {
+      return `contains the forbidden character U+${codePoint.toString(16).toUpperCase().padStart(4, "0")}`
+    }
   }
-  if (name.normalize("NFC") !== name) return "is not in Unicode Normalization Form C"
-  if (byteLength(name) > maximumNameBytes) return `is longer than ${maximumNameBytes} bytes`
+
+  if (name.normalize("NFC") !== name) {
+    return "is not in Unicode Normalization Form C"
+  }
+
+  if (byteLength(name) > maximumNameBytes) {
+    return `is longer than ${maximumNameBytes} bytes`
+  }
+
   for (const segment of name.split("/")) {
-    if (segment.length === 0) return "has an empty segment"
-    if (segment === "." || segment === "..") return `has a "${segment}" segment`
-    if (byteLength(segment) > maximumSegmentBytes) return `has a segment longer than ${maximumSegmentBytes} bytes`
-    if (segment.endsWith(".") || segment.endsWith(" ")) return "has a segment ending in a dot or a space"
-    if (isWindowsDeviceName(segment)) return `has the Windows device name "${segment}"`
+    if (segment.length === 0) {
+      return "has an empty segment"
+    }
+
+    if (segment === "." || segment === "..") {
+      return `has a "${segment}" segment`
+    }
+
+    if (byteLength(segment) > maximumSegmentBytes) {
+      return `has a segment longer than ${maximumSegmentBytes} bytes`
+    }
+
+    if (segment.endsWith(".") || segment.endsWith(" ")) {
+      return "has a segment ending in a dot or a space"
+    }
+
+    if (isWindowsDeviceName(segment)) {
+      return `has the Windows device name "${segment}"`
+    }
   }
+
   return undefined
 }
 
 /** Why a set of names collides, or undefined: no two share a key, and no file's key is a folder of another's. */
-export const nameCollision = (names: ReadonlyArray<string>): string | undefined => {
+export const nameCollision = (names: readonly string[]): string | undefined => {
   const keys = names.map(nameKey)
   const seen = new Set<string>()
+
   for (const [index, key] of keys.entries()) {
-    if (seen.has(key)) return `"${names[index]}" collides with another name, ignoring case and normalisation`
+    if (seen.has(key)) {
+      return `"${names[index]}" collides with another name, ignoring case and normalisation`
+    }
+
     seen.add(key)
   }
+
   const folders = new Set(
     keys.flatMap((key) =>
       key
@@ -113,8 +160,12 @@ export const nameCollision = (names: ReadonlyArray<string>): string | undefined 
         .map((_, index, segments) => segments.slice(0, index + 1).join("/")),
     ),
   )
+
   for (const [index, key] of keys.entries()) {
-    if (folders.has(key)) return `"${names[index]}" is both a file and a folder`
+    if (folders.has(key)) {
+      return `"${names[index]}" is both a file and a folder`
+    }
   }
+
   return undefined
 }

@@ -8,11 +8,11 @@
  */
 
 export interface ParcelStorage {
-  write(fileIndex: number, position: number, bytes: Uint8Array<ArrayBuffer>): Promise<void>
+  readonly write: (fileIndex: number, position: number, bytes: Uint8Array<ArrayBuffer>) => Promise<void>
   /** Publishes every file and returns them, in manifest order. */
-  commit(): Promise<ReadonlyArray<File>>
+  readonly commit: () => Promise<readonly File[]>
   /** Throws away everything written. */
-  discard(): Promise<void>
+  readonly discard: () => Promise<void>
 }
 
 const transfersDirectory = "transfers"
@@ -31,8 +31,9 @@ export const openStorage = async (roomIdentifier: string, fileCount: number): Pr
   const transfers = await root.getDirectoryHandle(transfersDirectory, { create: true })
   await removeQuietly(transfers, roomIdentifier)
   const directory = await transfers.getDirectoryHandle(roomIdentifier, { create: true })
-  const handles: Array<FileSystemFileHandle> = []
-  const writables: Array<FileSystemWritableFileStream> = []
+  const handles: FileSystemFileHandle[] = []
+  const writables: FileSystemWritableFileStream[] = []
+
   for (let index = 0; index < fileCount; index++) {
     // Files are stored by position: manifest names may hold folders and characters this file system refuses.
     const handle = await directory.getFileHandle(String(index), { create: true })
@@ -43,15 +44,26 @@ export const openStorage = async (roomIdentifier: string, fileCount: number): Pr
   return {
     write: async (fileIndex, position, bytes) => {
       const writable = writables[fileIndex]
-      if (writable === undefined) throw new RangeError(`no file ${fileIndex}`)
+
+      if (writable === undefined) {
+        throw new RangeError(`no file ${fileIndex}`)
+      }
+
       await writable.write({ type: "write", position, data: bytes })
     },
     commit: async () => {
-      for (const writable of writables) await writable.close()
-      return Promise.all(handles.map((handle) => handle.getFile()))
+      for (const writable of writables) {
+        await writable.close()
+      }
+
+      return await Promise.all(handles.map(async (handle) => await handle.getFile()))
     },
     discard: async () => {
-      await Promise.allSettled(writables.map((writable) => writable.abort()))
+      await Promise.allSettled(
+        writables.map(async (writable) => {
+          await writable.abort()
+        }),
+      )
       await removeQuietly(transfers, roomIdentifier)
     },
   }

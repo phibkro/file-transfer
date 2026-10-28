@@ -8,7 +8,9 @@ import * as Machine from "@file-transfer/machine"
 import { Context, Crypto, Data, Effect, Layer, Ref } from "effect"
 
 export type RoomIdentifier = string
+
 export type ParticipantIdentifier = string
+
 export type Role = "sender" | "recipient"
 
 export const roomGuarantees = declareGuarantees([
@@ -47,8 +49,11 @@ export interface RoomDescription {
 }
 
 export class RoomNotFound extends Data.TaggedError("RoomNotFound")<{ readonly roomIdentifier: RoomIdentifier }> {}
+
 export class RoomTokenRejected extends Data.TaggedError("RoomTokenRejected")<{ readonly roomIdentifier: RoomIdentifier }> {}
+
 export class RoomFull extends Data.TaggedError("RoomFull")<{ readonly roomIdentifier: RoomIdentifier; readonly role: Role }> {}
+
 export class RoomClosed extends Data.TaggedError("RoomClosed")<{ readonly roomIdentifier: RoomIdentifier }> {}
 
 export type JoinError = RoomNotFound | RoomTokenRejected | RoomFull | RoomClosed
@@ -80,6 +85,7 @@ interface RoomRecord {
 
 const describeRecord = (roomIdentifier: RoomIdentifier, record: RoomRecord): RoomDescription => {
   const roles = [...record.participants.values()]
+
   return {
     roomIdentifier,
     state: record.state,
@@ -105,6 +111,7 @@ export const makeRoomReference = (faults: ReadonlySet<RoomGuarantee> = new Set()
       const lookup = (roomIdentifier: RoomIdentifier) =>
         Effect.flatMap(Ref.get(rooms), (all) => {
           const record = all.get(roomIdentifier)
+
           return record === undefined ? Effect.fail(new RoomNotFound({ roomIdentifier })) : Effect.succeed(record)
         })
 
@@ -115,24 +122,34 @@ export const makeRoomReference = (faults: ReadonlySet<RoomGuarantee> = new Set()
           Effect.gen(function* () {
             const roomIdentifier = faults.has("room/distinct-identifiers") ? "the-same-room" : yield* randomIdentifier
             yield* store(roomIdentifier, { roomTokenHash, maximumRecipients, state: "Open", participants: new Map() })
+
             return roomIdentifier
           }),
 
         join: ({ roomIdentifier, roomToken, role }) =>
           Effect.gen(function* () {
             const record = yield* lookup(roomIdentifier)
+
             if (!faults.has("room/closed-rejects-joins") && !Machine.can(roomMachine, "joinRoom", record.state, undefined)) {
               return yield* new RoomClosed({ roomIdentifier })
             }
+
             const presentedHash = yield* Effect.promise(() => hashRoomToken(roomToken))
+
             if (!faults.has("room/token-admission") && !constantTimeEqual(presentedHash, record.roomTokenHash)) {
               return yield* new RoomTokenRejected({ roomIdentifier })
             }
+
             const description = describeRecord(roomIdentifier, record)
             const isFull = role === "sender" ? description.hasSender : description.recipientCount >= record.maximumRecipients
-            if (isFull && !faults.has("room/capacity")) return yield* new RoomFull({ roomIdentifier, role })
+
+            if (isFull && !faults.has("room/capacity")) {
+              return yield* new RoomFull({ roomIdentifier, role })
+            }
+
             const participantIdentifier = yield* randomIdentifier
             yield* store(roomIdentifier, { ...record, participants: new Map(record.participants).set(participantIdentifier, role) })
+
             return participantIdentifier
           }),
 
@@ -155,6 +172,7 @@ export const makeRoomReference = (faults: ReadonlySet<RoomGuarantee> = new Set()
           faults.has("room/unknown-not-found")
             ? Effect.map(Ref.get(rooms), (all) => {
                 const record = all.get(roomIdentifier)
+
                 return record === undefined
                   ? { roomIdentifier, state: "Open" as const, hasSender: false, recipientCount: 0, maximumRecipients: 0 }
                   : describeRecord(roomIdentifier, record)

@@ -40,10 +40,19 @@ export const resetCredits = (credits: CreditWindow): void => {
  */
 export const grantDue = (credits: CreditWindow, missing: number): number => {
   const inFlight = outstanding(credits)
-  if (inFlight * 2 > credits.window) return 0
+
+  if (inFlight * 2 > credits.window) {
+    return 0
+  }
+
   const grant = Math.min(credits.window - inFlight, missing - inFlight, maximumCreditsPerMessage)
-  if (grant <= 0) return 0
+
+  if (grant <= 0) {
+    return 0
+  }
+
   credits.granted += grant
+
   return grant
 }
 
@@ -58,7 +67,11 @@ export const receiveCredit = (balance: CreditBalance, records: number): void => 
 
 /** Spends one credit; answers false when there is none. */
 export const spendCredit = (balance: CreditBalance): boolean => {
-  if (balance.available <= 0) return false
+  if (balance.available <= 0) {
+    return false
+  }
+
   balance.available--
+
   return true
 }

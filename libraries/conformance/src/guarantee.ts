@@ -16,5 +16,4 @@ export interface Guarantee<Identifier extends string> {
   readonly strength: Strength
 }
 
-export const declareGuarantees = <const Identifier extends string>(guarantees: ReadonlyArray<Guarantee<Identifier>>): ReadonlyArray<Guarantee<Identifier>> =>
-  guarantees
+export const declareGuarantees = <const Identifier extends string>(guarantees: readonly Guarantee<Identifier>[]): readonly Guarantee<Identifier>[] => guarantees

@@ -1,13 +1,14 @@
 import { Result } from "effect"
-import fc from "fast-check"
+import * as fc from "fast-check"
 import { describe, expect, it } from "vite-plus/test"
-import { type ControlMessage, decodeControlMessage, decodeUnit, encodeControlMessage, encodeUnit, unitKind, type UnitKind } from "../src/index.ts"
+import { decodeControlMessage, decodeUnit, encodeControlMessage, encodeUnit, unitKind } from "../src/index.ts"
+import type { ControlMessage, UnitKind } from "../src/index.ts"
 
 const hex = "ab".repeat(32)
 
 describe("control messages", () => {
   it("round trip", () => {
-    const messages: ReadonlyArray<ControlMessage> = [
+    const messages: readonly ControlMessage[] = [
       { type: "join", role: "sender", roomToken: hex },
       { type: "joined", participantIdentifier: "p1", senderPresent: true, recipientCount: 1 },
       { type: "peer", event: "left", role: "recipient" },
@@ -26,6 +27,7 @@ describe("control messages", () => {
       { type: "complete", sequence: 0 },
       { type: "abort", reason: "breach" },
     ]
+
     for (const message of messages) {
       const decoded = decodeControlMessage(encodeControlMessage(message))
       expect(Result.isSuccess(decoded) ? decoded.success : decoded.failure).toEqual(message)
@@ -49,18 +51,20 @@ describe("control messages", () => {
 })
 
 describe("parcel units", () => {
-  const kinds = Object.keys(unitKind) as ReadonlyArray<UnitKind>
+  // SAFETY: the keys of the const object unitKind are exactly the UnitKind names.
+  const kinds = Object.keys(unitKind) as readonly UnitKind[]
 
   it("round trip for any kind, sequence, index and payload", () => {
     fc.assert(
       fc.property(
         fc.constantFrom(...kinds),
-        fc.integer({ min: 0, max: 0xffffffff }),
-        fc.integer({ min: 0, max: 0xffffffff }),
+        fc.integer({ min: 0, max: 0xff_ff_ff_ff }),
+        fc.integer({ min: 0, max: 0xff_ff_ff_ff }),
         fc.uint8Array({ maxLength: 300 }),
         (kind, sequence, index, bytes) => {
           const decoded = decodeUnit(encodeUnit({ kind, sequence, index, bytes }))
           expect(Result.isSuccess(decoded)).toBe(true)
+
           if (Result.isSuccess(decoded)) {
             expect({ ...decoded.success, bytes: Array.from(decoded.success.bytes) }).toEqual({ kind, sequence, index, bytes: Array.from(bytes) })
           }

@@ -2,8 +2,12 @@
  * One endpoint's socket to its room (docs/protocol.md): joins on open, decodes control messages and parcel units,
  * and rejoins with backoff when the socket drops, until the room refuses or the caller closes.
  */
-import { type ControlMessage, decodeControlMessage, decodeUnit, encodeControlMessage, encodeUnit, type Role, type Unit } from "@file-transfer/transport"
+import { decodeControlMessage, decodeUnit, encodeControlMessage, encodeUnit } from "@file-transfer/transport"
+import type { ControlMessage, Role, Unit } from "@file-transfer/transport"
 import { Result } from "effect"
+
+/** Text frames carry control messages; binary frames carry parcel units. */
+const isTextFrame = (data: unknown): data is string => typeof data === "string"
 
 export type ConnectionState = "connecting" | "joined" | "reconnecting" | "closed"
 
@@ -15,12 +19,12 @@ export interface ConnectionHandlers {
 }
 
 export interface Connection {
-  sendControl(message: ControlMessage): void
-  sendUnit(unit: Unit): void
-  isJoined(): boolean
+  readonly sendControl: (message: ControlMessage) => void
+  readonly sendUnit: (unit: Unit) => void
+  readonly isJoined: () => boolean
   /** Counts joins; a unit from an earlier epoch arrived on a socket that has since dropped. */
-  epoch(): number
-  close(): void
+  readonly epoch: () => number
+  readonly close: () => void
 }
 
 export interface ConnectionOptions {
@@ -45,7 +49,10 @@ export const openConnection = (options: ConnectionOptions): Connection => {
   let stopped = false
 
   const connect = () => {
-    if (stopped) return
+    if (stopped) {
+      return
+    }
+
     handlers.onState(attempts === 0 ? "connecting" : "reconnecting")
     const current = new WebSocket(socketUrl(options.roomIdentifier))
     current.binaryType = "arraybuffer"
@@ -54,35 +61,58 @@ export const openConnection = (options: ConnectionOptions): Connection => {
       current.send(encodeControlMessage({ type: "join", role: options.role, roomToken: options.roomToken }))
     })
     current.addEventListener("message", (event: MessageEvent) => {
-      if (socket !== current) return
-      if (typeof event.data === "string") {
+      if (socket !== current) {
+        return
+      }
+
+      if (isTextFrame(event.data)) {
         const decoded = decodeControlMessage(event.data)
-        if (Result.isFailure(decoded)) return
+
+        if (Result.isFailure(decoded)) {
+          return
+        }
+
         const message = decoded.success
+
         if (message.type === "joined") {
           joined = true
           attempts = 0
           epoch++
           handlers.onState("joined")
         }
+
         // The room closes the socket after an error; rejoining would only be refused again.
-        if (message.type === "error") stopped = true
+        if (message.type === "error") {
+          stopped = true
+        }
+
         handlers.onControl(message)
+
         return
       }
+
       if (event.data instanceof ArrayBuffer) {
         const decoded = decodeUnit(new Uint8Array(event.data))
-        if (Result.isSuccess(decoded)) handlers.onUnit(decoded.success, epoch)
+
+        if (Result.isSuccess(decoded)) {
+          handlers.onUnit(decoded.success, epoch)
+        }
       }
     })
     current.addEventListener("close", () => {
-      if (socket !== current) return
-      joined = false
-      socket = undefined
-      if (stopped) {
-        handlers.onState("closed")
+      if (socket !== current) {
         return
       }
+
+      joined = false
+      socket = undefined
+
+      if (stopped) {
+        handlers.onState("closed")
+
+        return
+      }
+
       attempts++
       handlers.onState("reconnecting")
       setTimeout(connect, Math.min(maximumBackoffMilliseconds, 250 * 2 ** attempts))
@@ -93,10 +123,14 @@ export const openConnection = (options: ConnectionOptions): Connection => {
 
   return {
     sendControl: (message) => {
-      if (joined) socket?.send(encodeControlMessage(message))
+      if (joined) {
+        socket?.send(encodeControlMessage(message))
+      }
     },
     sendUnit: (unit) => {
-      if (joined) socket?.send(encodeUnit(unit))
+      if (joined) {
+        socket?.send(encodeUnit(unit))
+      }
     },
     isJoined: () => joined,
     epoch: () => epoch,

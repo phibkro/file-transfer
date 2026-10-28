@@ -13,7 +13,10 @@ describe("test vectors", () => {
 
   it("every positive vector with its records opens to its plaintext", async () => {
     for (const vectorCase of vectors.cases) {
-      if (!("dataRecords" in vectorCase) || vectorCase.dataRecords === undefined) continue
+      if (!("dataRecords" in vectorCase) || vectorCase.dataRecords === undefined) {
+        continue
+      }
+
       const records = vectorCase.dataRecords.map(fromHex)
       const pages = vectorCase.labelPages.map((page, index) => concatBytes(fromHex(page), ...records.slice(index * labelsPerPage, (index + 1) * labelsPerPage)))
       const parcel = concatBytes(fromHex(vectorCase.header), ...vectorCase.manifestRecords.map(fromHex), ...pages)
@@ -28,6 +31,7 @@ describe("test vectors", () => {
     for (const manifestCase of rejections.manifests) {
       expect([manifestCase.name, await outcomeOf(() => decodeManifestJson(fromHex(manifestCase.json)))]).toEqual([manifestCase.name, manifestCase.reason])
     }
+
     for (const parcelCase of rejections.parcels) {
       const options = "expectedDigest" in parcelCase && parcelCase.expectedDigest !== undefined ? { expectedDigest: fromHex(parcelCase.expectedDigest) } : {}
       expect([parcelCase.name, await outcome(decryptAll(fromHex(parcelCase.secret), fromHex(parcelCase.parcel), 777, options))]).toEqual([

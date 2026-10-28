@@ -20,12 +20,17 @@ export interface Entitlements {
 
 export const entitlementsFor = (plan: Plan): Entitlements => {
   switch (plan) {
-    case "free":
+    case "free": {
       return { startsRelayed: false, relayedBytesPerSecondCap: undefined, relayPriority: 0, placesRelayBetweenPeers: false, euJurisdictionAvailable: false }
-    case "paid":
+    }
+
+    case "paid": {
       return { startsRelayed: true, relayedBytesPerSecondCap: undefined, relayPriority: 1, placesRelayBetweenPeers: true, euJurisdictionAvailable: false }
-    case "team":
+    }
+
+    case "team": {
       return { startsRelayed: true, relayedBytesPerSecondCap: undefined, relayPriority: 2, placesRelayBetweenPeers: true, euJurisdictionAvailable: true }
+    }
   }
 }
 
@@ -62,6 +67,7 @@ export const makeQuotaReference = (policy: AdmissionPolicy, faults: ReadonlySet<
     Quota,
     Effect.gen(function* () {
       const windows = yield* Ref.make<ReadonlyMap<string, { readonly windowStart: number; readonly count: number }>>(new Map())
+
       return {
         admitRoomCreation: (clientKey) =>
           Effect.gen(function* () {
@@ -71,10 +77,13 @@ export const makeQuotaReference = (policy: AdmissionPolicy, faults: ReadonlySet<
             const current = all.get(storageKey)
             const expired = current !== undefined && now - current.windowStart >= policy.windowMilliseconds && !faults.has("quota/window-resets")
             const window = current === undefined || expired ? { windowStart: now, count: 0 } : current
+
             if (window.count >= policy.maximumRoomsPerWindow && !faults.has("quota/per-key-limit")) {
               const retryAfterMilliseconds = faults.has("quota/honest-retry-after") ? 0 : window.windowStart + policy.windowMilliseconds - now
+
               return yield* new RateLimited({ clientKey, retryAfterMilliseconds })
             }
+
             yield* Ref.set(windows, new Map(all).set(storageKey, { ...window, count: window.count + 1 }))
           }),
       }

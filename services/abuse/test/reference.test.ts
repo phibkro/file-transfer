@@ -5,6 +5,7 @@ import { AbuseReference, abuseGuarantees, makeAbuseReference, stripFragment } fr
 import { abuseSuite } from "./conformance.ts"
 
 abuseSuite.run("reference", Layer.provide(AbuseReference, secureCrypto))
+
 abuseSuite.negativeControls(
   "reference",
   abuseGuarantees.map((guarantee) => ({
