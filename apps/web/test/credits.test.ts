@@ -87,5 +87,6 @@ describe("recipient credit window", () => {
         expect(outstanding(credits)).toBe(0)
       }),
     )
-  })
+    // Up to 2000 missing records over 100 runs: seconds of work, so an explicit budget instead of the 5 s default.
+  }, 30_000)
 })
