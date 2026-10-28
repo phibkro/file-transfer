@@ -57,8 +57,7 @@ export const hashRoomToken = async (roomToken: Uint8Array): Promise<string> => {
   return toHex(new Uint8Array(digest))
 }
 
-export const toHex = (bytes: Uint8Array): string =>
-  Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")
+export const toHex = (bytes: Uint8Array): string => Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")
 
 /** Constant-time comparison for equal-length hex strings. */
 export const constantTimeEqual = (left: string, right: string): boolean => {

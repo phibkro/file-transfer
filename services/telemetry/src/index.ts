@@ -5,13 +5,7 @@
 import { declareGuarantees } from "@file-transfer/conformance/guarantee"
 import { Context, Effect, Layer, Ref } from "effect"
 
-export type TelemetryEventKind =
-  | "room-created"
-  | "recipient-joined"
-  | "transfer-completed"
-  | "transfer-failed"
-  | "path-direct"
-  | "path-relayed"
+export type TelemetryEventKind = "room-created" | "recipient-joined" | "transfer-completed" | "transfer-failed" | "path-direct" | "path-relayed"
 
 export type SizeBucket = "under-10-megabytes" | "under-1-gigabyte" | "under-10-gigabytes" | "10-gigabytes-or-more"
 

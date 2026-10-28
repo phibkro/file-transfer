@@ -8,12 +8,15 @@ import { Effect, type Layer, Option } from "effect"
 import fc from "fast-check"
 import { Relay, relayGuarantees, type RelayGuarantee } from "../src/index.ts"
 
-const runner = (layer: Layer.Layer<Relay>) => <A, E>(effect: Effect.Effect<A, E, Relay>) => Effect.runPromise(Effect.provide(effect, layer))
+const runner =
+  (layer: Layer.Layer<Relay>) =>
+  <A, E>(effect: Effect.Effect<A, E, Relay>) =>
+    Effect.runPromise(Effect.provide(effect, layer))
 
 /** Frames that are all different, so an order check cannot pass by accident. */
-const distinctFramesArbitrary = fc.array(fc.uint8Array({ maxLength: 32 }), { minLength: 2, maxLength: 20 }).map((frames) =>
-  frames.map((frame, index) => Uint8Array.from([index, ...frame])),
-)
+const distinctFramesArbitrary = fc
+  .array(fc.uint8Array({ maxLength: 32 }), { minLength: 2, maxLength: 20 })
+  .map((frames) => frames.map((frame, index) => Uint8Array.from([index, ...frame])))
 
 const operationArbitrary = fc.oneof(
   fc.record({ kind: fc.constant("push" as const), frame: fc.uint8Array({ maxLength: 64 }) }),

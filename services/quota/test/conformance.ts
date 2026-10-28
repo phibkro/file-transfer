@@ -9,8 +9,10 @@ import { TestClock } from "effect/testing"
 import fc from "fast-check"
 import { type AdmissionPolicy, Quota, quotaGuarantees, type QuotaGuarantee } from "../src/index.ts"
 
-const runner = (layer: Layer.Layer<Quota>) => <A, E>(effect: Effect.Effect<A, E, Quota>) =>
-  Effect.runPromise(Effect.provide(effect, Layer.mergeAll(layer, TestClock.layer())))
+const runner =
+  (layer: Layer.Layer<Quota>) =>
+  <A, E>(effect: Effect.Effect<A, E, Quota>) =>
+    Effect.runPromise(Effect.provide(effect, Layer.mergeAll(layer, TestClock.layer())))
 
 /** Requests admission `count` times and returns how many were admitted. */
 const admitted = (quota: Quota["Service"], clientKey: string, count: number) =>
@@ -31,9 +33,11 @@ export const quotaSuite = (policy: AdmissionPolicy) =>
       "quota/per-key-limit": async (layer) => {
         await fc.assert(
           fc.asyncProperty(fc.integer({ min: 0, max: policy.maximumRoomsPerWindow * 3 }), async (requests) => {
-            const admissions = await runner(layer)(Effect.gen(function* () {
-              return yield* admitted(yield* Quota, "client", requests)
-            }))
+            const admissions = await runner(layer)(
+              Effect.gen(function* () {
+                return yield* admitted(yield* Quota, "client", requests)
+              }),
+            )
             expect(admissions).toBe(Math.min(requests, policy.maximumRoomsPerWindow))
           }),
           { numRuns: 30 },
@@ -89,9 +93,10 @@ export const quotaSuite = (policy: AdmissionPolicy) =>
                 yield* admitted(quota, "client", policy.maximumRoomsPerWindow)
                 yield* TestClock.adjust(elapsed)
                 const rejection = yield* Effect.flip(quota.admitRoomCreation("client"))
-                const waitedTooLittle = rejection.retryAfterMilliseconds > 0 ? yield* Effect.result(
-                  Effect.andThen(TestClock.adjust(rejection.retryAfterMilliseconds - 1), quota.admitRoomCreation("client")),
-                ) : undefined
+                const waitedTooLittle =
+                  rejection.retryAfterMilliseconds > 0
+                    ? yield* Effect.result(Effect.andThen(TestClock.adjust(rejection.retryAfterMilliseconds - 1), quota.admitRoomCreation("client")))
+                    : undefined
                 yield* TestClock.adjust(1)
                 const afterWaiting = yield* Effect.result(quota.admitRoomCreation("client"))
                 return { retryAfter: rejection.retryAfterMilliseconds, tooEarly: waitedTooLittle?._tag, afterWaiting: afterWaiting._tag }

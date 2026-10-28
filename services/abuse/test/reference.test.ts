@@ -7,7 +7,10 @@ import { abuseSuite } from "./conformance.ts"
 abuseSuite.run("reference", Layer.provide(AbuseReference, secureCrypto))
 abuseSuite.negativeControls(
   "reference",
-  abuseGuarantees.map((guarantee) => ({ violates: guarantee.identifier, layer: Layer.provide(makeAbuseReference(new Set([guarantee.identifier])), secureCrypto) })),
+  abuseGuarantees.map((guarantee) => ({
+    violates: guarantee.identifier,
+    layer: Layer.provide(makeAbuseReference(new Set([guarantee.identifier])), secureCrypto),
+  })),
 )
 
 describe("stripFragment", () => {

@@ -6,20 +6,20 @@ Status: hypothesis, to be confirmed by the M0 spike (see `plan.md`). Long-form r
 
 The product moves a file of any size from one browser to another at the speed of the slower link, with only the sender and recipients able to read it.
 
-| Id | Requirement |
-| --- | --- |
-| R1 | Browser-only on both ends, phone included |
-| R2 | One share link; live progress on both sides |
-| R3 | Throughput limited by the slower peer, never artificially by the service on paths we do not carry |
-| R4 | End-to-end encrypted; intermediaries see only ciphertext; tampering is detected |
-| R5 | No size limit; never buffer the whole file in memory |
-| R6 | Zero-configuration NAT traversal with a fallback that always works |
-| R7 | Download starts before upload ends (no store-and-forward wait) |
-| R8 | No ads; AGPL; one-command self-hosting |
-| R9 | Node roles: any node can be endpoint, relay, store, seed |
-| R10 | Scoped networks: a transfer may be limited to declared relays and stores |
-| R11 | Optional async mode (encrypted store) when the recipient is offline (phase 2) |
-| R12 | Plans that track real cost: direct transfers free, relay throughput, placement and storage paid |
+| Id  | Requirement                                                                                       |
+| --- | ------------------------------------------------------------------------------------------------- |
+| R1  | Browser-only on both ends, phone included                                                         |
+| R2  | One share link; live progress on both sides                                                       |
+| R3  | Throughput limited by the slower peer, never artificially by the service on paths we do not carry |
+| R4  | End-to-end encrypted; intermediaries see only ciphertext; tampering is detected                   |
+| R5  | No size limit; never buffer the whole file in memory                                              |
+| R6  | Zero-configuration NAT traversal with a fallback that always works                                |
+| R7  | Download starts before upload ends (no store-and-forward wait)                                    |
+| R8  | No ads; AGPL; one-command self-hosting                                                            |
+| R9  | Node roles: any node can be endpoint, relay, store, seed                                          |
+| R10 | Scoped networks: a transfer may be limited to declared relays and stores                          |
+| R11 | Optional async mode (encrypted store) when the recipient is offline (phase 2)                     |
+| R12 | Plans that track real cost: direct transfers free, relay throughput, placement and storage paid   |
 
 ## Planes
 
@@ -62,13 +62,13 @@ Server parts       web assets | signaling room | relay | TURN
 
 ## Speed and latency as priced resources
 
-| Resource | Free | Paid | Team |
-| --- | --- | --- | --- |
-| Direct transfer | full speed, any size | same | same |
-| Start | waits briefly for direct, relay as fallback | relayed from the first byte, upgrades to direct | same |
-| Relayed throughput | best effort, published per-transfer cap, shed first under load | uncapped, priority under load | dedicated relays |
-| Relay placement | near the first peer | location hint between peers | EU jurisdiction |
-| Storage (phase 2) | none | days, hundreds of GB | longer, shared quota |
+| Resource           | Free                                                           | Paid                                            | Team                 |
+| ------------------ | -------------------------------------------------------------- | ----------------------------------------------- | -------------------- |
+| Direct transfer    | full speed, any size                                           | same                                            | same                 |
+| Start              | waits briefly for direct, relay as fallback                    | relayed from the first byte, upgrades to direct | same                 |
+| Relayed throughput | best effort, published per-transfer cap, shed first under load | uncapped, priority under load                   | dedicated relays     |
+| Relay placement    | near the first peer                                            | location hint between peers                     | EU jurisdiction      |
+| Storage (phase 2)  | none                                                           | days, hundreds of GB                            | longer, shared quota |
 
 Rule: price only what we pay for. Throttling a path we do not carry would recreate the exact complaint this product exists to fix.
 
@@ -88,13 +88,13 @@ Services are declared once as Effect services with an in-memory reference layer 
 
 ## Security posture
 
-| Adversary | Reads contents | Tampers undetected | Learns metadata |
-| --- | --- | --- | --- |
-| Relay, seed, volunteer node | no | no | IPs, sizes, timing |
-| Store (phase 2) | no | no | sizes, retention, download counts |
-| Signaling | no | no (key commitment, authenticated records) | who pairs with whom |
-| Hosted web operator serving JavaScript | yes, if malicious | yes | everything |
-| Anyone holding the link | yes | n/a | n/a |
+| Adversary                              | Reads contents    | Tampers undetected                         | Learns metadata                   |
+| -------------------------------------- | ----------------- | ------------------------------------------ | --------------------------------- |
+| Relay, seed, volunteer node            | no                | no                                         | IPs, sizes, timing                |
+| Store (phase 2)                        | no                | no                                         | sizes, retention, download counts |
+| Signaling                              | no                | no (key commitment, authenticated records) | who pairs with whom               |
+| Hosted web operator serving JavaScript | yes, if malicious | yes                                        | everything                        |
+| Anyone holding the link                | yes               | n/a                                        | n/a                               |
 
 The web client is the real trust hole. Mitigations now: strict CSP, no third-party scripts, reproducible builds with published hashes, a public repository, self-hosting. Later: WAICT enrolment when browsers ship it, a signed CLI.
 
@@ -104,8 +104,8 @@ Abuse: the free path stores nothing; stores need accounts, short expiry and quot
 
 Fixed from the MVP onward: the format, the libraries' `Transport` interface, the service declarations. Later phases add platform layers and integrations, not rewrites.
 
-| Phase | Adds |
-| --- | --- |
-| 2 | Accounts (magic link), R2 store with expiry and revoke (croc's stored-transfer semantics), merchant-of-record billing |
-| 3 | Own relays on Hetzner via workerd or celld (Bun fallback), coturn, self-host parity |
-| 4 | Rust: iroh native nodes and CLI implementing the same format; signed network directory and transfer policies; seeding; PAKE short codes; team-run relays |
+| Phase | Adds                                                                                                                                                     |
+| ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2     | Accounts (magic link), R2 store with expiry and revoke (croc's stored-transfer semantics), merchant-of-record billing                                    |
+| 3     | Own relays on Hetzner via workerd or celld (Bun fallback), coturn, self-host parity                                                                      |
+| 4     | Rust: iroh native nodes and CLI implementing the same format; signed network directory and transfer policies; seeding; PAKE short codes; team-run relays |

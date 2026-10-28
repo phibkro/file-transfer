@@ -8,7 +8,10 @@ import { relaySuite } from "./conformance.ts"
 relaySuite.run("reference", Layer.provide(RelayReference, secureCrypto))
 relaySuite.negativeControls(
   "reference",
-  relayGuarantees.map((guarantee) => ({ violates: guarantee.identifier, layer: Layer.provide(makeRelayReference(new Set([guarantee.identifier])), secureCrypto) })),
+  relayGuarantees.map((guarantee) => ({
+    violates: guarantee.identifier,
+    layer: Layer.provide(makeRelayReference(new Set([guarantee.identifier])), secureCrypto),
+  })),
 )
 
 describe("RelaySession machine", () => {

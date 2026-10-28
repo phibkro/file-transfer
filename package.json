@@ -1,7 +1,6 @@
 {
   "name": "file-transfer",
   "private": true,
-  "type": "module",
   "workspaces": [
     "libraries/*",
     "services/*",
@@ -10,6 +9,7 @@
     "apps/*",
     "tools/*"
   ],
+  "type": "module",
   "scripts": {
     "test": "vp test run",
     "check:graph": "bun tools/quality/src/checkModuleGraph.ts",

@@ -15,22 +15,22 @@ This file keeps the numbers and findings that drove decisions, as read on 2026-1
 
 ## Codebases to lift from (all compatible with AGPL-3.0)
 
-| Source | Licence | Take |
-| --- | --- | --- |
-| SkySend (github.com/Skyfay/SkySend) | AGPL-3.0 | `packages/crypto` (ECE, AES-256-GCM 64 KiB records, key in fragment), download tiers (service worker, File System Access, OPFS for Safari), Hono + SQLite + S3 store |
-| transfer.zip-web | AGPL-3.0 | Live pipeline reference, relay over signaling WebSocket with packet budget, Stripe routes |
-| croc | MIT | `STORED_TRANSFERS.md` as the store spec, `stored-crypto.ts` |
-| FilePizza | BSD-3-Clause | Ephemeral coturn credentials (`api/ice`, `coturn.ts`) |
-| Send (timvisee) | MPL-2.0 | `ece.js` reference |
-| wormhole-crypto | MIT | `decryptStreamRange` idea for ranged resume |
+| Source                              | Licence      | Take                                                                                                                                                                 |
+| ----------------------------------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| SkySend (github.com/Skyfay/SkySend) | AGPL-3.0     | `packages/crypto` (ECE, AES-256-GCM 64 KiB records, key in fragment), download tiers (service worker, File System Access, OPFS for Safari), Hono + SQLite + S3 store |
+| transfer.zip-web                    | AGPL-3.0     | Live pipeline reference, relay over signaling WebSocket with packet budget, Stripe routes                                                                            |
+| croc                                | MIT          | `STORED_TRANSFERS.md` as the store spec, `stored-crypto.ts`                                                                                                          |
+| FilePizza                           | BSD-3-Clause | Ephemeral coturn credentials (`api/ice`, `coturn.ts`)                                                                                                                |
+| Send (timvisee)                     | MPL-2.0      | `ece.js` reference                                                                                                                                                   |
+| wormhole-crypto                     | MIT          | `decryptStreamRange` idea for ranged resume                                                                                                                          |
 
 ### Lifted so far
 
-| Origin | Licence | Into | What |
-| --- | --- | --- | --- |
-| phibkro/vektorprogrammet-reimagined, machine module (its ADR 0007) | same author | `libraries/machine` | Transition tables, `problems`, Mermaid output; simplified |
-| phibkro/vektorprogrammet-reimagined, store-capability contract suites (its ADR 0014) | same author | `libraries/conformance` | Named guarantees, broken variants as negative controls |
-| phibkro/vektorprogrammet-reimagined, module-layer check (its ADR 0015) | same author | `tools/quality` | Module graph rules as data, with a check |
+| Origin                                                                               | Licence     | Into                    | What                                                      |
+| ------------------------------------------------------------------------------------ | ----------- | ----------------------- | --------------------------------------------------------- |
+| phibkro/vektorprogrammet-reimagined, machine module (its ADR 0007)                   | same author | `libraries/machine`     | Transition tables, `problems`, Mermaid output; simplified |
+| phibkro/vektorprogrammet-reimagined, store-capability contract suites (its ADR 0014) | same author | `libraries/conformance` | Named guarantees, broken variants as negative controls    |
+| phibkro/vektorprogrammet-reimagined, module-layer check (its ADR 0015)               | same author | `tools/quality`         | Module graph rules as data, with a check                  |
 
 ## Platform numbers
 

@@ -4,13 +4,13 @@ Startup phase: prove that people want this and that some will pay, before stabil
 
 ## Phases and gates
 
-| Phase | Scope | Gate to the next phase |
-| --- | --- | --- |
-| 0 Spike and format | Measure throughput and save tiers; write format v1 with test vectors; external review | 5 GB transfers work on every target browser; format reviewed and frozen |
-| 1 MVP launch | Live encrypted transfers, relay fallback, resume, abuse page, fake doors; Show HN; no money taken | Completion and repeat-sender targets met; fake-door clicks above the threshold set in advance |
-| 2 Paid store | Accounts, R2 store with expiry and revoke, merchant-of-record billing | Paying users; relay plus TURN cost above the fixed cost of own relays |
-| 3 Stabilise | Own relays (workerd or celld, Bun fallback), coturn, self-host parity | Teams or self-hosters asking for private networks and native clients |
-| 4 The network | Rust iroh nodes and CLI, network directory and policies, seeding, PAKE codes | |
+| Phase              | Scope                                                                                             | Gate to the next phase                                                                        |
+| ------------------ | ------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| 0 Spike and format | Measure throughput and save tiers; write format v1 with test vectors; external review             | 5 GB transfers work on every target browser; format reviewed and frozen                       |
+| 1 MVP launch       | Live encrypted transfers, relay fallback, resume, abuse page, fake doors; Show HN; no money taken | Completion and repeat-sender targets met; fake-door clicks above the threshold set in advance |
+| 2 Paid store       | Accounts, R2 store with expiry and revoke, merchant-of-record billing                             | Paying users; relay plus TURN cost above the fixed cost of own relays                         |
+| 3 Stabilise        | Own relays (workerd or celld, Bun fallback), coturn, self-host parity                             | Teams or self-hosters asking for private networks and native clients                          |
+| 4 The network      | Rust iroh nodes and CLI, network directory and policies, seeding, PAKE codes                      |                                                                                               |
 
 ## M0 Spike (week 1)
 
@@ -50,13 +50,13 @@ Startup phase: prove that people want this and that some will pay, before stabil
 
 ## Metrics (thresholds are starting hypotheses; fix them before launch)
 
-| Metric | Definition | Threshold |
-| --- | --- | --- |
-| Completion rate | Full file received, over transfers where a recipient joined | at least 97% |
-| Activation | Links created that lead to a completed transfer | at least 40% |
-| Repeat senders | Week-1 senders who send again in weeks 2 to 4 (device-level estimate) | at least 20% |
-| Paid-feature demand | Completed-transfer users who click a paid fake door; share joining the waitlist | at least 5% click; at least 1% join |
-| Relayed share and cost | Relayed bytes over total; relay plus TURN cost per month | tracked; feeds gate 3 |
+| Metric                 | Definition                                                                      | Threshold                           |
+| ---------------------- | ------------------------------------------------------------------------------- | ----------------------------------- |
+| Completion rate        | Full file received, over transfers where a recipient joined                     | at least 97%                        |
+| Activation             | Links created that lead to a completed transfer                                 | at least 40%                        |
+| Repeat senders         | Week-1 senders who send again in weeks 2 to 4 (device-level estimate)           | at least 20%                        |
+| Paid-feature demand    | Completed-transfer users who click a paid fake door; share joining the waitlist | at least 5% click; at least 1% join |
+| Relayed share and cost | Relayed bytes over total; relay plus TURN cost per month                        | tracked; feeds gate 3               |
 
 ## Open decisions
 

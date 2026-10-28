@@ -40,44 +40,28 @@
         "platform": "portable"
       },
       {
-        "files": [
-          "libraries/format/src/**",
-          "tools/quality/src/moduleGraph.ts"
-        ],
+        "files": ["libraries/format/src/**", "tools/quality/src/moduleGraph.ts"],
         "role": "pure-library",
         "platform": "portable"
       },
       {
-        "files": [
-          "services/*/src/**"
-        ],
+        "files": ["services/*/src/**"],
         "role": "service",
         "platform": "portable"
       },
       {
-        "files": [
-          "tools/quality/src/workspace.ts"
-        ],
+        "files": ["tools/quality/src/workspace.ts"],
         "role": "runtime-adapter",
         "platform": "node",
-        "adapterDependencies": [
-          "node:fs",
-          "node:path",
-          "oxc-parser"
-        ]
+        "adapterDependencies": ["node:fs", "node:path", "oxc-parser"]
       },
       {
-        "files": [
-          "tools/quality/src/checkModuleGraph.ts"
-        ],
+        "files": ["tools/quality/src/checkModuleGraph.ts"],
         "role": "composition-root",
         "platform": "node"
       },
       {
-        "files": [
-          "libraries/conformance/src/index.ts",
-          "**/test/**"
-        ],
+        "files": ["libraries/conformance/src/index.ts", "**/test/**"],
         "role": "test",
         "platform": "node"
       }

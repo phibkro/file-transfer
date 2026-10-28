@@ -13,7 +13,11 @@ export type RelaySessionIdentifier = string
 
 export const relayGuarantees = declareGuarantees([
   { identifier: "relay/order", property: "frames reach the recipient in the order the sender pushed them", strength: "port-enforced" },
-  { identifier: "relay/credit-bound", property: "a push without an unspent credit is rejected, so queued frames never exceed granted credits", strength: "port-enforced" },
+  {
+    identifier: "relay/credit-bound",
+    property: "a push without an unspent credit is rejected, so queued frames never exceed granted credits",
+    strength: "port-enforced",
+  },
   { identifier: "relay/exact-metering", property: "the meter counts exactly the frames and bytes delivered", strength: "port-enforced" },
   { identifier: "relay/close-stops-writes", property: "a closed session rejects pushes and grants but lets the recipient drain", strength: "port-enforced" },
   { identifier: "relay/unknown-not-found", property: "an unknown session identifier is reported as not found", strength: "port-enforced" },

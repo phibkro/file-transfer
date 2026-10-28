@@ -20,7 +20,10 @@ const createRoomWithSecret = (secret: Uint8Array, maximumRecipients: number) =>
     return { room, roomToken, roomIdentifier }
   })
 
-const runner = (layer: Layer.Layer<Room>) => <A, E>(effect: Effect.Effect<A, E, Room>) => Effect.runPromise(Effect.provide(effect, layer))
+const runner =
+  (layer: Layer.Layer<Room>) =>
+  <A, E>(effect: Effect.Effect<A, E, Room>) =>
+    Effect.runPromise(Effect.provide(effect, layer))
 
 export const roomSuite = conformanceSuite<Room, RoomGuarantee>({
   service: "Room",

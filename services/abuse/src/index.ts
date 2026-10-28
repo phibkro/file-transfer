@@ -24,7 +24,9 @@ export interface NoticeReceipt {
   readonly storedLocation: string
 }
 
-export type Decision = { readonly kind: "revoke"; readonly roomIdentifier: string; readonly reason: string } | { readonly kind: "reject"; readonly reason: string }
+export type Decision =
+  | { readonly kind: "revoke"; readonly roomIdentifier: string; readonly reason: string }
+  | { readonly kind: "reject"; readonly reason: string }
 
 export class NoticeNotFound extends Data.TaggedError("NoticeNotFound")<{ readonly noticeIdentifier: NoticeIdentifier }> {}
 export class NoticeIncomplete extends Data.TaggedError("NoticeIncomplete")<{ readonly missing: ReadonlyArray<string> }> {}
@@ -35,8 +37,16 @@ export const abuseGuarantees = declareGuarantees([
     property: "a notice location is kept without its URL fragment, so a decryption key submitted by mistake is dropped",
     strength: "port-enforced",
   },
-  { identifier: "abuse/complete-notices-only", property: "a notice missing a required field is rejected, naming the missing fields", strength: "port-enforced" },
-  { identifier: "abuse/revocation-applies", property: "a revoke decision revokes exactly its room; a reject decision revokes nothing", strength: "port-enforced" },
+  {
+    identifier: "abuse/complete-notices-only",
+    property: "a notice missing a required field is rejected, naming the missing fields",
+    strength: "port-enforced",
+  },
+  {
+    identifier: "abuse/revocation-applies",
+    property: "a revoke decision revokes exactly its room; a reject decision revokes nothing",
+    strength: "port-enforced",
+  },
   { identifier: "abuse/unknown-notice-not-found", property: "a decision on an unknown notice is reported as not found", strength: "port-enforced" },
 ])
 

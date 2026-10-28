@@ -68,7 +68,10 @@ describe("module graph negative controls", () => {
   })
 
   it("rejects a dependency on a kind the rules forbid", () => {
-    const leaky = replace(library, { dependencies: ["@file-transfer/service-room"], imports: [{ file: "src/index.ts", specifier: "@file-transfer/service-room", inTest: false }] })
+    const leaky = replace(library, {
+      dependencies: ["@file-transfer/service-room"],
+      imports: [{ file: "src/index.ts", specifier: "@file-transfer/service-room", inTest: false }],
+    })
     expect(rulesBroken(leaky)).toEqual(["dependency-cycle", "forbidden-kind-edge"])
   })
 
@@ -92,7 +95,9 @@ describe("module graph negative controls", () => {
   })
 
   it("rejects a relative import that leaves the package", () => {
-    expect(rulesBroken(replace(library, { imports: [{ file: "src/index.ts", specifier: "../../sink/src/index.ts", inTest: false }] }))).toEqual(["escaping-relative-import"])
+    expect(rulesBroken(replace(library, { imports: [{ file: "src/index.ts", specifier: "../../sink/src/index.ts", inTest: false }] }))).toEqual([
+      "escaping-relative-import",
+    ])
   })
 
   it("rejects a declared dependency that nothing imports, unless the package has no source yet", () => {

@@ -8,7 +8,10 @@ import { roomSuite } from "./conformance.ts"
 roomSuite.run("reference", Layer.provide(RoomReference, secureCrypto))
 roomSuite.negativeControls(
   "reference",
-  roomGuarantees.map((guarantee) => ({ violates: guarantee.identifier, layer: Layer.provide(makeRoomReference(new Set([guarantee.identifier])), secureCrypto) })),
+  roomGuarantees.map((guarantee) => ({
+    violates: guarantee.identifier,
+    layer: Layer.provide(makeRoomReference(new Set([guarantee.identifier])), secureCrypto),
+  })),
 )
 
 describe("Room machine", () => {

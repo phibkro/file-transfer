@@ -10,14 +10,14 @@ Only endpoints (sender and recipients) ever hold keys. Every server-side compone
 
 Every package belongs to exactly one kind. Put new code in the right one.
 
-| Kind | Directory | What belongs here | May import |
-| --- | --- | --- | --- |
-| Library | `libraries/*` | Developer-facing reusable source code for any client (format, transport, sink, client SDK) | other libraries, `effect` |
-| Service | `services/*` | Implementation-independent subdomain models: an Effect service declaration (tag + interface), domain types, pure logic, an in-memory reference layer, and conformance tests | libraries, `effect` only; never a runtime or vendor API |
-| Platform | `platforms/*` | Layers implementing every declared service on one runtime (`cloudflare`, `self-hosted`) | services, libraries, integrations, runtime APIs |
-| Integration | `integrations/*` | Adapters to external runtime systems behind ports that services declare (TURN, captcha, analytics, later object storage, payments, email) | libraries, `effect`, vendor SDKs |
-| App | `apps/*` | User-facing applications built on `libraries/client` (`apps/web`) | libraries |
-| Tool | `tools/*` | Repository checks and generators (`tools/quality`); never imported by other kinds | any kind, runtime APIs |
+| Kind        | Directory        | What belongs here                                                                                                                                                           | May import                                              |
+| ----------- | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| Library     | `libraries/*`    | Developer-facing reusable source code for any client (format, transport, sink, client SDK)                                                                                  | other libraries, `effect`                               |
+| Service     | `services/*`     | Implementation-independent subdomain models: an Effect service declaration (tag + interface), domain types, pure logic, an in-memory reference layer, and conformance tests | libraries, `effect` only; never a runtime or vendor API |
+| Platform    | `platforms/*`    | Layers implementing every declared service on one runtime (`cloudflare`, `self-hosted`)                                                                                     | services, libraries, integrations, runtime APIs         |
+| Integration | `integrations/*` | Adapters to external runtime systems behind ports that services declare (TURN, captcha, analytics, later object storage, payments, email)                                   | libraries, `effect`, vendor SDKs                        |
+| App         | `apps/*`         | User-facing applications built on `libraries/client` (`apps/web`)                                                                                                           | libraries                                               |
+| Tool        | `tools/*`        | Repository checks and generators (`tools/quality`); never imported by other kinds                                                                                           | any kind, runtime APIs                                  |
 
 `bun run check:graph` enforces this table: each `package.json` declares a package's edges and `tools/quality/src/moduleGraph.ts` holds the rules (docs/decisions/0009). Declare every dependency you import and drop any you stop using.
 

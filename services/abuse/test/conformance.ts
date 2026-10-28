@@ -5,7 +5,10 @@ import { Effect, type Layer } from "effect"
 import fc from "fast-check"
 import { Abuse, abuseGuarantees, type AbuseGuarantee, type Notice } from "../src/index.ts"
 
-const runner = (layer: Layer.Layer<Abuse>) => <A, E>(effect: Effect.Effect<A, E, Abuse>) => Effect.runPromise(Effect.provide(effect, layer))
+const runner =
+  (layer: Layer.Layer<Abuse>) =>
+  <A, E>(effect: Effect.Effect<A, E, Abuse>) =>
+    Effect.runPromise(Effect.provide(effect, layer))
 
 const completeNotice = (location: string): Notice => ({
   location,
@@ -24,9 +27,11 @@ export const abuseSuite = conformanceSuite<Abuse, AbuseGuarantee>({
     "abuse/fragment-never-stored": async (layer) => {
       await fc.assert(
         fc.asyncProperty(fc.webUrl(), fc.string({ minLength: 1 }), async (url, fragment) => {
-          const receipt = await runner(layer)(Effect.gen(function* () {
-            return yield* (yield* Abuse).submitNotice(completeNotice(`${url}#${fragment}`))
-          }))
+          const receipt = await runner(layer)(
+            Effect.gen(function* () {
+              return yield* (yield* Abuse).submitNotice(completeNotice(`${url}#${fragment}`))
+            }),
+          )
           expect(receipt.storedLocation).toBe(url)
         }),
         { numRuns: 50 },
@@ -37,9 +42,11 @@ export const abuseSuite = conformanceSuite<Abuse, AbuseGuarantee>({
       await fc.assert(
         fc.asyncProperty(fc.subarray([...requiredFields], { minLength: 1 }), fc.constantFrom("", " ", "\t\n"), async (blanked, blank) => {
           const notice = { ...completeNotice("https://host/r/room"), ...Object.fromEntries(blanked.map((field) => [field, blank])) }
-          const result = await runner(layer)(Effect.gen(function* () {
-            return yield* Effect.result((yield* Abuse).submitNotice(notice))
-          }))
+          const result = await runner(layer)(
+            Effect.gen(function* () {
+              return yield* Effect.result((yield* Abuse).submitNotice(notice))
+            }),
+          )
           expect(result._tag).toBe("Failure")
           if (result._tag === "Failure") expect([...result.failure.missing].sort()).toEqual([...blanked].sort())
         }),

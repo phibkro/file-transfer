@@ -99,7 +99,8 @@ export const checkModuleGraph = (packages: ReadonlyArray<PackageFacts>, rootDeve
     for (const dependency of facts.dependencies) {
       const target = byName.get(dependency)
       if (target !== undefined) {
-        if (!rule.mayDependOn.includes(target.kind)) violations.push({ rule: "forbidden-kind-edge", packageName: facts.name, dependency, from: facts.kind, to: target.kind })
+        if (!rule.mayDependOn.includes(target.kind))
+          violations.push({ rule: "forbidden-kind-edge", packageName: facts.name, dependency, from: facts.kind, to: target.kind })
       } else if (dependency.startsWith(workspaceScope)) {
         violations.push({ rule: "unknown-workspace-package", packageName: facts.name, file: "package.json", specifier: dependency })
       } else if (rule.externals !== "any" && !rule.externals.includes(dependency)) {

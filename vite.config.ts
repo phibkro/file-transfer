@@ -11,6 +11,12 @@ export default defineConfig({
     options: { typeAware: true, typeCheck: true },
   },
   test: {
-    include: ["libraries/*/test/**/*.test.ts", "services/*/test/**/*.test.ts", "platforms/*/test/**/*.test.ts", "integrations/*/test/**/*.test.ts", "tools/*/test/**/*.test.ts"],
+    include: [
+      "libraries/*/test/**/*.test.ts",
+      "services/*/test/**/*.test.ts",
+      "platforms/*/test/**/*.test.ts",
+      "integrations/*/test/**/*.test.ts",
+      "tools/*/test/**/*.test.ts",
+    ],
   },
 })

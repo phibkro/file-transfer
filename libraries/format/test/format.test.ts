@@ -1,15 +1,6 @@
 import { describe, expect, it } from "vite-plus/test"
 import fc from "fast-check"
-import {
-  constantTimeEqual,
-  deriveRoomToken,
-  hashRoomToken,
-  headerLength,
-  headerMagic,
-  keyCommitmentLength,
-  recordSize,
-  saltLength,
-} from "../src/index.ts"
+import { constantTimeEqual, deriveRoomToken, hashRoomToken, headerLength, headerMagic, keyCommitmentLength, recordSize, saltLength } from "../src/index.ts"
 
 describe("format v1 constants", () => {
   it("header layout adds up to the documented 54 bytes", () => {
