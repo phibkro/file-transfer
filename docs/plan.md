@@ -40,10 +40,12 @@ Startup phase: prove that people want this and that some will pay, before stabil
 - [ ] `libraries/transport`: direct and relayed paths, relay-first switching, resume
 - [ ] `libraries/sink`: save tiers and OPFS resume bitmap; provisional output until the parcel verifies; rename on write when a file system refuses a name the parcel allowed (ADR 0011)
   - Second review S4: NTFS's upcase table maps both `ı` (U+0131) and `i` to `I`, so names the parcel's full case folding keeps apart can collide on Windows; Windows opens the console for `CONIN$` and `CONOUT$`, which the parcel's device list does not cover. The sink checks collisions with the target's own folding and renames on write
-- [x] `apps/web` send and receive over a room (docs/protocol.md): labelling with progress, share link, contract offer and accept, credits, want ranges, resume after either side drops, provisional OPFS output, downloads, and a test hook (`window.fileTransferTest`). Verified locally against a stand-in room server; the end-to-end test against `platforms/cloudflare` under `wrangler dev` is still to run
+- [x] `apps/web` send and receive over a room (docs/protocol.md): labelling with progress, share link, contract offer and accept, credits, want ranges, resume after either side drops, provisional OPFS output, downloads, and a test hook (`window.fileTransferTest`). Verified end to end against `platforms/cloudflare` under `wrangler dev` and in production (`apps/web/scripts/endToEnd.ts`: byte-identical files, resume after clean and half-open cuts, decline, wrong keys, no secret or file name in any request or frame)
   - For the MVP the transfer orchestration lives in `apps/web/src` as plain TypeScript (with reasoned file-level Effect lint exceptions). Once the MVP proves out it moves into `libraries/client` as Effect services: the sender and recipient life cycles as `libraries/machine` tables, the room socket as a transport path, and `storage.ts` as the OPFS tier of `libraries/sink`
   - Platforms serve `apps/web/dist` with `/r/*` answered by `index.html`
-- [ ] Network matrix: home broadband, mobile data, corporate Wi-Fi, two browsers per side
+- [x] Deploys with Alchemy from `wrangler.jsonc`: production at send.phibkro.org, Worker Previews per pull request, both verified end to end by CI once `DEPLOYMENTS` is enabled (`platforms/cloudflare/README.md`)
+- [x] Share panel (Copy, Share sheet, link and QR code hidden until asked for), files added in batches, completion report for network testing
+- [ ] Network matrix: home broadband, mobile data, corporate Wi-Fi, two browsers per side (paste the completion reports)
 
 ## M3 Launch readiness (week 5)
 
