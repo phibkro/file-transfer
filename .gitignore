@@ -14,3 +14,6 @@ __pycache__/
 
 # Local deploy credentials (never committed)
 .secrets/
+
+# Alchemy local state, logs and version checks
+.alchemy/
