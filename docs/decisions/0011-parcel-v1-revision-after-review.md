@@ -1,0 +1,48 @@
+# 0011 Parcel v1 revision after the first review
+
+Status: accepted (2026-10-28) for the draft; v1 freezes only after the second review. Implements ADR 0012 (contract before content) in the same revision, so the bytes on the wire change once.
+
+## Context
+
+The first review of `docs/parcel.md` (an agent reviewer with an applied-crypto brief) raised two high, five medium, four low findings and one note. The most serious: a sender that reseals a record after its source changed reuses an AES-GCM nonce (H1), and the manifest had more than one valid encoding (H2). In parallel the product owner asked for a contract before content (ADR 0012): labels for every record and a root, agreed before any data. Both change the wire format, so they land together.
+
+## Decision
+
+Each finding, what the parcel now does, and the test that fails without it (mutation runs in brackets).
+
+| Finding | Problem                                                                 | Decision                                                                                                                                                                                                                                       | Guarded by                                                                    |
+| ------- | ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| H1      | Counter nonces repeat when a resealed record's plaintext differs        | Synthetic nonces (option A′): `S = HMAC(syntheticKey, u64(i)‖u8(f)‖P)`, nonce `u40(i)‖S[0..7]`, record `S[0..7]‖ciphertext‖tag` (23 bytes overhead); the receiver recomputes `S` after decrypting. The final flag moves into associated data   | synthetic check, flag binding, counter in nonce                               |
+| H2      | Several JSON encodings of one manifest                                  | One canonical encoding (fixed key order, `JSON.stringify` escaping, no whitespace); receivers re-encode and require byte equality                                                                                                              | canonical byte check                                                          |
+| M1      | File names could be unsafe or collide on some file systems              | A portable name profile lifted from cn-homage: NFC, forbidden categories (Cc, Cf, Zl, Zp, Cs and `\ : * ? " < > \|`), no trailing dot or space, no Windows device names, length limits, case-folded uniqueness, no file and folder of one name | NFC, forbidden characters, device names, trailing dot, case folding, conflict |
+| M2      | Media types were free text a page could render                          | A strict grammar of at most 127 bytes; media types are never rendered on the app origin                                                                                                                                                        | media type check                                                              |
+| M3      | One secret could seal several parcels                                   | One parcel per secret: each parcel seals under `expand(linkSecret, "parcel/v1/parcel-secret"‖u32(sequence))`, with the sequence in the header; receivers can pin a header                                                                      | sequence in derivation, header pin                                            |
+| M4      | The manifest was one record, so its size was bounded by the record size | A manifest stream of 4 KiB records, a power of two of them, at most 16 MiB                                                                                                                                                                     | padding check, record count                                                   |
+| M5      | Bytes were released before the parcel was verified                      | Output is provisional until the last record verifies; on failure the stream errors and never closes                                                                                                                                            | breach test (released, then `label-mismatch`)                                 |
+| L1      | No bound on total size against GHASH limits                             | `totalSize < 2^40`, counters `< 2^40`                                                                                                                                                                                                          | size limit                                                                    |
+| L2      | The key commitment was checked late                                     | Checked as soon as the 58 header bytes arrive, before any decryption                                                                                                                                                                           | key commitment                                                                |
+| L3      | No negative vectors                                                     | `rejections.json`: 31 manifests and 12 parcels that both TypeScript and `verify.py` must reject with the stated reason                                                                                                                         | `bun run check:vectors`, vector tests                                         |
+| L4      | No account of metadata leakage                                          | "What observers learn" in `docs/parcel.md`                                                                                                                                                                                                     | review                                                                        |
+| N2      | Ad hoc key derivation                                                   | One HKDF-Extract with salt `"parcel/v1"`, every info string under `"parcel/v1/"`                                                                                                                                                               | vectors                                                                       |
+| (keep)  | Header as associated data                                               | Kept, with a negative control                                                                                                                                                                                                                  | header in associated data                                                     |
+
+From ADR 0012:
+
+- **Labels and root.** A label is the RFC 6962 leaf hash of a data record as sent; the root is the RFC 6962 tree over all labels. The sender runs a labelling pass, then a sending pass that reseals each record and compares it with its label (`source-changed` on a mismatch).
+- **Contract up front.** The manifest stream carries `u64(recordCount)‖root‖u32(jsonLength)‖json‖padding`. The contract digest is `SHA-256(header‖manifest records)`; acceptance itself is out of scope here.
+- **Label pages.** Labels travel in plaintext pages of 1024 ahead of the records they cover, each followed by its audit path over the page roots. Because 1024 is a power of two, every page is a node of the RFC 6962 tree, so the root over page roots equals the root over all labels; a property test checks this for every power-of-two page size. A page that does not fold to the root fails with `label-page-mismatch`; a record that differs from its label fails with `label-mismatch` (a breach).
+
+## Where this differs from the reviewer
+
+- **Size cap 2^40, not 2^46.** At 64 KiB records 1 TiB keeps the GHASH forgery bound near `2^-57`, and the product's largest target is 100 GB (stores above 50 GB are a later phase). Raising it later is a new version.
+- **Manifest records carry no final flag.** A receiver cannot know that record 0 is final before opening it; record 0 fixes the count instead, so every manifest record uses flag 0 and truncation or extension fails on the count or the root.
+- **No trailer.** The reviewed draft ended with a trailer carrying the root, and the review kept it. With the root and record count in the contract, the end is known from the count and the final flag, and an end marker would add no check that the label of the last record does not already make. Dropping it removes one more state from the receiver.
+- **Synthetic prefix of 7 bytes.** The counter keeps 5 bytes so the nonce stays 12. Left as an open question for the second review.
+
+## Consequences
+
+- Header 58 bytes; 23 bytes per record; 32 bytes of labels per data record plus 32 bytes per audit path step (the base-2 logarithm of the page count, rounded up) per page.
+- The first data record waits for the labelling pass (ADR 0012, consequences).
+- Renaming names that a target file system still refuses belongs to `libraries/sink` (later), not the parcel: the parcel validates and rejects.
+- The name profile pins Unicode 15.1 tables, generated by `libraries/parcel/scripts/generateUnicodeTables.py`.
+- Open for the second review: the 7-byte synthetic prefix, whether to seal label pages, and NFC drift after Unicode 15.1 (all in `docs/parcel.md`).

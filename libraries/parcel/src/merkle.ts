@@ -1,10 +1,13 @@
 // oxlint-effect-plugin ignore-file:
 // reason: the parcel library is MIT and deliberately free of Effect so other clients can adopt it; Web Crypto is its one capability and callers wrap it (docs/decisions/0009)
 /**
- * RFC 6962 Merkle tree hash over ciphertext records (docs/parcel.md, "Trailer"). `MerkleFrontier` keeps one hash per
- * complete subtree (at most log2(n) of them), so the sender hashes while streaming and never holds the records.
+ * RFC 6962 Merkle trees over data record labels (docs/parcel.md, "Labels and the root" and "Label pages").
+ *
+ * A label is a leaf hash. Trees here are computed over nodes that are already hashed (labels, or page roots), so
+ * only interior nodes are hashed. Because a page holds a power of two of labels, every page is a node of the tree
+ * over all labels, and the root over page roots equals the root over all labels.
  */
-import { asBufferSource, concatBytes, fromHex, toHex } from "./bytes.ts"
+import { asBufferSource, concatBytes } from "./bytes.ts"
 import { ParcelError } from "./errors.ts"
 
 const sha256 = async (bytes: Uint8Array): Promise<Uint8Array<ArrayBuffer>> => new Uint8Array(await crypto.subtle.digest("SHA-256", asBufferSource(bytes)))
@@ -12,74 +15,69 @@ const sha256 = async (bytes: Uint8Array): Promise<Uint8Array<ArrayBuffer>> => ne
 const leafPrefix = new Uint8Array([0x00])
 const nodePrefix = new Uint8Array([0x01])
 
+/** A record's label: its RFC 6962 leaf hash. */
 export const leafHash = (leaf: Uint8Array) => sha256(concatBytes(leafPrefix, leaf))
 export const nodeHash = (left: Uint8Array, right: Uint8Array) => sha256(concatBytes(nodePrefix, left, right))
+
+/** The largest power of two strictly below `size` (size at least 2). */
+const splitOf = (size: number): number => {
+  let split = 1
+  while (split * 2 < size) split *= 2
+  return split
+}
 
 /** The tree hash of a list of leaves, computed directly from the RFC 6962 definition. For tests and small inputs. */
 export const merkleRoot = async (leaves: ReadonlyArray<Uint8Array>): Promise<Uint8Array<ArrayBuffer>> => {
   if (leaves.length === 0) return sha256(new Uint8Array(0))
   if (leaves.length === 1) return leafHash(leaves[0] ?? new Uint8Array(0))
-  let split = 1
-  while (split * 2 < leaves.length) split *= 2
+  const split = splitOf(leaves.length)
   return nodeHash(await merkleRoot(leaves.slice(0, split)), await merkleRoot(leaves.slice(split)))
 }
 
-interface Subtree {
-  readonly size: number
-  readonly hash: Uint8Array<ArrayBuffer>
+/** The tree hash over already-hashed nodes `start .. end - 1` (a single node is itself). */
+export const treeHash = async (nodes: ReadonlyArray<Uint8Array>, start = 0, end = nodes.length): Promise<Uint8Array<ArrayBuffer>> => {
+  if (end - start < 1) throw new ParcelError("invalid-argument", "a tree needs at least one node")
+  if (end - start === 1) return new Uint8Array(nodes[start] ?? new Uint8Array(32))
+  const split = splitOf(end - start)
+  return nodeHash(await treeHash(nodes, start, start + split), await treeHash(nodes, start + split, end))
 }
 
-/** A resumable snapshot: the complete subtrees from left to right, hex encoded. */
-export type MerkleFrontierSnapshot = ReadonlyArray<{ readonly size: number; readonly hash: string }>
+export interface Sibling {
+  readonly side: "left" | "right"
+  readonly start: number
+  readonly end: number
+}
 
-export class MerkleFrontier {
-  #subtrees: Array<Subtree> = []
-
-  get leafCount(): number {
-    return this.#subtrees.reduce((sum, subtree) => sum + subtree.size, 0)
-  }
-
-  /** Appends a leaf by its leaf hash (see `leafHash`). Calls must not overlap. */
-  async appendLeafHash(hash: Uint8Array): Promise<void> {
-    let current: Subtree = { size: 1, hash: new Uint8Array(hash) }
-    for (let last = this.#subtrees.at(-1); last !== undefined && last.size === current.size; last = this.#subtrees.at(-1)) {
-      this.#subtrees.pop()
-      current = { size: last.size * 2, hash: await nodeHash(last.hash, current.hash) }
+/** The audit path of node `index` among `count` nodes: sibling ranges, nearest first (docs/parcel.md, "Label pages"). */
+export const auditPath = (count: number, index: number): ReadonlyArray<Sibling> => {
+  if (!Number.isSafeInteger(index) || index < 0 || index >= count) throw new ParcelError("invalid-argument", "node index out of range")
+  const path: Array<Sibling> = []
+  const walk = (start: number, end: number) => {
+    if (end - start === 1) return
+    const split = start + splitOf(end - start)
+    if (index < split) {
+      walk(start, split)
+      path.push({ side: "right", start: split, end })
+    } else {
+      walk(split, end)
+      path.push({ side: "left", start, end: split })
     }
-    this.#subtrees.push(current)
   }
+  walk(0, count)
+  return path
+}
 
-  async append(leaf: Uint8Array): Promise<void> {
-    await this.appendLeafHash(await leafHash(leaf))
+/** Folds a node with its audit path's sibling hashes into the root. */
+export const foldAuditPath = async (
+  node: Uint8Array,
+  path: ReadonlyArray<Sibling>,
+  siblingHashes: ReadonlyArray<Uint8Array>,
+): Promise<Uint8Array<ArrayBuffer>> => {
+  if (path.length !== siblingHashes.length) throw new ParcelError("invalid-argument", "one hash per sibling")
+  let accumulated = new Uint8Array(node)
+  for (const [index, sibling] of path.entries()) {
+    const hash = siblingHashes[index] ?? new Uint8Array(32)
+    accumulated = sibling.side === "right" ? await nodeHash(accumulated, hash) : await nodeHash(hash, accumulated)
   }
-
-  /** The tree hash of every leaf appended so far. */
-  async root(): Promise<Uint8Array<ArrayBuffer>> {
-    const last = this.#subtrees.at(-1)
-    if (last === undefined) return sha256(new Uint8Array(0))
-    let accumulated = last.hash
-    for (let index = this.#subtrees.length - 2; index >= 0; index--) {
-      accumulated = await nodeHash(this.#subtrees[index]?.hash ?? new Uint8Array(0), accumulated)
-    }
-    return accumulated
-  }
-
-  snapshot(): MerkleFrontierSnapshot {
-    return this.#subtrees.map(({ size, hash }) => ({ size, hash: toHex(hash) }))
-  }
-
-  static restore(snapshot: MerkleFrontierSnapshot): MerkleFrontier {
-    const valid = snapshot.every(
-      ({ size, hash }, index) =>
-        Number.isSafeInteger(size) &&
-        size > 0 &&
-        Number.isInteger(Math.log2(size)) &&
-        hash.length === 64 &&
-        (index === 0 || size < (snapshot[index - 1]?.size ?? 0)),
-    )
-    if (!valid) throw new ParcelError("invalid-argument", "not a Merkle frontier snapshot")
-    const frontier = new MerkleFrontier()
-    frontier.#subtrees = snapshot.map(({ size, hash }) => ({ size, hash: fromHex(hash) }))
-    return frontier
-  }
+  return accumulated
 }

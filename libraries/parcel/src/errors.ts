@@ -1,6 +1,6 @@
 // oxlint-effect-plugin ignore-file:
 // reason: the parcel library is MIT and deliberately free of Effect so other clients can adopt it; Web Crypto is its one capability and callers wrap it (docs/decisions/0009)
-/** Every failure the parcel library reports. Callers branch on `reason`, never on the message. */
+/** Every failure the parcel library reports. Callers branch on `reason`, never on the message (docs/parcel.md, "Receiver rules"). */
 
 export type ParcelErrorReason =
   | "invalid-argument"
@@ -9,14 +9,16 @@ export type ParcelErrorReason =
   | "unsupported-version"
   | "invalid-record-size"
   | "key-commitment-mismatch"
+  | "header-mismatch"
   | "authentication-failed"
   | "invalid-manifest"
-  | "invalid-trailer"
+  | "record-count-mismatch"
+  | "label-page-mismatch"
+  | "label-mismatch"
   | "size-mismatch"
   | "truncated"
   | "trailing-data"
-  | "record-count-mismatch"
-  | "root-hash-mismatch"
+  | "source-changed"
 
 export class ParcelError extends Error {
   override readonly name = "ParcelError"

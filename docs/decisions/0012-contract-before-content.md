@@ -1,6 +1,6 @@
 # 0012 Contract before content
 
-Status: proposed (2026-10-28), from the product owner's direction; the parcel v1 revision (ADR 0011) must make room for it before v1 freezes.
+Status: accepted (2026-10-28); implemented in parcel v1 by the revision in ADR 0011. The acceptance message itself belongs to the room protocol.
 
 ## Context
 

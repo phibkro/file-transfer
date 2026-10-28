@@ -1,96 +1,135 @@
 // oxlint-effect-plugin ignore-file:
 // reason: the parcel library is MIT and deliberately free of Effect so other clients can adopt it; Web Crypto is its one capability and callers wrap it (docs/decisions/0009)
 /**
- * Whole transfers as Web Streams with constant memory: one record buffer and an O(log n) Merkle frontier.
- * Encryption emits one chunk per unit (header, manifest record, each data record, trailer), which is what the
- * transport frames. Decryption accepts any chunking and emits one plaintext chunk per data record.
+ * Whole parcels as Web Streams.
+ *
+ * Sending reads the source twice: the labelling pass seals every record and keeps its 32-byte label, then the
+ * sending pass reseals each record (deterministically, so the bytes are the same) and checks it against its label,
+ * stopping with `source-changed` if the source moved underneath. The stream emits the header, each manifest record,
+ * then each label page followed by the records it covers.
+ *
+ * Receiving accepts any chunking and emits one plaintext chunk per data record. Output is provisional until the
+ * last record verifies (docs/parcel.md, receiver rule 5): the stream closes only after the whole parcel checks out
+ * and errors on any failure, so a sink that commits on close and aborts on error never exposes a forged, changed or
+ * truncated file.
  */
 import { bytesEqual } from "./bytes.ts"
-import { headerLength, trailerCiphertextLength } from "./constants.ts"
+import { headerLength, labelsPerPage } from "./constants.ts"
 import { ParcelError } from "./errors.ts"
-import { decodeHeader } from "./header.ts"
+import type { Header } from "./header.ts"
 import type { Manifest } from "./manifest.ts"
-import { leafHash, MerkleFrontier } from "./merkle.ts"
-import { createEncryptor, type EncryptorOptions, manifestCiphertextLength, openTransfer, type TransferDecryptor, type TransferEncryptor } from "./transfer.ts"
+import { leafHash } from "./merkle.ts"
+import {
+  type Contract,
+  createParcelSealer,
+  labelRecords,
+  manifestRecordLength,
+  openHeader,
+  type OpenOptions,
+  type ParcelOpener,
+  type ParcelReceiver,
+  type RecordReader,
+  type SealerOptions,
+} from "./transfer.ts"
 
-export interface EncryptionStream {
-  readonly stream: TransformStream<Uint8Array, Uint8Array>
-  readonly encryptor: TransferEncryptor
+/** Reads records from bytes in memory. */
+export const recordReaderFromBytes =
+  (bytes: Uint8Array, recordSize: number): RecordReader =>
+  async (index, length) =>
+    bytes.subarray(index * recordSize, index * recordSize + length)
+
+/** Reads records from a Blob or File without loading it whole. */
+export const recordReaderFromBlob =
+  (blob: Blob, recordSize: number): RecordReader =>
+  async (index, length) =>
+    new Uint8Array(await blob.slice(index * recordSize, index * recordSize + length).arrayBuffer())
+
+export interface ParcelSender {
+  readonly contract: Contract
+  readonly stream: ReadableStream<Uint8Array>
 }
 
-/** Plaintext in (the files concatenated in manifest order, exactly `totalSize` bytes, any chunking), ciphertext out. */
-export const createEncryptionStream = async (options: EncryptorOptions): Promise<EncryptionStream> => {
-  const encryptor = await createEncryptor(options)
-  const { recordSize, recordCount, manifest } = encryptor
-  const frontier = new MerkleFrontier()
-  const buffer = new Uint8Array(recordSize)
-  let filled = 0
-  let nextIndex = 0
-  let received = 0
+/** Labels every record, seals the contract, and returns the stream that sends it (the labelling pass runs before this resolves). */
+export const createParcelSender = async (options: SealerOptions & { readonly readRecord: RecordReader }): Promise<ParcelSender> => {
+  const sealer = await createParcelSealer(options)
+  const contract = await sealer.sealContract(await labelRecords(sealer, options.readRecord))
 
-  const sealNext = async (controller: TransformStreamDefaultController<Uint8Array>, length: number) => {
-    const record = await encryptor.sealData(nextIndex, buffer.subarray(0, length))
-    await frontier.append(record)
-    controller.enqueue(record)
-    nextIndex++
-    filled = 0
+  async function* units(): AsyncGenerator<Uint8Array> {
+    yield contract.header.bytes.slice()
+    for (const record of contract.manifestRecords) yield record
+    for (let page = 0; page < contract.pageCount; page++) {
+      yield await contract.labelPage(page)
+      const { start, end } = contract.pageRecords(page)
+      for (let index = start; index < end; index++) {
+        const record = await sealer.sealData(index, await options.readRecord(index, sealer.dataPlaintextLength(index)))
+        if (!bytesEqual(await leafHash(record), contract.labelOf(index))) {
+          throw new ParcelError("source-changed", `data record ${index} changed since the contract was sealed`)
+        }
+        yield record
+      }
+    }
   }
 
-  const stream = new TransformStream<Uint8Array, Uint8Array>({
-    start: async (controller) => {
-      controller.enqueue(encryptor.header.bytes.slice())
-      controller.enqueue(await encryptor.sealManifest())
+  const iterator = units()
+  const stream = new ReadableStream<Uint8Array>({
+    pull: async (controller) => {
+      const next = await iterator.next()
+      if (next.done) controller.close()
+      else controller.enqueue(next.value)
     },
-    transform: async (chunk, controller) => {
-      received += chunk.length
-      if (received > manifest.totalSize) throw new ParcelError("size-mismatch", "more plaintext than the manifest declares")
-      let offset = 0
-      while (offset < chunk.length) {
-        const taken = Math.min(recordSize - filled, chunk.length - offset)
-        buffer.set(chunk.subarray(offset, offset + taken), filled)
-        filled += taken
-        offset += taken
-        if (filled === recordSize) await sealNext(controller, recordSize)
-      }
-    },
-    flush: async (controller) => {
-      if (received !== manifest.totalSize) throw new ParcelError("size-mismatch", "less plaintext than the manifest declares")
-      if (nextIndex < recordCount) await sealNext(controller, filled)
-      controller.enqueue(await encryptor.sealTrailer({ recordCount, rootHash: await frontier.root() }))
+    cancel: async () => {
+      await iterator.return(undefined)
     },
   })
-  return { stream, encryptor }
+  return { contract, stream }
+}
+
+/** What the receiver knows once the contract is open, before any content. */
+export interface ReceivedContract {
+  readonly header: Header
+  readonly manifest: Manifest
+  readonly recordCount: number
+  readonly rootHash: Uint8Array
+  readonly digest: Uint8Array
 }
 
 export interface DecryptionStream {
   readonly stream: TransformStream<Uint8Array, Uint8Array>
-  /** Resolves once the manifest is authenticated, before any data; rejects if the transfer fails first. */
+  /** Resolves once the contract is open, before any content; rejects if the parcel fails first. */
+  readonly contract: Promise<ReceivedContract>
   readonly manifest: Promise<Manifest>
 }
 
 type Unit =
   | { readonly kind: "header" }
-  | { readonly kind: "manifest" }
+  | { readonly kind: "manifest"; readonly counter: number }
+  | { readonly kind: "page"; readonly page: number }
   | { readonly kind: "data"; readonly index: number }
-  | { readonly kind: "trailer" }
   | { readonly kind: "done" }
 
 /**
- * Ciphertext in, plaintext out. Every record is authenticated before its plaintext is emitted; the stream errors
- * with a `ParcelError` on any failure, and the caller must then discard what it wrote (docs/parcel.md, "Receiver rules").
+ * Parcel bytes in, plaintext out. Every page is checked against the root and every record against its label
+ * before its plaintext is emitted; the stream errors with a `ParcelError` on any failure (a breach names the
+ * record), and the caller must then discard what it wrote.
  */
-export const createDecryptionStream = (secret: Uint8Array): DecryptionStream => {
-  let resolveManifest: (manifest: Manifest) => void = () => {}
-  let rejectManifest: (error: unknown) => void = () => {}
-  const manifest = new Promise<Manifest>((resolve, reject) => {
-    resolveManifest = resolve
-    rejectManifest = reject
+export const createDecryptionStream = (linkSecret: Uint8Array, options: OpenOptions = {}): DecryptionStream => {
+  let resolveContract: (contract: ReceivedContract) => void = () => {}
+  let rejectContract: (error: unknown) => void = () => {}
+  const contract = new Promise<ReceivedContract>((resolve, reject) => {
+    resolveContract = resolve
+    rejectContract = reject
   })
+  contract.catch(() => {})
+  const manifest = contract.then((opened) => opened.manifest)
   manifest.catch(() => {})
 
-  const frontier = new MerkleFrontier()
-  let headerBytes = new Uint8Array(0)
-  let decryptor: TransferDecryptor | undefined
+  let opener: ParcelOpener | undefined
+  let manifestPlaintexts: Array<Uint8Array> = []
+  let manifestRecords: Array<Uint8Array> = []
+  let manifestRecordTotal = 1
+  let receiver: ParcelReceiver | undefined
+  let pageLabels: ReadonlyArray<Uint8Array> = []
+  let pageStart = 0
   let unit: Unit = { kind: "header" }
   let pending = new Uint8Array(headerLength)
   let filled = 0
@@ -100,11 +139,11 @@ export const createDecryptionStream = (secret: Uint8Array): DecryptionStream => 
       case "header":
         return headerLength
       case "manifest":
-        return manifestCiphertextLength(decodeHeader(headerBytes))
+        return manifestRecordLength
+      case "page":
+        return receiver?.pageLength(current.page) ?? 0
       case "data":
-        return decryptor?.dataCiphertextLength(current.index) ?? 0
-      case "trailer":
-        return trailerCiphertextLength
+        return receiver?.dataRecordLength(current.index) ?? 0
       case "done":
         return 0
     }
@@ -119,31 +158,48 @@ export const createDecryptionStream = (secret: Uint8Array): DecryptionStream => 
   const complete = async (controller: TransformStreamDefaultController<Uint8Array>) => {
     switch (unit.kind) {
       case "header":
-        decodeHeader(pending)
-        headerBytes = pending
-        advance({ kind: "manifest" })
+        opener = await openHeader(linkSecret, pending, options)
+        advance({ kind: "manifest", counter: 0 })
         return
-      case "manifest":
-        decryptor = await openTransfer(secret, headerBytes, pending)
-        resolveManifest(decryptor.manifest)
-        advance({ kind: "data", index: 0 })
-        return
-      case "data": {
-        if (decryptor === undefined) throw new ParcelError("invalid-argument", "data before the manifest")
-        const plaintext = await decryptor.openData(unit.index, pending)
-        await frontier.appendLeafHash(await leafHash(pending))
-        controller.enqueue(plaintext)
-        advance(unit.index + 1 < decryptor.recordCount ? { kind: "data", index: unit.index + 1 } : { kind: "trailer" })
+      case "manifest": {
+        if (opener === undefined) throw new ParcelError("invalid-argument", "manifest before the header")
+        const plaintext = await opener.openManifestRecord(unit.counter, pending)
+        if (unit.counter === 0) manifestRecordTotal = opener.manifestRecordCountFrom(plaintext)
+        manifestPlaintexts.push(plaintext)
+        manifestRecords.push(pending)
+        if (unit.counter + 1 < manifestRecordTotal) {
+          advance({ kind: "manifest", counter: unit.counter + 1 })
+          return
+        }
+        receiver = await opener.acceptContract(manifestPlaintexts, manifestRecords)
+        manifestPlaintexts = []
+        manifestRecords = []
+        resolveContract({
+          header: opener.header,
+          manifest: receiver.manifest,
+          recordCount: receiver.recordCount,
+          rootHash: receiver.rootHash,
+          digest: receiver.digest,
+        })
+        advance({ kind: "page", page: 0 })
         return
       }
-      case "trailer": {
-        if (decryptor === undefined) throw new ParcelError("invalid-argument", "trailer before the manifest")
-        const trailer = await decryptor.openTrailer(pending)
-        if (trailer.recordCount !== decryptor.recordCount)
-          throw new ParcelError("record-count-mismatch", "the trailer's record count does not match the manifest")
-        if (!bytesEqual(trailer.rootHash, await frontier.root()))
-          throw new ParcelError("root-hash-mismatch", "the trailer's root hash does not match the records")
-        advance({ kind: "done" })
+      case "page": {
+        if (receiver === undefined) throw new ParcelError("invalid-argument", "page before the contract")
+        pageLabels = await receiver.verifyPage(unit.page, pending)
+        pageStart = receiver.pageRecords(unit.page).start
+        advance({ kind: "data", index: pageStart })
+        return
+      }
+      case "data": {
+        if (receiver === undefined) throw new ParcelError("invalid-argument", "data before the contract")
+        const label = pageLabels[unit.index - pageStart]
+        if (label === undefined) throw new ParcelError("invalid-argument", "record outside its page")
+        controller.enqueue(await receiver.openData(unit.index, pending, label))
+        const next = unit.index + 1
+        if (next >= receiver.recordCount) advance({ kind: "done" })
+        else if (next - pageStart >= pageLabels.length) advance({ kind: "page", page: next / labelsPerPage })
+        else advance({ kind: "data", index: next })
         return
       }
       case "done":
@@ -152,7 +208,7 @@ export const createDecryptionStream = (secret: Uint8Array): DecryptionStream => 
   }
 
   const fail = (error: unknown): never => {
-    rejectManifest(error)
+    rejectContract(error)
     throw error
   }
 
@@ -161,7 +217,7 @@ export const createDecryptionStream = (secret: Uint8Array): DecryptionStream => 
       try {
         let offset = 0
         while (offset < chunk.length) {
-          if (unit.kind === "done") throw new ParcelError("trailing-data", "bytes after the trailer")
+          if (unit.kind === "done") throw new ParcelError("trailing-data", "bytes after the last record")
           const taken = Math.min(pending.length - filled, chunk.length - offset)
           pending.set(chunk.subarray(offset, offset + taken), filled)
           filled += taken
@@ -173,8 +229,8 @@ export const createDecryptionStream = (secret: Uint8Array): DecryptionStream => 
       }
     },
     flush: () => {
-      if (unit.kind !== "done") fail(new ParcelError("truncated", "the transfer ended before its trailer"))
+      if (unit.kind !== "done") fail(new ParcelError("truncated", "the parcel ended before its last record"))
     },
   })
-  return { stream, manifest }
+  return { stream, contract, manifest }
 }
