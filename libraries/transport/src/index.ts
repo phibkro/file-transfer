@@ -3,8 +3,8 @@
  * WebSocket, later stored and seeded). Records are the unit of resume; frames
  * are the unit a path carries. Implementations arrive in milestone M2.
  */
-import type { Effect, Stream } from "effect"
-import { Data } from "effect"
+import type { Stream } from "effect"
+import { Data, Effect } from "effect"
 
 export type PathKind = "direct" | "relayed"
 
@@ -26,9 +26,11 @@ export interface Transport {
   readonly close: Effect.Effect<void>
 }
 
-/** Splits a ciphertext record into frames no larger than `maximumFrameBytes`. */
-export const frameRecord = (recordIndex: number, record: Uint8Array, maximumFrameBytes: number): ReadonlyArray<Frame> => {
-  if (!Number.isInteger(maximumFrameBytes) || maximumFrameBytes < 1) throw new RangeError("maximumFrameBytes must be a positive integer")
+export class InvalidFrameSize extends Data.TaggedError("InvalidFrameSize")<{ readonly maximumFrameBytes: number }> {}
+
+/** Splits a ciphertext record into frames no larger than `maximumFrameBytes`, which must be a positive integer. */
+export const frameRecord = (recordIndex: number, record: Uint8Array, maximumFrameBytes: number): Effect.Effect<ReadonlyArray<Frame>, InvalidFrameSize> => {
+  if (!Number.isInteger(maximumFrameBytes) || maximumFrameBytes < 1) return Effect.fail(new InvalidFrameSize({ maximumFrameBytes }))
   const frames: Array<Frame> = []
   const count = Math.max(1, Math.ceil(record.length / maximumFrameBytes))
   for (let frameIndex = 0; frameIndex < count; frameIndex++) {
@@ -40,7 +42,7 @@ export const frameRecord = (recordIndex: number, record: Uint8Array, maximumFram
       bytes: record.subarray(start, Math.min(start + maximumFrameBytes, record.length)),
     })
   }
-  return frames
+  return Effect.succeed(frames)
 }
 
 /** Reassembles the frames of one record, in frame order. */

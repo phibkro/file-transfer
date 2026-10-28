@@ -2,6 +2,7 @@
  * Aggregate counters only. Events carry no identifiers, names, keys, sizes in
  * bytes or addresses; sizes are reduced to coarse buckets before recording.
  */
+import { declareGuarantees } from "@file-transfer/conformance/guarantee"
 import { Context, Effect, Layer, Ref } from "effect"
 
 export type TelemetryEventKind =
@@ -55,21 +56,48 @@ const emptySnapshot = (): TelemetrySnapshot => ({
   bySizeBucket: Object.fromEntries(sizeBuckets.map((bucket) => [bucket, 0])) as Record<SizeBucket, number>,
 })
 
-/** In-memory reference layer: the executable model every platform must match. */
-export const TelemetryReference = Layer.effect(
-  Telemetry,
-  Effect.gen(function* () {
-    const counters = yield* Ref.make(emptySnapshot())
-    return {
-      record: (event) =>
-        Ref.update(counters, (current) => ({
-          byKind: { ...current.byKind, [event.kind]: current.byKind[event.kind] + 1 },
-          bySizeBucket:
-            event.sizeBucket === undefined
-              ? current.bySizeBucket
-              : { ...current.bySizeBucket, [event.sizeBucket]: current.bySizeBucket[event.sizeBucket] + 1 },
-        })),
-      snapshot: Ref.get(counters),
-    }
-  }),
-)
+export const telemetryGuarantees = declareGuarantees([
+  { identifier: "telemetry/exact-counts", property: "every recorded event is counted exactly once, by kind and by size bucket", strength: "port-enforced" },
+  {
+    identifier: "telemetry/aggregate-only",
+    property: "a snapshot holds only counters over the declared kinds and buckets, never anything per event",
+    strength: "port-enforced",
+  },
+])
+
+export type TelemetryGuarantee = (typeof telemetryGuarantees)[number]["identifier"]
+
+/**
+ * In-memory reference layer: the executable model every platform must match. `faults` builds the deliberately broken
+ * variants that the negative controls need; production code always uses `TelemetryReference`, which has none.
+ */
+export const makeTelemetryReference = (faults: ReadonlySet<TelemetryGuarantee> = new Set()) =>
+  Layer.effect(
+    Telemetry,
+    Effect.gen(function* () {
+      const counters = yield* Ref.make(emptySnapshot())
+      const recent = yield* Ref.make<ReadonlyArray<TelemetryEvent>>([])
+      const increment = faults.has("telemetry/exact-counts") ? 2 : 1
+      return {
+        record: (event) =>
+          Effect.andThen(
+            Ref.update(recent, (events) => [...events, event]),
+            Ref.update(counters, (current) => ({
+              byKind: { ...current.byKind, [event.kind]: current.byKind[event.kind] + increment },
+              bySizeBucket:
+                event.sizeBucket === undefined
+                  ? current.bySizeBucket
+                  : { ...current.bySizeBucket, [event.sizeBucket]: current.bySizeBucket[event.sizeBucket] + 1 },
+            })),
+          ),
+        snapshot: faults.has("telemetry/aggregate-only")
+          ? Effect.map(Effect.all([Ref.get(counters), Ref.get(recent)]), ([snapshot, events]): TelemetrySnapshot => {
+              const leaky = { ...snapshot, recentEvents: events }
+              return leaky
+            })
+          : Ref.get(counters),
+      }
+    }),
+  )
+
+export const TelemetryReference = makeTelemetryReference()

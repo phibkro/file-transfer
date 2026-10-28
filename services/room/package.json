@@ -9,7 +9,9 @@
     "./conformance": "./test/conformance.ts"
   },
   "dependencies": {
+    "@file-transfer/conformance": "workspace:*",
     "@file-transfer/format": "workspace:*",
+    "@file-transfer/machine": "workspace:*",
     "effect": "^4.0.7"
   }
 }

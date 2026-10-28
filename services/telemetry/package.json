@@ -8,5 +8,8 @@
     ".": "./src/index.ts",
     "./conformance": "./test/conformance.ts"
   },
-  "dependencies": { "effect": "^4.0.7" }
+  "dependencies": {
+    "@file-transfer/conformance": "workspace:*",
+    "effect": "^4.0.7"
+  }
 }

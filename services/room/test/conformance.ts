@@ -1,12 +1,13 @@
 /**
- * Conformance suite for the Room service. Every platform layer must pass it,
- * alongside the reference layer. Run it with `roomConformance(name, layer)`.
+ * The Room service's conformance suite: one check per guarantee in `roomGuarantees`. Every platform layer runs
+ * `roomSuite.run` and `roomSuite.negativeControls` with its own broken variants, as the reference layer does.
  */
+import { conformanceSuite } from "@file-transfer/conformance"
 import { deriveRoomToken, hashRoomToken } from "@file-transfer/format"
-import { describe, expect, it } from "bun:test"
+import { expect } from "bun:test"
 import { Effect, type Layer } from "effect"
 import fc from "fast-check"
-import { Room } from "../src/index.ts"
+import { Room, roomGuarantees, type RoomGuarantee } from "../src/index.ts"
 
 const secretArbitrary = fc.uint8Array({ minLength: 32, maxLength: 32 })
 
@@ -19,90 +20,89 @@ const createRoomWithSecret = (secret: Uint8Array, maximumRecipients: number) =>
     return { room, roomToken, roomIdentifier }
   })
 
-export const roomConformance = (name: string, layer: Layer.Layer<Room>) => {
-  const run = <A, E>(effect: Effect.Effect<A, E, Room>) => Effect.runPromise(Effect.provide(effect, layer))
+const runner = (layer: Layer.Layer<Room>) => <A, E>(effect: Effect.Effect<A, E, Room>) => Effect.runPromise(Effect.provide(effect, layer))
 
-  describe(`Room conformance: ${name}`, () => {
-    it("admits exactly the holder of the room token", async () => {
+export const roomSuite = conformanceSuite<Room, RoomGuarantee>({
+  service: "Room",
+  guarantees: roomGuarantees,
+  checks: {
+    "room/token-admission": async (layer) => {
       await fc.assert(
         fc.asyncProperty(secretArbitrary, secretArbitrary, async (secret, otherSecret) => {
           fc.pre(secret.some((byte, index) => byte !== otherSecret[index]))
-          const outcome = await run(
+          const outcome = await runner(layer)(
             Effect.gen(function* () {
               const { room, roomToken, roomIdentifier } = yield* createRoomWithSecret(secret, 4)
               const otherToken = yield* Effect.promise(() => deriveRoomToken(otherSecret))
-              const rejected = yield* Effect.flip(room.join({ roomIdentifier, roomToken: otherToken, role: "recipient" }))
-              const admitted = yield* room.join({ roomIdentifier, roomToken, role: "recipient" })
-              return { rejected: rejected._tag, admitted }
+              const wrongToken = yield* Effect.result(room.join({ roomIdentifier, roomToken: otherToken, role: "recipient" }))
+              const rightToken = yield* Effect.result(room.join({ roomIdentifier, roomToken, role: "recipient" }))
+              return { wrongToken: wrongToken._tag === "Failure" ? wrongToken.failure._tag : "admitted", rightToken: rightToken._tag }
             }),
           )
-          expect(outcome.rejected).toBe("RoomTokenRejected")
-          expect(typeof outcome.admitted).toBe("string")
+          expect(outcome).toEqual({ wrongToken: "RoomTokenRejected", rightToken: "Success" })
         }),
         { numRuns: 25 },
       )
-    })
+    },
 
-    it("allows one sender and at most the maximum number of recipients", async () => {
+    "room/capacity": async (layer) => {
       await fc.assert(
         fc.asyncProperty(secretArbitrary, fc.integer({ min: 1, max: 6 }), fc.integer({ min: 0, max: 9 }), async (secret, maximumRecipients, attempts) => {
-          const outcome = await run(
+          const outcome = await runner(layer)(
             Effect.gen(function* () {
               const { room, roomToken, roomIdentifier } = yield* createRoomWithSecret(secret, maximumRecipients)
               yield* room.join({ roomIdentifier, roomToken, role: "sender" })
-              const secondSender = yield* Effect.flip(room.join({ roomIdentifier, roomToken, role: "sender" }))
+              const secondSender = yield* Effect.result(room.join({ roomIdentifier, roomToken, role: "sender" }))
               let admitted = 0
-              let rejectedAsFull = 0
               for (let attempt = 0; attempt < attempts; attempt++) {
                 const result = yield* Effect.result(room.join({ roomIdentifier, roomToken, role: "recipient" }))
                 if (result._tag === "Success") admitted++
-                else if (result.failure._tag === "RoomFull") rejectedAsFull++
               }
               const description = yield* room.describe(roomIdentifier)
-              return { secondSender: secondSender._tag, admitted, rejectedAsFull, description }
+              return { secondSender: secondSender._tag, admitted, description }
             }),
           )
-          expect(outcome.secondSender).toBe("RoomFull")
+          expect(outcome.secondSender).toBe("Failure")
           expect(outcome.admitted).toBe(Math.min(attempts, maximumRecipients))
-          expect(outcome.rejectedAsFull).toBe(Math.max(0, attempts - maximumRecipients))
           expect(outcome.description.recipientCount).toBe(outcome.admitted)
           expect(outcome.description.hasSender).toBe(true)
         }),
         { numRuns: 25 },
       )
-    })
+    },
 
-    it("rejects joins after the room is closed", async () => {
-      const tag = await run(
+    "room/closed-rejects-joins": async (layer) => {
+      const outcome = await runner(layer)(
         Effect.gen(function* () {
           const { room, roomToken, roomIdentifier } = yield* createRoomWithSecret(new Uint8Array(32).fill(1), 2)
           yield* room.close(roomIdentifier)
-          const error = yield* Effect.flip(room.join({ roomIdentifier, roomToken, role: "recipient" }))
-          return error._tag
+          const result = yield* Effect.result(room.join({ roomIdentifier, roomToken, role: "recipient" }))
+          const description = yield* room.describe(roomIdentifier)
+          return { join: result._tag === "Failure" ? result.failure._tag : "admitted", state: description.state }
         }),
       )
-      expect(tag).toBe("RoomClosed")
-    })
+      expect(outcome).toEqual({ join: "RoomClosed", state: "Closed" })
+    },
 
-    it("reports unknown rooms as not found", async () => {
-      const tag = await run(
+    "room/unknown-not-found": async (layer) => {
+      const tag = await runner(layer)(
         Effect.gen(function* () {
           const room = yield* Room
-          const error = yield* Effect.flip(room.describe("no-such-room"))
-          return error._tag
+          const result = yield* Effect.result(room.describe("no-such-room"))
+          return result._tag === "Failure" ? result.failure._tag : "found"
         }),
       )
       expect(tag).toBe("RoomNotFound")
-    })
+    },
 
-    it("gives every room a distinct identifier", async () => {
-      const identifiers = await run(
+    "room/distinct-identifiers": async (layer) => {
+      const identifiers = await runner(layer)(
         Effect.gen(function* () {
           const room = yield* Room
           return yield* Effect.forEach(Array.from({ length: 200 }), () => room.create({ roomTokenHash: "00", maximumRecipients: 1 }))
         }),
       )
       expect(new Set(identifiers).size).toBe(identifiers.length)
-    })
-  })
-}
+    },
+  },
+})

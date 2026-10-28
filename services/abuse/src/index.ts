@@ -4,7 +4,8 @@
  * location is stored without its URL fragment, so key material submitted by
  * mistake never reaches storage.
  */
-import { Clock, Context, Data, Effect, Layer, Ref } from "effect"
+import { declareGuarantees } from "@file-transfer/conformance/guarantee"
+import { Clock, Context, Crypto, Data, Effect, Layer, Ref } from "effect"
 
 export type NoticeIdentifier = string
 
@@ -28,6 +29,19 @@ export type Decision = { readonly kind: "revoke"; readonly roomIdentifier: strin
 export class NoticeNotFound extends Data.TaggedError("NoticeNotFound")<{ readonly noticeIdentifier: NoticeIdentifier }> {}
 export class NoticeIncomplete extends Data.TaggedError("NoticeIncomplete")<{ readonly missing: ReadonlyArray<string> }> {}
 
+export const abuseGuarantees = declareGuarantees([
+  {
+    identifier: "abuse/fragment-never-stored",
+    property: "a notice location is kept without its URL fragment, so a decryption key submitted by mistake is dropped",
+    strength: "port-enforced",
+  },
+  { identifier: "abuse/complete-notices-only", property: "a notice missing a required field is rejected, naming the missing fields", strength: "port-enforced" },
+  { identifier: "abuse/revocation-applies", property: "a revoke decision revokes exactly its room; a reject decision revokes nothing", strength: "port-enforced" },
+  { identifier: "abuse/unknown-notice-not-found", property: "a decision on an unknown notice is reported as not found", strength: "port-enforced" },
+])
+
+export type AbuseGuarantee = (typeof abuseGuarantees)[number]["identifier"]
+
 export class Abuse extends Context.Service<
   Abuse,
   {
@@ -43,37 +57,50 @@ export const stripFragment = (location: string): string => {
   return index === -1 ? location : location.slice(0, index)
 }
 
-const randomIdentifier = (): string =>
-  Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, "0")).join("")
+const toHex = (bytes: Uint8Array): string => Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")
 
-/** In-memory reference layer: the executable model every platform must match. */
-export const AbuseReference = Layer.effect(
-  Abuse,
-  Effect.gen(function* () {
-    const notices = yield* Ref.make<ReadonlyMap<NoticeIdentifier, NoticeReceipt & { readonly decision?: Decision }>>(new Map())
-    const revoked = yield* Ref.make<ReadonlySet<string>>(new Set())
-    return {
-      submitNotice: (notice) =>
-        Effect.gen(function* () {
-          const missing = (["location", "explanation", "submitterName", "submitterEmail"] as const).filter((field) => notice[field].trim() === "")
-          if (missing.length > 0) return yield* Effect.fail(new NoticeIncomplete({ missing }))
-          const receipt: NoticeReceipt = {
-            noticeIdentifier: randomIdentifier(),
-            receivedAtMilliseconds: yield* Clock.currentTimeMillis,
-            storedLocation: stripFragment(notice.location),
-          }
-          yield* Ref.update(notices, (all) => new Map(all).set(receipt.noticeIdentifier, receipt))
-          return receipt
-        }),
-      decide: ({ noticeIdentifier, decision }) =>
-        Effect.gen(function* () {
-          const all = yield* Ref.get(notices)
-          const notice = all.get(noticeIdentifier)
-          if (notice === undefined) return yield* Effect.fail(new NoticeNotFound({ noticeIdentifier }))
-          yield* Ref.set(notices, new Map(all).set(noticeIdentifier, { ...notice, decision }))
-          if (decision.kind === "revoke") yield* Ref.update(revoked, (set) => new Set(set).add(decision.roomIdentifier))
-        }),
-      isRevoked: (roomIdentifier) => Effect.map(Ref.get(revoked), (set) => set.has(roomIdentifier)),
-    }
-  }),
-)
+/**
+ * In-memory reference layer: the executable model every platform must match. `faults` builds the deliberately broken
+ * variants that the negative controls need; production code always uses `AbuseReference`, which has none.
+ */
+export const makeAbuseReference = (faults: ReadonlySet<AbuseGuarantee> = new Set()) =>
+  Layer.effect(
+    Abuse,
+    Effect.gen(function* () {
+      const notices = yield* Ref.make<ReadonlyMap<NoticeIdentifier, NoticeReceipt & { readonly decision?: Decision }>>(new Map())
+      const revoked = yield* Ref.make<ReadonlySet<string>>(new Set())
+      const random = yield* Crypto.Crypto
+      /** Secure randomness failing is a defect of the runtime, not an outcome a caller can handle. */
+      const randomIdentifier = Effect.map(Effect.orDie(random.randomBytes(16)), toHex)
+      return {
+        submitNotice: (notice) =>
+          Effect.gen(function* () {
+            const missing = (["location", "explanation", "submitterName", "submitterEmail"] as const).filter((field) => notice[field].trim() === "")
+            if (missing.length > 0 && !faults.has("abuse/complete-notices-only")) return yield* new NoticeIncomplete({ missing })
+            const receipt: NoticeReceipt = {
+              noticeIdentifier: yield* randomIdentifier,
+              receivedAtMilliseconds: yield* Clock.currentTimeMillis,
+              storedLocation: faults.has("abuse/fragment-never-stored") ? notice.location : stripFragment(notice.location),
+            }
+            yield* Ref.update(notices, (all) => new Map(all).set(receipt.noticeIdentifier, receipt))
+            return receipt
+          }),
+        decide: ({ noticeIdentifier, decision }) =>
+          Effect.gen(function* () {
+            const all = yield* Ref.get(notices)
+            const notice = all.get(noticeIdentifier)
+            if (notice === undefined) {
+              if (faults.has("abuse/unknown-notice-not-found")) return
+              return yield* new NoticeNotFound({ noticeIdentifier })
+            }
+            yield* Ref.set(notices, new Map(all).set(noticeIdentifier, { ...notice, decision }))
+            if (decision.kind === "revoke" && !faults.has("abuse/revocation-applies")) {
+              yield* Ref.update(revoked, (set) => new Set(set).add(decision.roomIdentifier))
+            }
+          }),
+        isRevoked: (roomIdentifier) => Effect.map(Ref.get(revoked), (set) => set.has(roomIdentifier)),
+      }
+    }),
+  )
+
+export const AbuseReference = makeAbuseReference()
