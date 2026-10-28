@@ -1,14 +1,23 @@
 name: checks
 
+# Checks on every push and pull request; deploys after the checks pass:
+# - a pull request from a branch of this repository gets a Worker Preview (`pr-<number>`), commented on the pull request
+#   and verified end to end, updated on every push and destroyed when the pull request closes;
+# - a push to main deploys production (https://send.phibkro.org) and verifies it end to end.
+# Pull requests from forks never receive the deploy secrets (GitHub withholds them) and are only checked.
+# Deploy jobs run only when the repository variable DEPLOYMENTS is "enabled" (platforms/cloudflare/README.md, CI).
+
 on:
   push:
   pull_request:
+    types: [opened, synchronize, reopened, closed]
 
 permissions:
   contents: read
 
 jobs:
   check:
+    if: github.event.action != 'closed'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -26,6 +35,7 @@ jobs:
       - run: pip install cryptography==50.0.1 && bun run check:vectors
 
   secrets:
+    if: github.event.action != 'closed'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -35,3 +45,85 @@ jobs:
       - uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  preview:
+    needs: [check, secrets]
+    if: vars.DEPLOYMENTS == 'enabled' && github.event_name == 'pull_request' && github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    environment:
+      name: preview
+      url: ${{ steps.deploy.outputs.url }}
+    concurrency:
+      group: preview-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - id: deploy
+        working-directory: platforms/cloudflare
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          bun run preview "pr-${{ github.event.pull_request.number }}" --yes 2>&1 | tee "$RUNNER_TEMP/deploy.log"
+          url="$(grep -oE 'https://[a-z0-9.-]+\.workers\.dev' "$RUNNER_TEMP/deploy.log" | tail -n 1)"
+          test -n "$url"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+      - name: Comment the preview URL
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREVIEW_URL: ${{ steps.deploy.outputs.url }}
+          COMMIT: ${{ github.event.pull_request.head.sha }}
+        run: |
+          gh pr comment "${{ github.event.pull_request.number }}" --edit-last --create-if-none \
+            --body "Preview: $PREVIEW_URL (commit $COMMIT). The end-to-end check runs against it next."
+      - run: bunx playwright install --with-deps chromium
+        working-directory: apps/web
+      - run: bun run e2e
+        working-directory: apps/web
+        env:
+          BASE_URL: ${{ steps.deploy.outputs.url }}
+
+  preview-cleanup:
+    if: vars.DEPLOYMENTS == 'enabled' && github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    environment: preview
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - working-directory: platforms/cloudflare
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: bun run destroy:preview "pr-${{ github.event.pull_request.number }}" --yes
+
+  production:
+    needs: [check, secrets]
+    if: vars.DEPLOYMENTS == 'enabled' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://send.phibkro.org
+    concurrency:
+      group: production
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - working-directory: platforms/cloudflare
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: bun run deploy --yes
+      - run: bunx playwright install --with-deps chromium
+        working-directory: apps/web
+      - run: bun run e2e
+        working-directory: apps/web
+        env:
+          BASE_URL: https://send.phibkro.org
