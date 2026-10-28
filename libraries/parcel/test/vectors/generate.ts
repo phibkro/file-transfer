@@ -159,6 +159,9 @@ const manifestRejections: ReadonlyArray<readonly [string, string]> = [
   ["right-to-left override", '{"version":1,"files":[{"name":"invoice_‮cod.exe","size":1,"mediaType":""}],"totalSize":1}'],
   ["C1 control", '{"version":1,"files":[{"name":"a\u0085b","size":1,"mediaType":""}],"totalSize":1}'],
   ["zero-width space", '{"version":1,"files":[{"name":"​","size":1,"mediaType":""}],"totalSize":1}'],
+  // Assigned in Unicode 16.0 (ARABIC PEPET, a combining mark): unassigned in 15.1, so rejected before NFC is checked.
+  ["code point unassigned in Unicode 15.1", '{"version":1,"files":[{"name":"pepet\u0897","size":1,"mediaType":""}],"totalSize":1}'],
+  ["noncharacter", '{"version":1,"files":[{"name":"a\ufdd0","size":1,"mediaType":""}],"totalSize":1}'],
   ["Windows device name", '{"version":1,"files":[{"name":"CON","size":1,"mediaType":""}],"totalSize":1}'],
   ["Windows device name with extension", '{"version":1,"files":[{"name":"docs/lpt¹.txt","size":1,"mediaType":""}],"totalSize":1}'],
   ["alternate data stream colon", '{"version":1,"files":[{"name":"a.txt:Zone.Identifier","size":1,"mediaType":""}],"totalSize":1}'],
@@ -220,15 +223,30 @@ export const generateRejections = async () => {
   const breached = await base.sealer.sealData(0, plaintextOf(manifest, 50))
   const tamperedPage = base.labelPages[0]?.slice() ?? new Uint8Array(32)
   tamperedPage[0] = (tamperedPage[0] ?? 0) ^ 1
+  // The second review's S1: after a reload the sender relabels a file that changed, under the same sequence number
+  // and salt. The header is byte-identical, the contract is not; only a receiver that pinned the digest rejects it.
+  const relabelled = await (async () => {
+    const sealer = await createParcelSealer({ linkSecret: secret, sequence: 0, salt, manifest, recordSizeExponent: 12 })
+    const changed = plaintextOf(manifest, 50)
+    const contract = await sealer.sealContract(await labelRecords(sealer, recordReaderFromBytes(changed, 4096)))
+    return concatBytes(contract.header.bytes, ...contract.manifestRecords, await contract.labelPage(0), await sealer.sealData(0, changed))
+  })()
   const otherSecret = new Uint8Array(32).fill(0xee)
   const wire = (manifestRecords: ReadonlyArray<Uint8Array>, page: Uint8Array, record: Uint8Array) =>
     toHex(concatBytes(header, ...manifestRecords, page, record))
 
-  const parcels: Array<{ name: string; secret: string; parcel: string; reason: string }> = [
+  const parcels: Array<{ name: string; secret: string; parcel: string; reason: string; expectedDigest?: string }> = [
     { name: "wrong secret", secret: toHex(otherSecret), parcel: toHex(honest), reason: "key-commitment-mismatch" },
     { name: "header only, wrong secret", secret: toHex(otherSecret), parcel: toHex(honest.subarray(0, headerLength)), reason: "key-commitment-mismatch" },
     { name: "cut inside the last record", secret: toHex(secret), parcel: toHex(honest.subarray(0, honest.length - 1)), reason: "truncated" },
     { name: "a byte after the last record", secret: toHex(secret), parcel: toHex(concatBytes(honest, new Uint8Array([0]))), reason: "trailing-data" },
+    {
+      name: "another contract under a header that is byte-identical to the pinned one",
+      secret: toHex(secret),
+      parcel: toHex(relabelled),
+      expectedDigest: toHex(base.contract.digest),
+      reason: "contract-mismatch",
+    },
     {
       name: "flipped synthetic prefix of manifest record 0",
       secret: toHex(secret),
@@ -286,7 +304,7 @@ export const generateRejections = async () => {
 
   return {
     description:
-      "Parcel v1 rejection vectors (docs/parcel.md). Every receiver must reject each manifest JSON (hex bytes) and each parcel with the given reason. Parcels use the vectors' link secret, sequence 0 and salt.",
+      "Parcel v1 rejection vectors (docs/parcel.md). Every receiver must reject each manifest JSON (hex bytes) and each parcel with the given reason. Parcels use the vectors' link secret, sequence 0 and salt; a parcel with `expectedDigest` is received by a recipient that already pinned that contract digest for sequence 0.",
     manifests: manifestRejections.map(([name, text]) => ({ name, json: toHex(textEncoder.encode(text)), reason: "invalid-manifest" })),
     parcels,
   }

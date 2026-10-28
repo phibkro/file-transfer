@@ -28,7 +28,8 @@ Startup phase: prove that people want this and that some will pay, before stabil
 - [x] Implement `libraries/parcel` per `parcel.md` (written fresh rather than lifted: SkySend's ECE layout differs in nonce, commitment and Merkle tree)
 - [x] First review (agent reviewer) and revision: synthetic nonces, canonical manifest, name profile, contract with labels and label pages (ADR 0011, ADR 0012)
 - [x] Test vectors (checked by an independent Python implementation in CI) and property-based tests
-- [ ] Second review of the revision (open questions in `parcel.md`), then a human applied-crypto review; freeze v1
+- [x] Second review (agent reviewer, second pass) and freeze: receivers pin the contract digest, names reject code points unassigned in Unicode 15.1, a normalizer sentinel; parcel v1 frozen 2026-10-28 (ADR 0011)
+- [ ] Human applied-crypto review before launch (recommended); a flaw it finds is fixed in version 2
 
 ## M2 Transfer (weeks 3 and 4)
 
@@ -38,6 +39,7 @@ Startup phase: prove that people want this and that some will pay, before stabil
   - `libraries/transport`: allow several records per frame (256 KiB to 1 MiB) to cut CPU and billed messages
 - [ ] `libraries/transport`: direct and relayed paths, relay-first switching, resume
 - [ ] `libraries/sink`: save tiers and OPFS resume bitmap; provisional output until the parcel verifies; rename on write when a file system refuses a name the parcel allowed (ADR 0011)
+  - Second review S4: NTFS's upcase table maps both `ı` (U+0131) and `i` to `I`, so names the parcel's full case folding keeps apart can collide on Windows; Windows opens the console for `CONIN$` and `CONOUT$`, which the parcel's device list does not cover. The sink checks collisions with the target's own folding and renames on write
 - [ ] Network matrix: home broadband, mobile data, corporate Wi-Fi, two browsers per side
 
 ## M3 Launch readiness (week 5)
@@ -66,7 +68,7 @@ Startup phase: prove that people want this and that some will pay, before stabil
 ## Open decisions
 
 - Positioning: consumer, or teams from the start (test a team offer as a fake door in phase 1)
-- Who gives the parcel specification its human applied-crypto review before v1 freezes
+- Who gives parcel v1 its human applied-crypto review before launch
 - Brand name, domain, trademark, and who holds them
 - Vite with plain TypeScript or Astro for the landing page
 - Apply for Stripe Managed Payments early (eligibility review takes time)

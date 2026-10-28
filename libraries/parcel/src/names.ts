@@ -5,11 +5,12 @@
  *
  * Adapted from cn-homage's `packages/core/src/7-bulk/names.ts` (same author), which cleans zip entry names by
  * rewriting them. A parcel receiver rejects instead of rewriting; renaming on write belongs to `libraries/sink`.
- * Changes: format characters (Cf, such as U+202E and zero-width spaces) and line and paragraph separators are
- * rejected too; collisions compare full Unicode case folding (so "straße" meets "STRASSE") rather than
+ * Changes: format characters (Cf, such as U+202E and zero-width spaces), line and paragraph separators, and code
+ * points unassigned in Unicode 15.1 (Cn) are rejected too; collisions compare full Unicode case folding (so "straße" meets "STRASSE") rather than
  * lower-casing; device names include COM and LPT with superscript digits, as Microsoft's naming rules and
  * disktree's `misread_by_win32` do.
  */
+import { ParcelError } from "./errors.ts"
 import { caseFoldings, forbiddenCodePointRanges } from "./unicode.ts"
 
 export const maximumNameBytes = 4096
@@ -46,21 +47,46 @@ export const isWindowsDeviceName = (segment: string): boolean => {
 
 const foldings = new Map(caseFoldings.map(([codePoint, ...folded]) => [codePoint ?? 0, String.fromCodePoint(...folded)]))
 
+/**
+ * The names a receiver accepts depend on NFC, so every receiver needs a normalizer at Unicode 15.1 or later. Unicode
+ * 15.1 added no character that affects NFC (DerivedAge.txt), so a normalizer that reorders U+10EFD (added in 15.0,
+ * canonical combining class 220) before U+0301 (class 230) is new enough. Exported with the normalizer as a
+ * parameter so tests can show an old one is refused.
+ */
+export const checkNormalizer = (normalize: (text: string) => string = (text) => text.normalize("NFC")): void => {
+  if (normalize("x\u0301\u{10EFD}") !== "x\u{10EFD}\u0301") {
+    throw new ParcelError("unsupported-runtime", "this runtime's Unicode normalization predates Unicode 15.1, so it cannot check names")
+  }
+}
+
+let normalizerChecked = false
+const requireModernNormalizer = (): void => {
+  if (normalizerChecked) return
+  checkNormalizer()
+  normalizerChecked = true
+}
+
 /** Full default case folding (Unicode 15.1, statuses C and F). */
 export const caseFold = (text: string): string => Array.from(text, (character) => foldings.get(character.codePointAt(0) ?? 0) ?? character).join("")
 
 /** The key two names are compared by: NFC of the case-folded name. */
-export const nameKey = (name: string): string => caseFold(name).normalize("NFC")
+export const nameKey = (name: string): string => {
+  requireModernNormalizer()
+  return caseFold(name).normalize("NFC")
+}
 
 /** Why a single name breaks the profile, or undefined when it follows it. */
 export const nameProblem = (name: string): string | undefined => {
-  // Lone surrogates come out of the code point iteration below as themselves and are forbidden (Cs).
-  if (name.normalize("NFC") !== name) return "is not in Unicode Normalization Form C"
-  if (byteLength(name) > maximumNameBytes) return `is longer than ${maximumNameBytes} bytes`
+  requireModernNormalizer()
+  // Forbidden code points first (rule 3 before rule 1): code points unassigned in Unicode 15.1 never reach the
+  // normalizer, so runtimes with newer Unicode data name the same problem. Lone surrogates come out of the code
+  // point iteration as themselves and are forbidden (Cs).
   for (const character of name) {
     const codePoint = character.codePointAt(0) ?? 0
     if (isForbiddenCodePoint(codePoint)) return `contains the forbidden character U+${codePoint.toString(16).toUpperCase().padStart(4, "0")}`
   }
+  if (name.normalize("NFC") !== name) return "is not in Unicode Normalization Form C"
+  if (byteLength(name) > maximumNameBytes) return `is longer than ${maximumNameBytes} bytes`
   for (const segment of name.split("/")) {
     if (segment.length === 0) return "has an empty segment"
     if (segment === "." || segment === "..") return `has a "${segment}" segment`

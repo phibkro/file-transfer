@@ -9,9 +9,9 @@ export type ParcelErrorReason =
   | "unsupported-version"
   | "invalid-record-size"
   | "key-commitment-mismatch"
-  | "header-mismatch"
   | "authentication-failed"
   | "invalid-manifest"
+  | "contract-mismatch"
   | "record-count-mismatch"
   | "label-page-mismatch"
   | "label-mismatch"
@@ -19,6 +19,8 @@ export type ParcelErrorReason =
   | "truncated"
   | "trailing-data"
   | "source-changed"
+  | "label-page-missing"
+  | "unsupported-runtime"
 
 export class ParcelError extends Error {
   override readonly name = "ParcelError"

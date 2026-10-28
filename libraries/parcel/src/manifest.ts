@@ -142,7 +142,9 @@ export const decodeManifestStream = (plaintext: Uint8Array): DecodedContract => 
   if (plaintext.length !== manifestRecordCount(length) * manifestRecordSize) return invalid("the manifest stream has the wrong number of records")
   const end = manifestLengthPrefix + length
   if (plaintext.subarray(end).some((byte) => byte !== 0)) return invalid("manifest padding must be zero bytes")
+  // The JSON before the record count: the first failing check in the listed order is the one reported.
+  const manifest = decodeManifestJson(plaintext.subarray(manifestLengthPrefix, end))
   const count = new DataView(plaintext.buffer, plaintext.byteOffset, plaintext.byteLength).getBigUint64(0)
   if (count > BigInt(Number.MAX_SAFE_INTEGER)) throw new ParcelError("record-count-mismatch", "the record count is out of range")
-  return { manifest: decodeManifestJson(plaintext.subarray(manifestLengthPrefix, end)), recordCount: Number(count), rootHash: plaintext.slice(8, 40) }
+  return { manifest, recordCount: Number(count), rootHash: plaintext.slice(8, 40) }
 }

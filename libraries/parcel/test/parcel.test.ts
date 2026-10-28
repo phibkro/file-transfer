@@ -25,6 +25,7 @@ import {
   isWindowsDeviceName,
   keyCommitmentLength,
   auditPath,
+  checkNormalizer,
   foldAuditPath,
   leafHash,
   manifestRecordCount,
@@ -163,6 +164,9 @@ describe("name profile", () => {
       "byte﻿order",
       "line separator",
       "lone\ud800",
+      "unassigned\u0897",
+      "noncharacter\ufdd0",
+      "plane\u{10ffff}",
       "café",
       "trailing.",
       "trailing ",
@@ -177,6 +181,19 @@ describe("name profile", () => {
       `${"a/".repeat(2049)}b`,
     ]
     for (const name of rejected) expect([name, nameProblem(name)]).not.toEqual([name, undefined])
+  })
+
+  it("rejects code points unassigned in Unicode 15.1, so every normalizer at 15.1 or later agrees", () => {
+    // U+0897 was assigned in Unicode 16.0 and changes NFC there; this runtime knows it, Unicode 15.1 does not.
+    expect(nameProblem("pepet\u0897")).toBe("contains the forbidden character U+0897")
+    expect(nameProblem("x\u0301\u0897")).toBe("contains the forbidden character U+0897")
+    expect(nameProblem("\u{1FAE9}")).toBe("contains the forbidden character U+1FAE9")
+    expect(nameProblem("\u{1FAE8}")).toBeUndefined()
+  })
+
+  it("refuses a normalizer older than Unicode 15.0 with a typed error", async () => {
+    expect(await outcomeOf(() => checkNormalizer((text) => text))).toBe("unsupported-runtime")
+    expect(await outcomeOf(() => checkNormalizer())).toBe("accepted")
   })
 
   it("treats device names as Windows does: the part before the first dot, trailing spaces removed", () => {
@@ -284,6 +301,14 @@ describe("manifest stream", () => {
     const lying = plaintext.slice()
     new DataView(lying.buffer).setUint32(40, 2 ** 24)
     expect(await outcomeOf(() => decodeManifestStream(lying))).toBe("invalid-manifest")
+  })
+
+  it("reports the first failing check in the listed order: invalid JSON before an out-of-range record count", async () => {
+    const plaintext = encodeManifestStream(createManifest([{ name: "a", size: 1, mediaType: "" }]), terms)
+    new DataView(plaintext.buffer).setBigUint64(0, 2n ** 63n)
+    expect(await outcomeOf(() => decodeManifestStream(plaintext))).toBe("record-count-mismatch")
+    plaintext[44] = 0x20
+    expect(await outcomeOf(() => decodeManifestStream(plaintext))).toBe("invalid-manifest")
   })
 })
 

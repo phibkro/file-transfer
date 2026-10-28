@@ -181,10 +181,15 @@ export const labelRecords = async (sealer: ParcelSealer, readRecord: RecordReade
 export interface ParcelReceiver extends ParcelLayout {
   readonly rootHash: Uint8Array<ArrayBuffer>
   readonly digest: Uint8Array<ArrayBuffer>
-  /** Checks label page `page` against the root and returns its labels. */
+  /** Checks label page `page` against the root, keeps its labels for `openData`, and returns them. */
   verifyPage(page: number, bytes: Uint8Array): Promise<ReadonlyArray<Uint8Array>>
-  /** Checks data record `index` against its label, then opens it. */
-  openData(index: number, record: Uint8Array, label: Uint8Array): Promise<Uint8Array<ArrayBuffer>>
+  /**
+   * Checks data record `index` against the label from its verified page, then opens it. Fails with
+   * `label-page-missing` when that page has not verified yet: drop the record and request it again (receiver rule 6).
+   */
+  openData(index: number, record: Uint8Array): Promise<Uint8Array<ArrayBuffer>>
+  /** Forgets a page's labels once every record it covers is in, so a sequential receiver holds one page at a time. */
+  releasePage(page: number): void
 }
 
 /** A header whose key commitment matched: the manifest records come next. */
@@ -198,8 +203,11 @@ export interface ParcelOpener {
 }
 
 export interface OpenOptions {
-  /** A header already accepted for this sequence number; any other header is rejected (one parcel per parcel secret). */
-  readonly expectedHeader?: Uint8Array
+  /**
+   * The contract digest already accepted for this sequence number. Any other contract is rejected with
+   * `contract-mismatch` (a parcel secret seals exactly one parcel); pinning the header alone is not enough.
+   */
+  readonly expectedDigest?: Uint8Array
 }
 
 /** Checks the header and key commitment before anything else is read (docs/parcel.md, receiver rule 1). */
@@ -207,9 +215,6 @@ export const openHeader = async (linkSecret: Uint8Array, headerBytes: Uint8Array
   const header = decodeHeader(headerBytes)
   const keys = await deriveParcelKeys(await deriveParcelSecret(linkSecret, header.sequence), header.salt)
   if (!bytesEqual(keys.keyCommitment, header.keyCommitment)) throw new ParcelError("key-commitment-mismatch", "the secret does not match this parcel")
-  if (options.expectedHeader !== undefined && !bytesEqual(options.expectedHeader, header.bytes)) {
-    throw new ParcelError("header-mismatch", "this sequence number already received a different parcel")
-  }
   return {
     header,
     openManifestRecord: (counter, record) => {
@@ -218,13 +223,18 @@ export const openHeader = async (linkSecret: Uint8Array, headerBytes: Uint8Array
     },
     manifestRecordCountFrom: (firstRecordPlaintext) => manifestRecordCount(manifestJsonLength(firstRecordPlaintext)),
     acceptContract: async (plaintexts, records) => {
+      const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", asBufferSource(concatBytes(header.bytes, ...records))))
+      if (options.expectedDigest !== undefined && !bytesEqual(options.expectedDigest, digest)) {
+        throw new ParcelError("contract-mismatch", `sequence number ${header.sequence} already has a different contract`)
+      }
       const contract = decodeManifestStream(concatBytes(...plaintexts))
       const layout = layoutFor(header, contract.manifest, plaintexts.length)
       if (contract.recordCount !== layout.recordCount) throw new ParcelError("record-count-mismatch", "the contract's record count does not match the manifest")
+      const verifiedPages = new Map<number, ReadonlyArray<Uint8Array>>()
       return {
         ...layout,
         rootHash: contract.rootHash,
-        digest: new Uint8Array(await crypto.subtle.digest("SHA-256", asBufferSource(concatBytes(header.bytes, ...records)))),
+        digest,
         verifyPage: async (page, bytes) => {
           const { start, end } = layout.pageRecords(page)
           const path = auditPath(layout.pageCount, page)
@@ -234,12 +244,19 @@ export const openHeader = async (linkSecret: Uint8Array, headerBytes: Uint8Array
           if (!bytesEqual(await foldAuditPath(await treeHash(labels), path, siblings), contract.rootHash)) {
             throw new ParcelError("label-page-mismatch", `label page ${page} does not belong to the contract's root`)
           }
+          verifiedPages.set(page, labels)
           return labels
         },
-        openData: async (index, record, label) => {
+        openData: async (index, record) => {
           if (record.length !== layout.dataRecordLength(index)) throw new ParcelError("size-mismatch", `data record ${index} has the wrong length`)
+          const page = Math.floor(index / labelsPerPage)
+          const label = verifiedPages.get(page)?.[index - page * labelsPerPage]
+          if (label === undefined) throw new ParcelError("label-page-missing", `data record ${index} arrived before label page ${page} verified`)
           if (!bytesEqual(await leafHash(record), label)) throw new ParcelError("label-mismatch", `data record ${index} differs from the contract (breach)`)
           return openRecord(keys.content, header.bytes, { counter: index, isFinal: index === layout.recordCount - 1 }, record, `data record ${index}`)
+        },
+        releasePage: (page) => {
+          verifiedPages.delete(page)
         },
       }
     },
