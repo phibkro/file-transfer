@@ -17,6 +17,7 @@ Security rules for this app: strict Content Security Policy, no third-party scri
 | `src/storage.ts`                          | Provisional OPFS output, committed on completion, discarded on failure                 |
 | `src/files.ts`, `ranges.ts`, `credits.ts` | Pure bookkeeping, unit tested in `test/`                                               |
 | `src/report.ts`                           | Status, progress and the end-to-end test hook                                          |
+| `scripts/endToEnd.ts`                     | Two isolated browsers against the real room server (`bun run e2e`)                     |
 
 ## Running locally
 
@@ -29,6 +30,15 @@ cd apps/web && bunx vp build  # writes apps/web/dist
 ```
 
 Platforms must answer `/r/*` with `index.html`.
+
+## End-to-end check
+
+```sh
+cd apps/web && bun run build && bun run e2e                 # starts wrangler dev from platforms/cloudflare
+BASE_URL=https://<deployed host> bun run e2e                  # drives a deployed Worker instead
+```
+
+Two isolated Chromium profiles send and receive through the real room Durable Object: four files including an empty one, a 16 MB transfer whose sockets are cut mid-transfer (cleanly, then half-open), a 256 MB throughput run, a decline and wrong keys. Every file must arrive with the same SHA-256, and no request URL or socket frame either browser sends may contain the link secret or a file name.
 
 ## Test hook
 
