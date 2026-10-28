@@ -15,7 +15,7 @@
     "check:graph": "bun tools/quality/src/checkModuleGraph.ts",
     "check:effect": "effx check",
     "check:secrets": "gitleaks git --redact --config .gitleaks.toml",
-    "check": "vp check && bun run check:graph && bun run check:effect && vp test run",
+    "check": "vp check --deny-warnings && bun run check:graph && bun run check:effect && vp test run",
     "check:vectors": "python3 -I libraries/parcel/test/vectors/verify.py"
   },
   "dependencies": {
