@@ -1,0 +1,14 @@
+{
+  "name": "@file-transfer/client",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "exports": { ".": "./src/index.ts" },
+  "dependencies": {
+    "@file-transfer/format": "workspace:*",
+    "@file-transfer/sink": "workspace:*",
+    "@file-transfer/transport": "workspace:*",
+    "effect": "^4.0.7"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "name": "@file-transfer/platform-cloudflare",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "dependencies": {
+    "@file-transfer/service-abuse": "workspace:*",
+    "@file-transfer/service-quota": "workspace:*",
+    "@file-transfer/service-relay": "workspace:*",
+    "@file-transfer/service-room": "workspace:*",
+    "@file-transfer/service-telemetry": "workspace:*",
+    "effect": "^4.0.7"
+  }
+}

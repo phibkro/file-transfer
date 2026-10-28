@@ -1,0 +1,25 @@
+{
+  "name": "file-transfer",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "libraries/*",
+    "services/*",
+    "platforms/*",
+    "integrations/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "bun test",
+    "check": "bun run typecheck && bun test"
+  },
+  "dependencies": {
+    "effect": "^4.0.7"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "fast-check": "^4.0.0",
+    "typescript": "^5.9.0"
+  }
+}

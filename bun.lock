@@ -1,0 +1,153 @@
+{
+  "lockfileVersion": 2,
+  "configVersion": 1,
+  "workspaces": {
+    "": {
+      "name": "file-transfer",
+      "dependencies": {
+        "effect": "^4.0.7",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
+        "fast-check": "^4.0.0",
+        "typescript": "^5.9.0",
+      },
+    },
+    "apps/web": {
+      "name": "@file-transfer/web",
+      "version": "0.0.0",
+      "dependencies": {
+        "@file-transfer/client": "workspace:*",
+      },
+    },
+    "libraries/client": {
+      "name": "@file-transfer/client",
+      "version": "0.0.0",
+      "dependencies": {
+        "@file-transfer/format": "workspace:*",
+        "@file-transfer/sink": "workspace:*",
+        "@file-transfer/transport": "workspace:*",
+        "effect": "^4.0.7",
+      },
+    },
+    "libraries/format": {
+      "name": "@file-transfer/format",
+      "version": "0.0.0",
+    },
+    "libraries/sink": {
+      "name": "@file-transfer/sink",
+      "version": "0.0.0",
+      "dependencies": {
+        "effect": "^4.0.7",
+      },
+    },
+    "libraries/transport": {
+      "name": "@file-transfer/transport",
+      "version": "0.0.0",
+      "dependencies": {
+        "effect": "^4.0.7",
+      },
+    },
+    "platforms/cloudflare": {
+      "name": "@file-transfer/platform-cloudflare",
+      "version": "0.0.0",
+      "dependencies": {
+        "@file-transfer/service-abuse": "workspace:*",
+        "@file-transfer/service-quota": "workspace:*",
+        "@file-transfer/service-relay": "workspace:*",
+        "@file-transfer/service-room": "workspace:*",
+        "@file-transfer/service-telemetry": "workspace:*",
+        "effect": "^4.0.7",
+      },
+    },
+    "platforms/self-hosted": {
+      "name": "@file-transfer/platform-self-hosted",
+      "version": "0.0.0",
+      "dependencies": {
+        "@file-transfer/service-abuse": "workspace:*",
+        "@file-transfer/service-quota": "workspace:*",
+        "@file-transfer/service-relay": "workspace:*",
+        "@file-transfer/service-room": "workspace:*",
+        "@file-transfer/service-telemetry": "workspace:*",
+        "effect": "^4.0.7",
+      },
+    },
+    "services/abuse": {
+      "name": "@file-transfer/service-abuse",
+      "version": "0.0.0",
+      "dependencies": {
+        "effect": "^4.0.7",
+      },
+    },
+    "services/quota": {
+      "name": "@file-transfer/service-quota",
+      "version": "0.0.0",
+      "dependencies": {
+        "effect": "^4.0.7",
+      },
+    },
+    "services/relay": {
+      "name": "@file-transfer/service-relay",
+      "version": "0.0.0",
+      "dependencies": {
+        "effect": "^4.0.7",
+      },
+    },
+    "services/room": {
+      "name": "@file-transfer/service-room",
+      "version": "0.0.0",
+      "dependencies": {
+        "@file-transfer/format": "workspace:*",
+        "effect": "^4.0.7",
+      },
+    },
+    "services/telemetry": {
+      "name": "@file-transfer/service-telemetry",
+      "version": "0.0.0",
+      "dependencies": {
+        "effect": "^4.0.7",
+      },
+    },
+  },
+  "packages": {
+    "@file-transfer/client": ["@file-transfer/client@workspace:libraries/client"],
+
+    "@file-transfer/format": ["@file-transfer/format@workspace:libraries/format"],
+
+    "@file-transfer/platform-cloudflare": ["@file-transfer/platform-cloudflare@workspace:platforms/cloudflare"],
+
+    "@file-transfer/platform-self-hosted": ["@file-transfer/platform-self-hosted@workspace:platforms/self-hosted"],
+
+    "@file-transfer/service-abuse": ["@file-transfer/service-abuse@workspace:services/abuse"],
+
+    "@file-transfer/service-quota": ["@file-transfer/service-quota@workspace:services/quota"],
+
+    "@file-transfer/service-relay": ["@file-transfer/service-relay@workspace:services/relay"],
+
+    "@file-transfer/service-room": ["@file-transfer/service-room@workspace:services/room"],
+
+    "@file-transfer/service-telemetry": ["@file-transfer/service-telemetry@workspace:services/telemetry"],
+
+    "@file-transfer/sink": ["@file-transfer/sink@workspace:libraries/sink"],
+
+    "@file-transfer/transport": ["@file-transfer/transport@workspace:libraries/transport"],
+
+    "@file-transfer/web": ["@file-transfer/web@workspace:apps/web"],
+
+    "@types/bun": ["@types/bun@1.4.4", "", { "dependencies": { "bun-types": "1.4.4" } }, "sha512-9wkRDXUXK124pEnAutE6n/l18j+i9GC5IAHK8TmX/2nlySETmky0OU6yL5U8pW1AoKh++AN9auDCr647BfurjQ=="],
+
+    "@types/node": ["@types/node@26.6.5", "", { "dependencies": { "undici-types": "~8.9.0" } }, "sha512-uMzsv9stDdofIZBx4UGh4Z9ZgXnGC9seRDscilBcTHAeOFk67MZg/k9bWVfO+bk4qZmG+l52hRnLwUiH2LnJTg=="],
+
+    "bun-types": ["bun-types@1.4.4", "", { "dependencies": { "@types/node": "*", "undici-types": "*" } }, "sha512-yjrJh5oGX7mMPKGd19YXyIjmEuj4G4zNC30bs7PM9Az7NQ3ndF3j6hbeRdvJTRQEhJ/FYQwW0a2moweEi2hMxQ=="],
+
+    "effect": ["effect@4.0.7", "", {}, "sha512-47CiUzNAmeLr40pDT9vKMxxtB8o3bdpZEKU4IUM3fVxsK2GYzPsV7fQoZP0I41A308BZd71nMxqJ0KRh3s9u2g=="],
+
+    "fast-check": ["fast-check@4.10.2", "", { "dependencies": { "pure-rand": "^8.0.0" } }, "sha512-iK2f+YrcmoeGqk6fA0ea2bptcu/itMIm4NfEozq6N25+aG6h7s5HZbB/k1aV7b5w5sFLMCbbtRUsTVR+BgC3xw=="],
+
+    "pure-rand": ["pure-rand@8.4.2", "", {}, "sha512-vvuOGgcuPJAirlHvuQw1TrOiw7ptaIXXmIbNuiNOY6lNGJJH49PQ1Kj4nd783nPdQhQdicgOjVI2yI/9BD6/Ng=="],
+
+    "typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
+
+    "undici-types": ["undici-types@8.9.0", "", {}, "sha512-KTDyRTYX8sWmKXAikPHHSyc63CRPETMctyjKFupcC6OBLXT3xsN0e9aF7m+mIXutFWpUXuedtowG7iLOzp0kQg=="],
+  }
+}
