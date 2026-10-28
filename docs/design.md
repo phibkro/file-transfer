@@ -6,20 +6,20 @@ Status: hypothesis, to be confirmed by the M0 spike (see `plan.md`). Long-form r
 
 The product moves a file of any size from one browser to another at the speed of the slower link, with only the sender and recipients able to read it.
 
-| Id  | Requirement                                                                                       |
-| --- | ------------------------------------------------------------------------------------------------- |
-| R1  | Browser-only on both ends, phone included                                                         |
-| R2  | One share link; live progress on both sides                                                       |
-| R3  | Throughput limited by the slower peer, never artificially by the service on paths we do not carry |
-| R4  | End-to-end encrypted; intermediaries see only ciphertext; tampering is detected                   |
-| R5  | No size limit; never buffer the whole file in memory                                              |
-| R6  | Zero-configuration NAT traversal with a fallback that always works                                |
-| R7  | Download starts before upload ends (no store-and-forward wait)                                    |
-| R8  | No ads; AGPL; one-command self-hosting                                                            |
-| R9  | Node roles: any node can be endpoint, relay, store, seed                                          |
-| R10 | Scoped networks: a transfer may be limited to declared relays and stores                          |
-| R11 | Optional async mode (encrypted store) when the recipient is offline (phase 2)                     |
-| R12 | Plans that track real cost: direct transfers free, relay throughput, placement and storage paid   |
+| Id  | Requirement                                                                                                                                                                                             |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| R1  | Browser-only on both ends, phone included                                                                                                                                                               |
+| R2  | One share link; live progress on both sides                                                                                                                                                             |
+| R3  | Throughput limited by the slower peer, never artificially by the service on paths we do not carry                                                                                                       |
+| R4  | End-to-end encrypted; intermediaries see only ciphertext; tampering is detected                                                                                                                         |
+| R5  | Sizes: relayed transfers designed for 10 GB, capped below 100 GB; above 50 GB the app steers to storage (phase 2); direct transfers limited only by the parcel cap; never buffer a whole file in memory |
+| R6  | Zero-configuration NAT traversal with a fallback that always works                                                                                                                                      |
+| R7  | Download starts before upload ends (no store-and-forward wait)                                                                                                                                          |
+| R8  | No ads; AGPL; one-command self-hosting                                                                                                                                                                  |
+| R9  | Node roles: any node can be endpoint, relay, store, seed                                                                                                                                                |
+| R10 | Scoped networks: a transfer may be limited to declared relays and stores                                                                                                                                |
+| R11 | Optional async mode (encrypted store) when the recipient is offline (phase 2)                                                                                                                           |
+| R12 | Plans that track real cost: direct transfers free, relay throughput, placement and storage paid                                                                                                         |
 
 ## Planes
 
