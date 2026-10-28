@@ -37,8 +37,8 @@ export interface ImportFact {
   /** Path relative to the package directory. */
   readonly file: string
   readonly specifier: string
-  /** True for files under `test/` and `*.test.ts`. */
-  readonly inTest: boolean
+  /** True for files that never ship: under `test/` or `scripts/`, and `*.test.ts`. */
+  readonly developmentOnly: boolean
 }
 
 export interface PackageFacts {
@@ -47,6 +47,8 @@ export interface PackageFacts {
   /** Path relative to the repository root, such as `services/room`. */
   readonly directory: string
   readonly dependencies: ReadonlyArray<string>
+  /** The package's `devDependencies`, importable only from development-only files. */
+  readonly developmentDependencies: ReadonlyArray<string>
   /** Shipped files allowed to import test-only specifiers, from `fileTransfer.testSupportFiles` in package.json. */
   readonly testSupportFiles: ReadonlyArray<string>
   readonly sourceFileCount: number
@@ -111,8 +113,8 @@ export const checkModuleGraph = (packages: ReadonlyArray<PackageFacts>, rootDeve
     }
 
     for (const fact of facts.imports) {
-      const { file, specifier, inTest } = fact
-      const shipped = !inTest && !facts.testSupportFiles.includes(file)
+      const { file, specifier, developmentOnly } = fact
+      const shipped = !developmentOnly && !facts.testSupportFiles.includes(file)
       if (isRelative(specifier)) {
         if (!staysInside(file, specifier)) violations.push({ rule: "escaping-relative-import", packageName: facts.name, file, specifier })
         continue
@@ -129,7 +131,7 @@ export const checkModuleGraph = (packages: ReadonlyArray<PackageFacts>, rootDeve
         continue
       }
       used.add(dependency)
-      const providedForTests = !shipped && rootDevelopmentDependencies.includes(dependency)
+      const providedForTests = !shipped && (rootDevelopmentDependencies.includes(dependency) || facts.developmentDependencies.includes(dependency))
       if (!declared.has(dependency) && !providedForTests) violations.push({ rule: "undeclared-dependency", packageName: facts.name, file, dependency })
     }
 

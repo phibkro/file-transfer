@@ -36,7 +36,8 @@ const importSpecifiers = (path: string, source: string): Array<string> => {
   ]
 }
 
-const isTestFile = (file: string) => file.startsWith("test/") || file.endsWith(".test.ts")
+/** Files that never ship: tests, and development scripts such as integration and end-to-end checks. */
+const isDevelopmentOnly = (file: string) => file.startsWith("test/") || file.startsWith("scripts/") || file.endsWith(".test.ts")
 
 export const loadWorkspace = (root: string): { readonly packages: Array<PackageFacts>; readonly rootDevelopmentDependencies: Array<string> } => {
   const rootManifest = readManifest(join(root, "package.json"))
@@ -63,11 +64,12 @@ export const loadWorkspace = (root: string): { readonly packages: Array<PackageF
         kind,
         directory: relative(root, packageDirectory),
         dependencies: Object.keys(manifest.dependencies ?? {}).sort(),
+        developmentDependencies: Object.keys(manifest.devDependencies ?? {}).sort(),
         testSupportFiles: manifest.fileTransfer?.testSupportFiles ?? [],
         sourceFileCount: files.length,
         imports: files.flatMap((path) => {
           const file = relative(packageDirectory, path)
-          return importSpecifiers(path, readFileSync(path, "utf8")).map((specifier) => ({ file, specifier, inTest: isTestFile(file) }))
+          return importSpecifiers(path, readFileSync(path, "utf8")).map((specifier) => ({ file, specifier, developmentOnly: isDevelopmentOnly(file) }))
         }),
       })
     }
