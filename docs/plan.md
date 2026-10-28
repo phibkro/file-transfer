@@ -18,7 +18,7 @@ Startup phase: prove that people want this and that some will pay, before stabil
 - [ ] Throughput harness: 5 GB synthetic stream, direct WebRTC versus Durable Object relay, MB/s against RTT
 - [ ] Save-tier test (picker, service worker, OPFS) on Chrome, Firefox, Safari desktop, Android Chrome, iOS Safari
 - [ ] Durable Object load test: sustained MB/s per object, slow-receiver behaviour, cost per GB from billing
-- [ ] Run the same Worker and Durable Object code (hibernation included) on workerd; confirm Effect services run inside a Durable Object
+- [x] Run the same Worker and Durable Object code (hibernation included) on workerd; confirm Effect services run inside a Durable Object (`docs/spikes/0001-workerd-durable-object.md`: yes on both; loopback relay 235 to 456 MB/s; compression must be off)
 - [ ] Record results in `docs/spikes/` and decide record size, frame size, and direct-first versus relay-first for large files
 
 ## M1 Parcel (week 2)
@@ -31,6 +31,8 @@ Startup phase: prove that people want this and that some will pay, before stabil
 
 - [x] Guarantees with negative controls in every service suite (ADR 0007), life cycles as machines (ADR 0008), module graph, Effect lint and secret scanning in `bun run check` and CI (ADR 0009)
 - [ ] `services/room` and `services/relay`: reference layers and conformance suites, then Cloudflare layers, credit-based flow control
+  - From spike 0001: relay session state as a value with pure transitions (a `Ref` in the reference layer, socket attachments or `ctx.storage` in the Durable Object, so a pause past hibernation keeps credits); the object is the session (`idFromName`), forwards frames without queueing, sets `binaryType = "arraybuffer"` and `no_web_socket_compression`
+  - `libraries/transport`: allow several records per frame (256 KiB to 1 MiB) to cut CPU and billed messages
 - [ ] `libraries/transport`: direct and relayed paths, relay-first switching, resume
 - [ ] `libraries/sink`: save tiers and OPFS resume bitmap
 - [ ] Network matrix: home broadband, mobile data, corporate Wi-Fi, two browsers per side

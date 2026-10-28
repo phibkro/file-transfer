@@ -4,6 +4,7 @@ dist/
 .dev.vars
 *.log
 .DS_Store
+spikes/*/state/
 
 # Agent worktrees
 .claude/worktrees/

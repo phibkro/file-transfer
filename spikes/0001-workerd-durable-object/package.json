@@ -1,0 +1,10 @@
+{
+  "name": "spike-0001-workerd-durable-object",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "devDependencies": {
+    "workerd": "^1.20261028.1",
+    "wrangler": "^4.154.0"
+  }
+}
