@@ -420,6 +420,52 @@ const describeDifferences = async (page: Page, files: readonly PayloadFile[]): P
   return reports.join("; ")
 }
 
+/** The transfers stored in a page's origin-private `transfers` directory. */
+const storedTransfers = async (page: Page): Promise<readonly string[]> =>
+  await page.evaluate(async () => {
+    const root = await navigator.storage.getDirectory()
+    const transfers = await root.getDirectoryHandle("transfers", { create: true })
+    const names: string[] = []
+
+    for await (const name of transfers.keys()) {
+      names.push(name)
+    }
+
+    return names
+  })
+
+/**
+ * The storage panel shows what received files take and clears them; a transfer left behind by a closed tab is deleted
+ * on the next page load.
+ */
+const checkStorageClearing = async (page: Page, base: string) => {
+  const heading = page.locator(".storage-panel summary")
+  const headingText = (await heading.textContent()) ?? ""
+  check(/Storage in this browser: \d/u.test(headingText), "storage: the panel shows the size of received files", headingText)
+  await heading.click()
+  await page.getByRole("button", { name: "Clear stored files" }).click()
+  await page.getByRole("button", { name: "Delete", exact: true }).click()
+  await page.locator(".storage-text", { hasText: "No received files are stored here." }).waitFor({ timeout: 10_000 })
+  const afterClear = await storedTransfers(page)
+  check(afterClear.length === 0, "storage: Clear deletes this page's received files", afterClear)
+  check((await page.locator(".downloads a[href]").count()) === 0, "storage: after Clear the page no longer offers the deleted files")
+
+  // As a crashed tab leaves an unfinished transfer behind: no lock holds it, so the next load deletes it.
+  await page.evaluate(async () => {
+    const root = await navigator.storage.getDirectory()
+    const transfers = await root.getDirectoryHandle("transfers", { create: true })
+    const left = await transfers.getDirectoryHandle("abandoned", { create: true })
+    const handle = await left.getFileHandle("0", { create: true })
+    const writable = await handle.createWritable()
+    await writable.write(new Uint8Array(1000))
+    await writable.close()
+  })
+  await page.goto(base)
+  await page.locator(".storage-panel").waitFor()
+  const afterVisit = await storedTransfers(page)
+  check(afterVisit.length === 0, "storage: a transfer left by a closed tab is deleted on the next visit", afterVisit)
+}
+
 /** Megabytes per second of the last completed transfer, for the latency suite's table. */
 let lastMegabytesPerSecond = 0
 
@@ -529,6 +575,10 @@ const transfer = async (browser: Browser, base: string, scenario: TransferScenar
       // Reported, not checked: the layer in front of the Worker (Cloudflare's edge, Miniflare locally) answers the
       // browser's permessage-deflate offer before the Worker runs, so neither the Worker nor the page can refuse it.
       console.log(`   ${scenario}: negotiated socket extensions ${JSON.stringify([...new Set(extensions)])}`)
+    }
+
+    if (scenario === "basic") {
+      await checkStorageClearing(recipient.page, base)
     }
 
     check(sender.errors.length === 0 && recipient.errors.length === 0, `${scenario}: no uncaught page errors`, [...sender.errors, ...recipient.errors])

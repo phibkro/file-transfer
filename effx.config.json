@@ -80,7 +80,9 @@
           "apps/web/src/recipient.ts",
           "apps/web/src/share.ts",
           "apps/web/src/summary.ts",
-          "apps/web/src/saveAll.ts"
+          "apps/web/src/saveAll.ts",
+          "apps/web/src/leaveGuard.ts",
+          "apps/web/src/storagePanel.ts"
         ],
         "role": "runtime-adapter",
         "platform": "browser",

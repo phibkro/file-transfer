@@ -63,7 +63,7 @@ const downloadEach = async (files: readonly ReceivedFile[]) => {
 }
 
 /** The "Save all files" button and its status line, for two or more received files. */
-export const saveAllControl = (files: readonly ReceivedFile[]): HTMLElement => {
+export const saveAllControl = (files: readonly ReceivedFile[], onSaved: () => void): HTMLElement => {
   const picker = directoryPicker()
   const button = element("button", { type: "button", class: "primary" }, [picker === undefined ? "Save all files" : "Save all files to a folder"])
   const status = element("p", { class: "save-all-status", role: "status" })
@@ -82,6 +82,8 @@ export const saveAllControl = (files: readonly ReceivedFile[]): HTMLElement => {
         })
         status.textContent = `Saved all ${files.length} files to the folder you chose.`
       }
+
+      onSaved()
     } catch (error) {
       // Closing the folder picker is a choice, not an error; anything else is reported.
       status.textContent = error instanceof DOMException && error.name === "AbortError" ? "" : "Some files could not be saved. Use the links above instead."

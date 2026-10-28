@@ -13,9 +13,134 @@ export interface ParcelStorage {
   readonly commit: () => Promise<readonly File[]>
   /** Throws away everything written. */
   readonly discard: () => Promise<void>
+  /** Deletes the committed files from this browser, after the person has saved them. */
+  readonly remove: () => Promise<void>
 }
 
 const transfersDirectory = "transfers"
+
+/** The Web Lock a tab holds while its transfer's files exist, so other tabs' sweeps leave them alone. */
+const lockName = (roomIdentifier: string) => `file-transfer:transfer:${roomIdentifier}`
+
+/** Waits until the function handed over is called. */
+const waitForRelease = async (handOver: (release: () => void) => void) => {
+  await new Promise<void>((resolve) => {
+    handOver(() => {
+      resolve()
+    })
+  })
+}
+
+/** Holds the lock until the returned function is called or the tab goes away. */
+const holdLock = async (roomIdentifier: string): Promise<() => void> =>
+  await new Promise<() => void>((resolve) => {
+    void navigator.locks.request(lockName(roomIdentifier), async () => {
+      await waitForRelease(resolve)
+    })
+  })
+
+/**
+ * Deletes received files that no open tab is using: transfers interrupted by a closed or crashed tab, and finished
+ * ones whose tab is gone. Received files are decrypted, so they should not outlive the page that received them.
+ * Run on every page load, before a transfer opens its own storage.
+ */
+export const sweepStaleTransfers = async (): Promise<void> => {
+  try {
+    const root = await navigator.storage.getDirectory()
+    const transfers = await root.getDirectoryHandle(transfersDirectory, { create: true })
+    const snapshot = await navigator.locks.query()
+    const held = new Set((snapshot.held ?? []).map((lock) => lock.name))
+    const stale: string[] = []
+
+    for await (const name of transfers.keys()) {
+      if (!held.has(lockName(name))) {
+        stale.push(name)
+      }
+    }
+
+    await Promise.all(
+      stale.map(async (name) => {
+        await removeQuietly(transfers, name)
+      }),
+    )
+  } catch {
+    // No origin-private file system here (private browsing in some browsers): nothing was stored either.
+  }
+}
+
+/** What this site keeps in this browser, for the storage panel. */
+export interface StorageUse {
+  /** Bytes of received files that are complete, across every transfer still stored. */
+  readonly receivedBytes: number
+  /** Transfers whose files an open page (this one or another tab) is still using. */
+  readonly inUse: number
+  /** Transfers no open page is using; the next page load or Clear deletes them. */
+  readonly stale: number
+  /** The browser's own estimate for this site, which also counts writes not yet committed. */
+  readonly usage: number | undefined
+  readonly quota: number | undefined
+}
+
+const fileSize = async (handle: FileSystemHandle): Promise<number> => {
+  try {
+    if (handle.kind !== "file") {
+      return 0
+    }
+
+    // SAFETY: a directory's handles of kind "file" are file handles.
+    const file = await (handle as FileSystemFileHandle).getFile()
+
+    return file.size
+  } catch {
+    return 0
+  }
+}
+
+const directorySize = async (directory: FileSystemDirectoryHandle): Promise<number> => {
+  let total = 0
+
+  for await (const handle of directory.values()) {
+    total += await fileSize(handle)
+  }
+
+  return total
+}
+
+export const storageUse = async (): Promise<StorageUse> => {
+  let receivedBytes = 0
+  let inUse = 0
+  let stale = 0
+
+  try {
+    const root = await navigator.storage.getDirectory()
+    const transfers = await root.getDirectoryHandle(transfersDirectory, { create: true })
+    const snapshot = await navigator.locks.query()
+    const held = new Set((snapshot.held ?? []).map((lock) => lock.name))
+
+    for await (const handle of transfers.values()) {
+      if (handle.kind === "directory") {
+        // SAFETY: checked kind "directory" just above.
+        receivedBytes += await directorySize(handle)
+
+        if (held.has(lockName(handle.name))) {
+          inUse++
+        } else {
+          stale++
+        }
+      }
+    }
+  } catch {
+    // No origin-private file system here: nothing is stored either.
+  }
+
+  try {
+    const { usage, quota } = await navigator.storage.estimate()
+
+    return { receivedBytes, inUse, stale, usage, quota }
+  } catch {
+    return { receivedBytes, inUse, stale, usage: undefined, quota: undefined }
+  }
+}
 
 /**
  * Bytes this site may still store here, or undefined when the browser does not say. Private windows get a small quota
@@ -41,6 +166,7 @@ const removeQuietly = async (directory: FileSystemDirectoryHandle, name: string)
 }
 
 export const openStorage = async (roomIdentifier: string, fileCount: number): Promise<ParcelStorage> => {
+  const releaseLock = await holdLock(roomIdentifier)
   const root = await navigator.storage.getDirectory()
   const transfers = await root.getDirectoryHandle(transfersDirectory, { create: true })
   await removeQuietly(transfers, roomIdentifier)
@@ -82,6 +208,11 @@ export const openStorage = async (roomIdentifier: string, fileCount: number): Pr
         }),
       )
       await removeQuietly(transfers, roomIdentifier)
+      releaseLock()
+    },
+    remove: async () => {
+      await removeQuietly(transfers, roomIdentifier)
+      releaseLock()
     },
   }
 }

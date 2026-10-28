@@ -16,6 +16,8 @@ import { spansFor } from "./files.ts"
 import { addRecord, containsRange, createRecordSet, hasRecord, isComplete, missingRanges, rangesOf } from "./ranges.ts"
 import type { RecordSet } from "./ranges.ts"
 import { setFailureDetail, setFileHashes, setProgress, setReceivedFiles, setSpaceShortfall, setStatus, setTotalBytes } from "./report.ts"
+import { setUnsavedFiles } from "./leaveGuard.ts"
+import { offerRemoval } from "./storagePanel.ts"
 import { saveAllControl } from "./saveAll.ts"
 import { availableStorage, openStorage } from "./storage.ts"
 import type { ParcelStorage } from "./storage.ts"
@@ -216,9 +218,50 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
       ),
     )
 
-    if (savable.length > 1) {
-      section.append(saveAllControl(savable))
+    // Received files are decrypted and live only in this browser until saved: ask before leaving until then.
+    setUnsavedFiles(true)
+
+    for (const { link } of savable) {
+      link.addEventListener("click", () => {
+        setUnsavedFiles(false)
+      })
     }
+
+    if (savable.length > 1) {
+      section.append(
+        saveAllControl(savable, () => {
+          setUnsavedFiles(false)
+        }),
+      )
+    }
+
+    const remove = element("button", { type: "button" }, ["Remove from this browser"])
+
+    const removeFiles = async () => {
+      remove.disabled = true
+
+      for (const { link } of savable) {
+        URL.revokeObjectURL(link.href)
+        link.removeAttribute("href")
+      }
+
+      await storage?.remove()
+      setUnsavedFiles(false)
+      offerRemoval(undefined)
+      say("The files were removed from this browser. Copies you saved are not affected.")
+    }
+
+    remove.addEventListener("click", () => {
+      void removeFiles()
+    })
+    // The storage panel's Clear removes them the same way.
+    offerRemoval(removeFiles)
+    section.append(
+      element("div", { class: "remove-files" }, [
+        remove,
+        element("p", { class: "remove-files-note" }, ["Received files stay in this browser only until you leave the page."]),
+      ]),
+    )
   }
 
   const flushWant = () => {
