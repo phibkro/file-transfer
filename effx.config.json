@@ -23,6 +23,10 @@
         "reason": "workspace package governed by its own group below; tools/quality checks the edge"
       },
       {
+        "specifier": "@file-transfer/transport",
+        "reason": "workspace package governed by its own group below; tools/quality checks the edge"
+      },
+      {
         "specifier": "@file-transfer/machine",
         "reason": "workspace package governed by its own group below; tools/quality checks the edge"
       }
@@ -34,7 +38,8 @@
           "libraries/machine/src/**",
           "libraries/sink/src/**",
           "libraries/transport/src/**",
-          "libraries/conformance/src/guarantee.ts"
+          "libraries/conformance/src/guarantee.ts",
+          "platforms/cloudflare/src/room.ts"
         ],
         "role": "effect-library",
         "platform": "portable"

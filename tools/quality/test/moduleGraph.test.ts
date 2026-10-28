@@ -47,6 +47,7 @@ const platform: PackageFacts = {
   imports: [
     { file: "src/index.ts", specifier: "@file-transfer/service-room", inTest: false },
     { file: "src/index.ts", specifier: "node:crypto", inTest: false },
+    { file: "src/index.ts", specifier: "cloudflare:workers", inTest: false },
   ],
 }
 
@@ -86,6 +87,8 @@ describe("module graph negative controls", () => {
   it("rejects a runtime module in shipped service code but allows it in a platform", () => {
     const runtime = replace(service, { imports: [...service.imports, { file: "src/index.ts", specifier: "node:fs", inTest: false }] })
     expect(rulesBroken(runtime)).toEqual(["runtime-module-in-source"])
+    const workers = replace(service, { imports: [...service.imports, { file: "src/index.ts", specifier: "cloudflare:workers", inTest: false }] })
+    expect(rulesBroken(workers)).toEqual(["runtime-module-in-source"])
   })
 
   it("rejects a test-only import in shipped code unless the file is test support", () => {

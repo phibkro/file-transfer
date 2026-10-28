@@ -1,0 +1,20 @@
+{
+  // The production Worker: room creation and sockets under /api, apps/web from static assets everywhere else.
+  // `bun run build` bundles src/worker.ts with esbuild into dist/worker.js; wrangler serves it unbundled.
+  "name": "file-transfer",
+  "main": "dist/worker.js",
+  "no_bundle": true,
+  "compatibility_date": "2026-10-01",
+  // Spike 0001: per-message deflate cost 8.7x relay throughput, and parcel records are ciphertext that does not compress.
+  "compatibility_flags": ["no_web_socket_compression"],
+  "durable_objects": {
+    "bindings": [{ "name": "ROOMS", "class_name": "RoomObject" }],
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RoomObject"] }],
+  "assets": {
+    "directory": "../../apps/web/dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"],
+  },
+}
