@@ -21,9 +21,11 @@ Run from this directory after `bun install` at the repository root.
 
 - `bun run build` bundles `src/worker.ts` into `dist/worker.js` with esbuild.
 - `bun run dev` builds and starts `wrangler dev` on http://localhost:8787. Build `apps/web` first so `../../apps/web/dist` exists.
-- `bun run deploy` builds apps/web and the Worker, then runs `wrangler deploy` with whatever Cloudflare credentials wrangler finds (`wrangler login`, or `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`). A dry run uploads 636 KiB (135 KiB gzipped) with the `ROOMS` Durable Object and the assets.
+- `bun run deploy` builds apps/web and the Worker, then deploys stage `production` with Alchemy (`alchemy.run.ts`) using your `production` Alchemy profile. A wrangler dry run of the same bundle uploads 636 KiB (135 KiB gzipped) with the `ROOMS` Durable Object and the assets.
+- `bun run preview <stage>` deploys any other stage (`staging`, `pr-12`) as a [Worker Preview](https://developers.cloudflare.com/workers/previews/) of the production Worker: its own URL, `<stage>-file-transfer.<subdomain>.workers.dev`, and its own Durable Object namespace, so preview rooms never touch production. `bun run destroy:preview <stage>` removes it. Production must exist first.
+- `wrangler.jsonc` is the one declaration of the Worker: `wrangler dev` and both checks run on it, and `alchemy.run.ts` deploys from it (it fails on fields it does not map), so local runs and deploys cannot drift. Alchemy needs Node 24 or Bun; the scripts run it under Bun.
 - `bun run integration` builds, starts `wrangler dev` on a random port with a stub page as assets, and runs the room checks; it exits non-zero on the first failure.
 
 ## Not yet here
 
-Layers implementing the services' tags (`services/room`, `relay`, `quota`, `abuse`, `telemetry`) and their conformance suites against these objects; Turnstile on room creation; TURN credentials; deployment.
+Layers implementing the services' tags (`services/room`, `relay`, `quota`, `abuse`, `telemetry`) and their conformance suites against these objects; Turnstile on room creation; TURN credentials.

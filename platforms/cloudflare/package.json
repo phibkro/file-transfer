@@ -8,7 +8,10 @@
     "build": "esbuild src/worker.ts --bundle --format=esm --platform=neutral --target=es2022 --main-fields=module,main --conditions=workerd,worker,browser --external:cloudflare:workers --outfile=dist/worker.js",
     "dev": "bun run build && wrangler dev",
     "integration": "bun run build && bun scripts/integration.ts",
-    "deploy": "bun run --cwd ../../apps/web build && bun run build && wrangler deploy"
+    "deploy": "bun run build:all && bun run --bun alchemy deploy --profile production --stage production",
+    "build:all": "cd ../../apps/web && bun run build && cd ../../platforms/cloudflare && bun run build",
+    "preview": "bun run build:all && bun run --bun alchemy deploy --profile production --stage",
+    "destroy:preview": "bun run --bun alchemy destroy --profile production --stage"
   },
   "dependencies": {
     "@file-transfer/parcel": "workspace:*",
@@ -16,6 +19,9 @@
     "effect": "^4.0.7"
   },
   "devDependencies": {
+    "@effect/platform-bun": "4.0.7",
+    "@effect/platform-node": "4.0.7",
+    "alchemy": "2.0.0-beta.83",
     "esbuild": "^0.28.0",
     "workerd": "^1.20261028.1",
     "wrangler": "^4.154.0"

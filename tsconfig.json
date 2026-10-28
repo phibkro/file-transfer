@@ -30,6 +30,7 @@
     "platforms/*/src/**/*.ts",
     "platforms/*/test/**/*.ts",
     "platforms/*/scripts/**/*.ts",
+    "platforms/*/alchemy.run.ts",
     "integrations/*/src/**/*.ts",
     "apps/*/src/**/*.ts",
     "apps/*/test/**/*.ts",

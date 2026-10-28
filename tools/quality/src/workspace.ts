@@ -36,8 +36,8 @@ const importSpecifiers = (path: string, source: string): Array<string> => {
   ]
 }
 
-/** Files that never ship: tests, and development scripts such as integration and end-to-end checks. */
-const isDevelopmentOnly = (file: string) => file.startsWith("test/") || file.startsWith("scripts/") || file.endsWith(".test.ts")
+/** Files that never ship: tests, development scripts (integration and end-to-end checks) and deployment declarations. */
+const isDevelopmentOnly = (file: string) => file.startsWith("test/") || file.startsWith("scripts/") || file.endsWith(".test.ts") || file === "alchemy.run.ts"
 
 export const loadWorkspace = (root: string): { readonly packages: Array<PackageFacts>; readonly rootDevelopmentDependencies: Array<string> } => {
   const rootManifest = readManifest(join(root, "package.json"))
