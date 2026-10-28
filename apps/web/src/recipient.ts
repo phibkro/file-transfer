@@ -149,7 +149,7 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
     const files = await storage.commit()
     send({ type: "complete", sequence })
     connection?.close()
-    setFileHashes(() => Promise.all(files.map(sha256Hex)))
+    setFileHashes(async () => await Promise.all(files.map(sha256Hex)))
     setStatus("complete")
     say("Every file arrived and matched what the sender promised.")
     section.append(
@@ -372,23 +372,23 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
 
         switch (unit.kind) {
           case "header": {
-            return onHeader(unit.bytes)
+            return await onHeader(unit.bytes)
           }
 
           case "manifestRecord": {
-            return onManifestRecord(unit.index, unit.bytes)
+            return await onManifestRecord(unit.index, unit.bytes)
           }
 
           case "labelPage": {
-            return onLabelPage(unit.index, unit.bytes)
+            return await onLabelPage(unit.index, unit.bytes)
           }
 
           case "dataRecord": {
-            return onDataRecord(unit.index, unit.bytes, epoch === connection?.epoch())
+            return await onDataRecord(unit.index, unit.bytes, epoch === connection?.epoch())
           }
         }
       })
-      .catch((error: unknown) => fail(error))
+      .catch(async (error: unknown) => await fail(error))
   }
 
   const onControl = (message: ControlMessage) => {
@@ -414,6 +414,7 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
         if (message.role !== "sender") {
           return
         }
+
         senderPresent = message.event === "joined"
 
         if (!senderPresent) {

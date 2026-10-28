@@ -141,7 +141,7 @@ describe("a breach is caught at the first changed record", () => {
 })
 
 describe("tampering is rejected", () => {
-  const fixture = (secret: Uint8Array, length: number) => encryptAll({ secret, data: bytesOf(length, 5), recordSizeExponent: exponent })
+  const fixture = async (secret: Uint8Array, length: number) => await encryptAll({ secret, data: bytesOf(length, 5), recordSizeExponent: exponent })
 
   it("any single bit flip anywhere", async () => {
     await fc.assert(
@@ -297,7 +297,7 @@ describe("a record that arrives before its label page (receiver rule 6)", () => 
     const contract = await sealer.sealContract(await labelRecords(sealer, recordReaderFromBytes(data, size)))
     const records = [await sealer.sealData(0, data.subarray(0, size)), await sealer.sealData(1, data.subarray(size))]
     const opener = await openHeader(secret, contract.header.bytes)
-    const plaintexts = await Promise.all(contract.manifestRecords.map((record, counter) => opener.openManifestRecord(counter, record)))
+    const plaintexts = await Promise.all(contract.manifestRecords.map(async (record, counter) => await opener.openManifestRecord(counter, record)))
     const receiver = await opener.acceptContract(plaintexts, contract.manifestRecords)
     const [first, second] = records
 

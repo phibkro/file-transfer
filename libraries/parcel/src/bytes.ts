@@ -60,7 +60,7 @@ export const encodeBase64Url = (bytes: Uint8Array): string => {
     binary += String.fromCharCode(byte)
   }
 
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "")
 }
 
 /** Strict decoding: rejects padding, other alphabets and non-canonical trailing bits. */
@@ -69,7 +69,7 @@ export const decodeBase64Url = (text: string): Uint8Array<ArrayBuffer> => {
     throw new ParcelError("invalid-argument", "not unpadded base64url")
   }
 
-  const binary = atob(text.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - (text.length % 4)) % 4))
+  const binary = atob(text.replaceAll("-", "+").replaceAll("_", "/") + "=".repeat((4 - (text.length % 4)) % 4))
   const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0))
 
   if (encodeBase64Url(bytes) !== text) {

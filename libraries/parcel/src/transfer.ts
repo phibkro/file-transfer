@@ -143,7 +143,7 @@ export const createParcelSealer = async (options: SealerOptions): Promise<Parcel
         throw new ParcelError("size-mismatch", `data record ${index} must hold ${expected} bytes, got ${plaintext.length}`)
       }
 
-      return sealRecord(keys.content, header.bytes, { counter: index, isFinal: index === count - 1 }, plaintext)
+      return await sealRecord(keys.content, header.bytes, { counter: index, isFinal: index === count - 1 }, plaintext)
     },
     sealContract: async (labels) => {
       if (labels.length !== count * labelLength) {
@@ -153,20 +153,25 @@ export const createParcelSealer = async (options: SealerOptions): Promise<Parcel
       const pageCount = Math.ceil(count / labelsPerPage)
 
       const pageRoots = await Promise.all(
-        Array.from({ length: pageCount }, (_, page) => treeHash(labelList(labels, page * labelsPerPage, Math.min(count, (page + 1) * labelsPerPage)))),
+        Array.from(
+          { length: pageCount },
+          async (_, page) => await treeHash(labelList(labels, page * labelsPerPage, Math.min(count, (page + 1) * labelsPerPage))),
+        ),
       )
 
       const rootHash = await treeHash(pageRoots)
       const plaintext = encodeManifestStream(manifest, { recordCount: count, rootHash })
 
       const manifestRecords = await Promise.all(
-        Array.from({ length: plaintext.length / manifestRecordSize }, (_, counter) =>
-          sealRecord(
-            keys.manifest,
-            header.bytes,
-            { counter, isFinal: false },
-            plaintext.subarray(counter * manifestRecordSize, (counter + 1) * manifestRecordSize),
-          ),
+        Array.from(
+          { length: plaintext.length / manifestRecordSize },
+          async (_, counter) =>
+            await sealRecord(
+              keys.manifest,
+              header.bytes,
+              { counter, isFinal: false },
+              plaintext.subarray(counter * manifestRecordSize, (counter + 1) * manifestRecordSize),
+            ),
         ),
       )
 
@@ -180,7 +185,7 @@ export const createParcelSealer = async (options: SealerOptions): Promise<Parcel
         labelOf: (index) => labelAt(labels, index),
         labelPage: async (page) => {
           const { start, end } = layout.pageRecords(page)
-          const siblings = await Promise.all(auditPath(pageCount, page).map((sibling) => treeHash(pageRoots, sibling.start, sibling.end)))
+          const siblings = await Promise.all(auditPath(pageCount, page).map(async (sibling) => await treeHash(pageRoots, sibling.start, sibling.end)))
 
           return concatBytes(labels.subarray(start * labelLength, end * labelLength), ...siblings)
         },
@@ -247,12 +252,12 @@ export const openHeader = async (linkSecret: Uint8Array, headerBytes: Uint8Array
 
   return {
     header,
-    openManifestRecord: (counter, record) => {
+    openManifestRecord: async (counter, record) => {
       if (record.length !== manifestRecordLength) {
         throw new ParcelError("size-mismatch", "a manifest record has the wrong length")
       }
 
-      return openRecord(keys.manifest, header.bytes, { counter, isFinal: false }, record, `manifest record ${counter}`)
+      return await openRecord(keys.manifest, header.bytes, { counter, isFinal: false }, record, `manifest record ${counter}`)
     },
     manifestRecordCountFrom: (firstRecordPlaintext) => manifestRecordCount(manifestJsonLength(firstRecordPlaintext)),
     acceptContract: async (plaintexts, records) => {
@@ -310,7 +315,7 @@ export const openHeader = async (linkSecret: Uint8Array, headerBytes: Uint8Array
             throw new ParcelError("label-mismatch", `data record ${index} differs from the contract (breach)`)
           }
 
-          return openRecord(keys.content, header.bytes, { counter: index, isFinal: index === layout.recordCount - 1 }, record, `data record ${index}`)
+          return await openRecord(keys.content, header.bytes, { counter: index, isFinal: index === layout.recordCount - 1 }, record, `data record ${index}`)
         },
         releasePage: (page) => {
           verifiedPages.delete(page)

@@ -179,8 +179,8 @@ describe("name profile", () => {
       "Com1",
       "lpt¹",
       "COM³.log",
-      `${"x".repeat(256)}`,
-      `${"é".repeat(128)}`,
+      "x".repeat(256),
+      "é".repeat(128),
       `${"a/".repeat(2049)}b`,
     ]
 
@@ -417,14 +417,14 @@ describe("Merkle tree (RFC 6962)", () => {
           const pageCount = Math.ceil(labels.length / pageSize)
 
           const pageRoots = await Promise.all(
-            Array.from({ length: pageCount }, (_, page) => treeHash(labels, page * pageSize, Math.min(labels.length, (page + 1) * pageSize))),
+            Array.from({ length: pageCount }, async (_, page) => await treeHash(labels, page * pageSize, Math.min(labels.length, (page + 1) * pageSize))),
           )
 
           expect(toHex(await treeHash(pageRoots))).toBe(toHex(root))
 
           for (let page = 0; page < pageCount; page++) {
             const path = auditPath(pageCount, page)
-            const siblings = await Promise.all(path.map((sibling) => treeHash(pageRoots, sibling.start, sibling.end)))
+            const siblings = await Promise.all(path.map(async (sibling) => await treeHash(pageRoots, sibling.start, sibling.end)))
             expect(toHex(await foldAuditPath(pageRoots[page] ?? new Uint8Array(32), path, siblings))).toBe(toHex(root))
 
             if (siblings.length > 0) {

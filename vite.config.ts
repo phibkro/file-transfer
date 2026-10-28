@@ -8,6 +8,10 @@
 import antiSlop from "ultracite/oxlint/anti-slop"
 import core from "ultracite/oxlint/core"
 import { defineConfig } from "vite-plus"
+import effxConfig from "./effx.config.json" with { type: "json" }
+
+/** Files effx governs as Effect code, where `Effect.promise(() => f())` is the idiom and native async is rejected. */
+const effectFiles = effxConfig.effect.groups.filter((group) => group.role === "effect-library" || group.role === "service").flatMap((group) => group.files)
 
 export default defineConfig({
   fmt: { semi: false, printWidth: 160, ignorePatterns: [".claude/**"] },
@@ -33,7 +37,18 @@ export default defineConfig({
       "eslint/func-names": "off",
       // Index loops over bytes and records read best with ++.
       "eslint/no-plusplus": "off",
+      // Its fix turns typed-array copies (`bytes.slice()`) into number arrays (`[...bytes]`).
+      "unicorn/prefer-spread": "off",
+      // Its fix deletes `undefined` arguments TypeScript requires (a machine's `Context` of `undefined`, AsyncGenerator.return).
+      "unicorn/no-useless-undefined": "off",
     },
+    overrides: [
+      {
+        files: effectFiles,
+        // Ultracite wants `async` on every Promise-returning function; effx forbids native async in Effect code.
+        rules: { "typescript/promise-function-async": "off" },
+      },
+    ],
   },
   test: {
     include: [

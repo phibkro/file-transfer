@@ -151,21 +151,21 @@ const openPage = async (browser: Browser, routed = true) => {
         ...(reason === undefined ? {} : { reason }),
       })
 
-      socket.onClose((code, reason) => server.close(closeOptions(code, reason)))
-      server.onClose((code, reason) => socket.close(closeOptions(code, reason)))
+      socket.onClose(async (code, reason) => await server.close(closeOptions(code, reason)))
+      server.onClose(async (code, reason) => await socket.close(closeOptions(code, reason)))
     })
   }
 
-  return { page, observed, errors, close: () => context.close() }
+  return { page, observed, errors, close: async () => await context.close() }
 }
 
-const status = (page: Page) => page.evaluate(() => window.fileTransferTest?.status())
+const status = async (page: Page) => await page.evaluate(() => window.fileTransferTest?.status())
 
-const waitForStatus = (page: Page, wanted: readonly string[], timeout = timeoutMilliseconds) =>
-  page.waitForFunction((statuses) => statuses.includes(window.fileTransferTest?.status() ?? ""), wanted, { timeout })
+const waitForStatus = async (page: Page, wanted: readonly string[], timeout = timeoutMilliseconds) =>
+  await page.waitForFunction((statuses) => statuses.includes(window.fileTransferTest?.status() ?? ""), wanted, { timeout })
 
-const waitForProgress = (page: Page, fraction: number) =>
-  page.waitForFunction(
+const waitForProgress = async (page: Page, fraction: number) =>
+  await page.waitForFunction(
     (wanted) => {
       const progress = window.fileTransferTest?.progress()
 
@@ -222,7 +222,7 @@ const offer = async (sender: Page, base: string, files: readonly PayloadFile[]) 
     await sender.evaluate(() => window.fileTransferTest?.failure()),
   )
 
-  return sender.inputValue("#link")
+  return await sender.inputValue("#link")
 }
 
 /** The invariant from CLAUDE.md, as seen from the browsers: nothing they send carries the secret or a file name. */
@@ -235,13 +235,17 @@ const checkNothingLeaks = (link: string, files: readonly PayloadFile[], observed
   for (const observed of observedList) {
     for (const url of observed.urls) {
       for (const needle of needles) {
-        if (url.includes(needle)) leaks.push(`url contains ${needle === secret ? "the secret" : needle}`)
+        if (url.includes(needle)) {
+          leaks.push(`url contains ${needle === secret ? "the secret" : needle}`)
+        }
       }
     }
 
     for (const frame of observed.frames) {
       for (const needle of needles) {
-        if (frame.includes(Buffer.from(needle))) leaks.push(`frame contains ${needle === secret ? "the secret" : needle}`)
+        if (frame.includes(Buffer.from(needle))) {
+          leaks.push(`frame contains ${needle === secret ? "the secret" : needle}`)
+        }
       }
     }
   }

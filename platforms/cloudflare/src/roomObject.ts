@@ -59,7 +59,7 @@ export class RoomObject extends DurableObject {
     const url = new URL(request.url)
 
     if (url.pathname === "/create") {
-      return this.create(request)
+      return await this.create(request)
     }
 
     if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") {

@@ -66,7 +66,7 @@ export default {
         return json(405, { error: "method not allowed" })
       }
 
-      return createRoom(request, environment)
+      return await createRoom(request, environment)
     }
 
     const socket = socketPath.exec(url.pathname)
@@ -82,13 +82,13 @@ export default {
         return json(426, { error: "expected a WebSocket upgrade" })
       }
 
-      return environment.ROOMS.get(environment.ROOMS.idFromName(roomIdentifier)).fetch(request)
+      return await environment.ROOMS.get(environment.ROOMS.idFromName(roomIdentifier)).fetch(request)
     }
 
     if (url.pathname.startsWith("/api/")) {
       return json(404, { error: "not found" })
     }
 
-    return environment.ASSETS.fetch(request)
+    return await environment.ASSETS.fetch(request)
   },
 }

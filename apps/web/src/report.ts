@@ -92,7 +92,7 @@ export const installTestHook = () => {
     status: () => status,
     progress: () => progress,
     failure: () => failure,
-    fileHashes: () => hashes(),
+    fileHashes: async () => await hashes(),
   }
   document.body.dataset.status = status
 }

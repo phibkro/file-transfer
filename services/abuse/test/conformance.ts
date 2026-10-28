@@ -9,8 +9,8 @@ import type { AbuseGuarantee, Notice } from "../src/index.ts"
 
 const runner =
   (layer: Layer.Layer<Abuse>) =>
-  <A, E>(effect: Effect.Effect<A, E, Abuse>) =>
-    Effect.runPromise(Effect.provide(effect, layer))
+  async <A, E>(effect: Effect.Effect<A, E, Abuse>) =>
+    await Effect.runPromise(Effect.provide(effect, layer))
 
 const completeNotice = (location: string): Notice => ({
   location,

@@ -64,7 +64,7 @@ const sealParcel = async (manifest: Manifest, recordSizeExponent: number, sequen
     dataRecords.push(await sealer.sealData(index, plaintext.subarray(index * size, index * size + sealer.dataPlaintextLength(index))))
   }
 
-  const labelPages = await Promise.all(Array.from({ length: contract.pageCount }, (_, page) => contract.labelPage(page)))
+  const labelPages = await Promise.all(Array.from({ length: contract.pageCount }, async (_, page) => await contract.labelPage(page)))
 
   return { sealer, labels, contract, dataRecords, labelPages }
 }
@@ -256,7 +256,7 @@ export const generateRejections = async () => {
   const parcels: { name: string; secret: string; parcel: string; reason: string; expectedDigest?: string }[] = [
     { name: "wrong secret", secret: toHex(otherSecret), parcel: toHex(honest), reason: "key-commitment-mismatch" },
     { name: "header only, wrong secret", secret: toHex(otherSecret), parcel: toHex(honest.subarray(0, headerLength)), reason: "key-commitment-mismatch" },
-    { name: "cut inside the last record", secret: toHex(secret), parcel: toHex(honest.subarray(0, honest.length - 1)), reason: "truncated" },
+    { name: "cut inside the last record", secret: toHex(secret), parcel: toHex(honest.subarray(0, -1)), reason: "truncated" },
     { name: "a byte after the last record", secret: toHex(secret), parcel: toHex(concatBytes(honest, new Uint8Array([0]))), reason: "trailing-data" },
     {
       name: "another contract under a header that is byte-identical to the pinned one",

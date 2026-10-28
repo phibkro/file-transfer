@@ -56,10 +56,10 @@ export const decodeLinkSecret = (fragment: string): Uint8Array<ArrayBuffer> => {
   return secret
 }
 
-const importSecret = (secret: Uint8Array) => {
+const importSecret = async (secret: Uint8Array) => {
   requireLength(secret, secretLength, "invalid-secret", "secret")
 
-  return crypto.subtle.importKey("raw", asBufferSource(secret), "HKDF", false, ["deriveBits", "deriveKey"])
+  return await crypto.subtle.importKey("raw", asBufferSource(secret), "HKDF", false, ["deriveBits", "deriveKey"])
 }
 
 const hkdf = (info: Uint8Array) => ({ name: "HKDF", hash: "SHA-256", salt: textEncoder.encode(derivationSalt), info: asBufferSource(info) })

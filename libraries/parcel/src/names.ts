@@ -51,7 +51,7 @@ const numberedDevice = /^(com|lpt)[1-9¹²³]$/
 
 /** Whether Windows reads a segment as a device: its part before the first dot, trailing spaces removed, ASCII lowercased. */
 export const isWindowsDeviceName = (segment: string): boolean => {
-  const stem = (segment.split(".")[0] ?? "").replace(/ +$/, "").replace(/[A-Z]/g, (letter) => letter.toLowerCase())
+  const stem = (segment.split(".")[0] ?? "").replace(/ +$/, "").replaceAll(/[A-Z]/g, (letter) => letter.toLowerCase())
 
   return deviceStems.has(stem) || numberedDevice.test(stem)
 }

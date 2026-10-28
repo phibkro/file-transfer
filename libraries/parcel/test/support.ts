@@ -73,7 +73,7 @@ export const encryptAll = async (input: SendInput): Promise<Uint8Array> => {
   const readRecord: RecordReader = async (index, length) => {
     const reader = labelled && input.readForSending !== undefined ? input.readForSending : labelling
 
-    return reader(index, length)
+    return await reader(index, length)
   }
 
   const sender = await createParcelSender({
@@ -87,7 +87,7 @@ export const encryptAll = async (input: SendInput): Promise<Uint8Array> => {
 
   labelled = true
 
-  return collect(sender.stream)
+  return await collect(sender.stream)
 }
 
 export const decryptAll = async (
@@ -135,7 +135,7 @@ export const outcome = async (promise: Promise<unknown>): Promise<string> => {
 }
 
 /** The same for a synchronous call. */
-export const outcomeOf = (call: () => unknown): Promise<string> => outcome(Promise.resolve().then(call))
+export const outcomeOf = async (call: () => unknown): Promise<string> => await outcome(Promise.resolve().then(call))
 
 /** Byte offsets of each unit in a parcel built from `manifest` with records of `2^recordSizeExponent` bytes. */
 export const layoutOf = (manifest: Manifest, recordSizeExponent: number) => {

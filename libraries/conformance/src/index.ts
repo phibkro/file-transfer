@@ -25,7 +25,7 @@ export const secureCrypto: Layer.Layer<Crypto.Crypto> = Layer.succeed(
     randomBytes: (size) => globalThis.crypto.getRandomValues(new Uint8Array(size)),
     digest: (algorithm, data) =>
       Effect.map(
-        Effect.promise(() => globalThis.crypto.subtle.digest(algorithm, new Uint8Array(data))),
+        Effect.promise(async () => await globalThis.crypto.subtle.digest(algorithm, new Uint8Array(data))),
         (buffer) => new Uint8Array(buffer),
       ),
   }),
@@ -68,7 +68,7 @@ export const conformanceSuite = <Service, Identifier extends string>(definition:
   run: (layerName, layer) => {
     describe(`${definition.service} conformance: ${layerName}`, () => {
       for (const guarantee of definition.guarantees) {
-        it(`${guarantee.identifier}: ${guarantee.property}`, () => definition.checks[guarantee.identifier](layer))
+        it(`${guarantee.identifier}: ${guarantee.property}`, async () => await definition.checks[guarantee.identifier](layer))
       }
     })
   },

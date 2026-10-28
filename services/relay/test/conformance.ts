@@ -12,8 +12,8 @@ import type { RelayGuarantee } from "../src/index.ts"
 
 const runner =
   (layer: Layer.Layer<Relay>) =>
-  <A, E>(effect: Effect.Effect<A, E, Relay>) =>
-    Effect.runPromise(Effect.provide(effect, layer))
+  async <A, E>(effect: Effect.Effect<A, E, Relay>) =>
+    await Effect.runPromise(Effect.provide(effect, layer))
 
 /** Frames that are all different, so an order check cannot pass by accident. */
 const distinctFramesArbitrary = fc

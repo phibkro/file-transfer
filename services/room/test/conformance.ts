@@ -16,8 +16,8 @@ const secretArbitrary = fc.uint8Array({ minLength: 32, maxLength: 32 })
 const createRoomWithSecret = (secret: Uint8Array, maximumRecipients: number) =>
   Effect.gen(function* () {
     const room = yield* Room
-    const roomToken = yield* Effect.promise(() => deriveRoomToken(secret))
-    const roomTokenHash = yield* Effect.promise(() => hashRoomToken(roomToken))
+    const roomToken = yield* Effect.promise(async () => await deriveRoomToken(secret))
+    const roomTokenHash = yield* Effect.promise(async () => await hashRoomToken(roomToken))
     const roomIdentifier = yield* room.create({ roomTokenHash, maximumRecipients })
 
     return { room, roomToken, roomIdentifier }
@@ -25,8 +25,8 @@ const createRoomWithSecret = (secret: Uint8Array, maximumRecipients: number) =>
 
 const runner =
   (layer: Layer.Layer<Room>) =>
-  <A, E>(effect: Effect.Effect<A, E, Room>) =>
-    Effect.runPromise(Effect.provide(effect, layer))
+  async <A, E>(effect: Effect.Effect<A, E, Room>) =>
+    await Effect.runPromise(Effect.provide(effect, layer))
 
 export const roomSuite = conformanceSuite<Room, RoomGuarantee>({
   service: "Room",
@@ -40,7 +40,7 @@ export const roomSuite = conformanceSuite<Room, RoomGuarantee>({
           const outcome = await runner(layer)(
             Effect.gen(function* () {
               const { room, roomToken, roomIdentifier } = yield* createRoomWithSecret(secret, 4)
-              const otherToken = yield* Effect.promise(() => deriveRoomToken(otherSecret))
+              const otherToken = yield* Effect.promise(async () => await deriveRoomToken(otherSecret))
               const wrongToken = yield* Effect.result(room.join({ roomIdentifier, roomToken: otherToken, role: "recipient" }))
               const rightToken = yield* Effect.result(room.join({ roomIdentifier, roomToken, role: "recipient" }))
 

@@ -12,8 +12,8 @@ const eventArbitrary: fc.Arbitrary<TelemetryEvent> = fc.oneof(
   fc.record({ kind: fc.constant("transfer-completed" as const), sizeBucket: fc.constantFrom(...sizeBuckets) }),
 )
 
-const recordAll = (layer: Layer.Layer<Telemetry>, events: readonly TelemetryEvent[]) =>
-  Effect.runPromise(
+const recordAll = async (layer: Layer.Layer<Telemetry>, events: readonly TelemetryEvent[]) =>
+  await Effect.runPromise(
     Effect.provide(
       Effect.gen(function* () {
         const telemetry = yield* Telemetry

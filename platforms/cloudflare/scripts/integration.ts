@@ -112,8 +112,8 @@ const connect = (roomIdentifier: string): Client => {
     socket.addEventListener("close", (event: CloseEvent) => resolve({ code: event.code, reason: event.reason })),
   )
 
-  const next = (timeoutMilliseconds = 5000) =>
-    new Promise<string | ArrayBuffer>((resolve, reject) => {
+  const next = async (timeoutMilliseconds = 5000) =>
+    await new Promise<string | ArrayBuffer>((resolve, reject) => {
       const queued = queue.shift()
 
       if (queued !== undefined) {
@@ -175,7 +175,7 @@ const joinRoom = async (client: Client, role: "sender" | "recipient", token = ro
   check(await client.opened, `${role} socket upgrades`)
   client.sendControl({ type: "join", role, roomToken: token })
 
-  return nextControl(client)
+  return await nextControl(client)
 }
 
 const expectRefusal = async (client: Client, reason: string, description: string) => {

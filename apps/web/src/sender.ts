@@ -282,6 +282,7 @@ const serve = (prepared: Prepared, roomIdentifier: string, roomToken: string, vi
         if (schedule === undefined) {
           return
         }
+
         receiveCredit(balance, message.records)
         awaitingFirstCredit = false
         void pump()

@@ -12,8 +12,8 @@ import type { AdmissionPolicy, QuotaGuarantee } from "../src/index.ts"
 
 const runner =
   (layer: Layer.Layer<Quota>) =>
-  <A, E>(effect: Effect.Effect<A, E, Quota>) =>
-    Effect.runPromise(Effect.provide(effect, Layer.mergeAll(layer, TestClock.layer())))
+  async <A, E>(effect: Effect.Effect<A, E, Quota>) =>
+    await Effect.runPromise(Effect.provide(effect, Layer.mergeAll(layer, TestClock.layer())))
 
 /** Requests admission `count` times and returns how many were admitted. */
 const admitted = (quota: Quota["Service"], clientKey: string, count: number) =>
