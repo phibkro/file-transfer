@@ -1,4 +1,4 @@
-# 0014 Ultracite core and anti-slop as the lint profile
+# 0016 Ultracite core and anti-slop as the lint profile
 
 Status: accepted (2026-10-28), at the product owner's request.
 

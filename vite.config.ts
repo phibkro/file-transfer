@@ -2,7 +2,7 @@
  * Vite+ (docs/decisions/0010): one toolchain for formatting, linting, type checking and tests. The Effect profile is
  * linted by `effx check`, which owns its escapes and import closure (docs/decisions/0009), so it is not repeated here.
  *
- * Lint: Ultracite's oxlint core and anti-slop presets (docs/decisions/0014), run by `vp check --deny-warnings`. Rules
+ * Lint: Ultracite's oxlint core and anti-slop presets (docs/decisions/0016), run by `vp check --deny-warnings`. Rules
  * turned off below conflict with this codebase on purpose; each line says why.
  */
 import antiSlop from "ultracite/oxlint/anti-slop"
