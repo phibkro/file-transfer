@@ -18,6 +18,7 @@ Startup phase: prove that people want this and that some will pay, before stabil
 - [ ] Throughput harness: 10 GB synthetic stream, direct WebRTC versus Durable Object relay, MB/s against RTT
 - [ ] Save-tier test (picker, service worker, OPFS) on Chrome, Firefox, Safari desktop, Android Chrome, iOS Safari
 - [ ] Durable Object load test: sustained MB/s per object, slow-receiver behaviour, cost per GB from billing
+- [ ] Lossy-link test (phone hotspot): reliable ordered data channel versus unordered with zero retransmits plus want lists (ADR 0013)
 - [ ] Choose the relay cap (10, 25 or 50 GB) from the load test: completion rate with resume, duration per object, cost per transfer, and the share of transfers that would hit each cap
 - [x] Run the same Worker and Durable Object code (hibernation included) on workerd; confirm Effect services run inside a Durable Object (`docs/spikes/0001-workerd-durable-object.md`: yes on both; loopback relay 235 to 456 MB/s; compression must be off)
 - [ ] Record results in `docs/spikes/` and decide record size, frame size, and direct-first versus relay-first for large files
