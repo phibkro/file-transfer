@@ -1,0 +1,29 @@
+# 0014 Identity, link grants, durable storage and the asset library
+
+Status: proposed (2026-10-28), not scheduled. Accounts and stores stay behind the phase 2 gate (`plan.md`); this records the direction so earlier work keeps the doors open.
+
+## Context
+
+The product owner's direction: login (probably Better Auth) and email; links that grant access to only the first N connections; a persistent connection to an identity, whether a browser session or a durable account; storage for account holders, with local-only transfers (nodes are only senders and recipients) staying the default and durable cloud storage opt-in; uploads whose retention the owner chooses, managed in an asset library; content-addressed deduplication; and an opt-in public versus private asset distinction.
+
+Facts checked on 2026-10-28:
+
+- Better Auth is MIT licensed (1.7.14, 2026-10-26), maintains Auth.js since 2025-09-22, and announced joining Vercel on 2026-07-07 without stated terms. It runs on Workers through its Hono integration with `nodejs_compat`, reaches D1 through Kysely, and has passkey, magic-link, email-OTP and anonymous-session plugins; an anonymous user can later be linked to a real account (`onLinkAccount`). Sources: better-auth.com docs (plugins: passkey, magic-link, email-otp, anonymous; integrations: hono; concepts: database) and its blog.
+- Firefox Send limited a link by counting completed downloads per file identifier in Redis and deleting at the limit; its code notes that one token could make all the downloads. The count was of requests, not of distinct recipients (github.com/mozilla/send, `server/routes/done.js`, `ws.js`). Wormhole offers a maximum download count and 24-hour expiry (wormhole.app/roadmap, /faq).
+- Cross-user deduplication leaks whether a file already exists (Harnik, Pinkas and Shulman-Peleg, IEEE S&P 2010), and with convergent encryption enables "confirmation of a file" and "learn the remaining information" (Tahoe-LAFS, convergence-secret documentation). A hash alone must never act as a capability (Halevi et al., "Proofs of Ownership in Remote Storage Systems", CCS 2011).
+- R2: $0.015 per GB-month standard storage, free egress, Class A $4.50 and Class B $0.36 per million operations (developers.cloudflare.com/r2/pricing).
+
+## Proposal
+
+1. **Identity is optional and never holds keys.** Three levels: anonymous (today), a browser session (Better Auth's anonymous plugin, a durable identity without sign-up), and an account (passkey first, magic link or email OTP as fallback). Linking a session to an account carries its transfers over. The invariant is unchanged: the server holds no keys and no file names. Identity adds metadata (who sends to whom), so the anonymous path stays first class.
+2. **Grants: the first N recipients claim the link.** On first admission the room issues each recipient a random claim token and stores only its hash, up to N claims; the client keeps the token (browser storage, or the account once signed in). Reconnects present the claim, which also scopes "newest join wins" (docs/protocol.md, Reconnecting) to the same claim, so a stranger with the link can no longer evict a recipient. After N claims, or expiry, the room refuses new joins. A grant limits who can fetch ciphertext through our relays and stores; it cannot stop a recipient who has decrypted from forwarding the plaintext, and it cannot help if the link leaks before the intended recipients claim it. Grants addressed to an account ("only philip@...") need recipients to sign in; addressing encryption to a recipient's key instead of a link secret belongs with PAKE codes in phase 4.
+3. **Durable storage is opt-in per transfer and tied to the account.** Local-only transfers stay the default. An account holder may upload a parcel to the store with a retention they choose; the store keeps ciphertext it can verify against the contract root (ADR 0012) but not read, and bills storage by GB-month (ADR 0006). At list price, 10 GB kept for a month costs $0.15 in storage.
+4. **The asset library is decrypted on the client.** The library lists the owner's stored parcels with retention, size, grants and download counts. Names and contents come from each parcel's sealed manifest, so the server shows only sizes and dates. The hard part is getting each parcel's secret back on a new device without the server holding it: an account keyring encrypted on the client under a key the server never sees (candidates: a passkey-derived key through the WebAuthn PRF extension, or a recovery phrase), to be researched before phase 2.
+5. **No cross-user deduplication of private parcels.** Parcels already seal under a fresh secret per link, so identical files give different ciphertext and reveal nothing; this is a property to keep, not a gap to close. Allowed instead: re-sharing a stored parcel without uploading again (a new grant on the same ciphertext, chosen on the owner's own device), and deduplication inside one account through a per-account convergence secret (the Tahoe-LAFS model), where only the account itself could run the attacks.
+6. **Public assets are a separate, later product.** Opt-in public assets could be addressed by plaintext hash and deduplicated across users, since confirming a public file reveals nothing. They also turn private transfer into public hosting, with the abuse and notice obligations that ended Firefox Send, so they belong with seeding in phase 4 and need their own decision.
+
+## Consequences
+
+- Phase 1 can prepare without building accounts: the claim token in the room protocol (grants of N with anonymous claims) is useful on its own and fixes the eviction gap noted in docs/protocol.md.
+- Better Auth on the Worker needs `nodejs_compat` and a D1 database; email becomes an integration (`integrations/email`) behind a service port.
+- The keyring (item 4) is security-critical key handling: written small and tested heavily, with its own review, like the parcel.
