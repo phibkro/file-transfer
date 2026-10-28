@@ -71,7 +71,9 @@ export type Violation =
 
 /** Modules the runtime provides rather than a package: Node and Bun built-ins, and the Workers runtime's `cloudflare:*`. */
 const runtimeModulePrefixes = ["node:", "bun:", "cloudflare:"]
-const isRuntimeModule = (specifier: string) => runtimeModulePrefixes.some((prefix) => specifier.startsWith(prefix))
+
+/** `node:*`, `bun:*`, `cloudflare:*`, and Bun's own `bun` module (`import type { Socket } from "bun"`). */
+const isRuntimeModule = (specifier: string) => specifier === "bun" || runtimeModulePrefixes.some((prefix) => specifier.startsWith(prefix))
 const isRelative = (specifier: string) => specifier.startsWith("./") || specifier.startsWith("../")
 
 /** `@scope/name/sub` becomes `@scope/name`; `name/sub` becomes `name`. */

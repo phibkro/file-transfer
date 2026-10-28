@@ -111,6 +111,8 @@ describe("module graph negative controls", () => {
     expect(rulesBroken(runtime)).toEqual(["runtime-module-in-source"])
     const workers = replace(service, { imports: [...service.imports, { file: "src/index.ts", specifier: "cloudflare:workers", developmentOnly: false }] })
     expect(rulesBroken(workers)).toEqual(["runtime-module-in-source"])
+    const bunModule = replace(service, { imports: [...service.imports, { file: "src/index.ts", specifier: "bun", developmentOnly: false }] })
+    expect(rulesBroken(bunModule)).toEqual(["runtime-module-in-source"])
   })
 
   it("rejects a test-only import in shipped code unless the file is test support", () => {
