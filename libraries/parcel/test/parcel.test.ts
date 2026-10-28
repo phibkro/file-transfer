@@ -254,7 +254,8 @@ describe("canonical manifest", () => {
   })
 
   it("round trips any valid manifest, and validation equals decoding its canonical form", () => {
-    const nameArbitrary = fc.stringMatching(/^[a-z0-9_-]{1,12}(\/[a-z0-9_-]{1,12}){0,2}\.(txt|bin)$/)
+    // Valid names only: the pattern alone can produce reserved device names such as "con.txt", which the profile rejects.
+    const nameArbitrary = fc.stringMatching(/^[a-z0-9_-]{1,12}(\/[a-z0-9_-]{1,12}){0,2}\.(txt|bin)$/).filter((name) => nameProblem(name) === undefined)
     fc.assert(
       fc.property(
         fc.uniqueArray(fc.record({ name: nameArbitrary, size: fc.nat({ max: 2 ** 30 }), mediaType: fc.constantFrom("", "text/plain") }), {
