@@ -3,7 +3,7 @@
  * Checks run under `TestClock`, so window boundaries are exact and no test waits on real time.
  */
 import { conformanceSuite } from "@file-transfer/conformance"
-import { expect } from "bun:test"
+import { expect } from "vite-plus/test"
 import { Effect, Layer } from "effect"
 import { TestClock } from "effect/testing"
 import fc from "fast-check"

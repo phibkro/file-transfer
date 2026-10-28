@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test"
+import { describe, expect, it } from "vite-plus/test"
 import { boundary, can, make, next, problems, toMermaid } from "../src/index.ts"
 
 const door = make({

@@ -4,7 +4,7 @@
  */
 import { conformanceSuite } from "@file-transfer/conformance"
 import { deriveRoomToken, hashRoomToken } from "@file-transfer/format"
-import { expect } from "bun:test"
+import { expect } from "vite-plus/test"
 import { Effect, type Layer } from "effect"
 import fc from "fast-check"
 import { Room, roomGuarantees, type RoomGuarantee } from "../src/index.ts"

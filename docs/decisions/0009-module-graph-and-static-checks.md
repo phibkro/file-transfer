@@ -1,6 +1,6 @@
 # 0009 Module graph and static checks
 
-Status: accepted (2026-10-28)
+Status: accepted (2026-10-28). Amended by 0010: `vp check` replaces `typecheck`, `vp test` replaces `bun test`.
 
 ## Context
 

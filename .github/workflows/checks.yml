@@ -13,8 +13,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
       - run: bun install --frozen-lockfile
-      # Typecheck, module graph, Effect lint (effx), Effect diagnostics (effect-tsgo), tests.
+      # Vite+ check (format, lint, types), module graph, Effect profile (effx), tests (Vitest).
       - run: bun run check
 
   secrets:

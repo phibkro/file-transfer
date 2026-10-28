@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test"
+import { describe, expect, it } from "vite-plus/test"
 import { checkModuleGraph, describeViolation, type PackageFacts, type Violation } from "../src/moduleGraph.ts"
 import { loadWorkspace } from "../src/workspace.ts"
 
@@ -32,7 +32,7 @@ const service: PackageFacts = {
   imports: [
     { file: "src/index.ts", specifier: "@file-transfer/format", inTest: false },
     { file: "src/index.ts", specifier: "effect", inTest: false },
-    { file: "test/room.test.ts", specifier: "bun:test", inTest: true },
+    { file: "test/room.test.ts", specifier: "vite-plus/test", inTest: true },
     { file: "test/room.test.ts", specifier: "fast-check", inTest: true },
   ],
 }
@@ -51,7 +51,7 @@ const platform: PackageFacts = {
 }
 
 const valid = [library, service, platform]
-const developmentDependencies = ["fast-check"]
+const developmentDependencies = ["fast-check", "vite-plus"]
 
 const rulesBroken = (packages: ReadonlyArray<PackageFacts>): Array<Violation["rule"]> =>
   [...new Set(checkModuleGraph(packages, developmentDependencies).map((violation) => violation.rule))].sort()

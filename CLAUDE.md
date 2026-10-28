@@ -25,7 +25,7 @@ Platforms are isomorphic: `cloudflare` and `self-hosted` provide a Layer for the
 
 ## Conventions
 
-- TypeScript, strict mode, ES modules, Bun workspaces. Effect 4 for services, layers, streams and errors.
+- TypeScript 7, strict mode, ES modules, Bun workspaces, Vite+ (`vp`) for formatting, linting, type checking, tests and builds (docs/decisions/0010). Effect 4 for services, layers, streams and errors.
 - Names use full words: `RoomIdentifier`, not `RoomId`; `createRoom`, not `mkRoom`. Abbreviations only when unambiguous and universal (`url`, `http`, `id` inside compound protocol field names defined in `docs/format.md`).
 - Errors are typed (`Data.TaggedError`), never thrown strings.
 - Services and libraries take capabilities (`Clock`, `Crypto`, project services) from the environment; never reach for `crypto`, `Date`, `console` or runtime modules directly. `effx check` enforces this per file role, declared in `effx.config.json`.
@@ -36,7 +36,7 @@ Platforms are isomorphic: `cloudflare` and `self-hosted` provide a Layer for the
 
 ## Testing
 
-- `bun run check` runs typecheck, the module graph check, `effx check` (Effect lint plus effect-tsgo diagnostics) and `bun test`; CI adds gitleaks.
+- `bun run check` runs `vp check` (format, lint, type check), the module graph check, `effx check` (Effect lint plus effect-tsgo diagnostics) and `vp test run`; CI adds gitleaks. `vp check --fix` formats. Tests import from `vite-plus/test`.
 - Each service declares its guarantees as data and has `test/conformance.ts` exporting a `conformanceSuite` with one check per guarantee (docs/decisions/0007). The reference layer and every platform layer register `suite.run` and `suite.negativeControls`, with a broken variant per guarantee that the check must reject.
 - `libraries/format` is the irreversible core: every change needs test vectors and property-based tests (round trip, truncation, reordering, record swapping, wrong key). Do not change the v1 wire format after it is frozen; add versions instead.
 - Prefer measuring to estimating: spikes live in `spikes/` and record results in `docs/spikes/`.

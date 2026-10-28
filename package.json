@@ -11,13 +11,11 @@
     "tools/*"
   ],
   "scripts": {
-    "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "bun test",
+    "test": "vp test run",
     "check:graph": "bun tools/quality/src/checkModuleGraph.ts",
-    "lint": "effx check",
-    "check:effect": "effect-tsgo diagnostics --project tsconfig.json --strict --format text",
+    "check:effect": "effx check",
     "check:secrets": "gitleaks git --redact --config .gitleaks.toml",
-    "check": "bun run typecheck && bun run check:graph && bun run lint && bun test"
+    "check": "vp check && bun run check:graph && bun run check:effect && vp test run"
   },
   "dependencies": {
     "effect": "^4.0.7"
@@ -28,6 +26,7 @@
     "@types/bun": "latest",
     "fast-check": "^4.0.0",
     "oxlint": "1.86.0",
-    "typescript": "7.0.2"
+    "typescript": "7.0.2",
+    "vite-plus": "1.4.0"
   }
 }

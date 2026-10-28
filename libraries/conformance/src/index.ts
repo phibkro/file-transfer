@@ -9,7 +9,7 @@
  * Adapted from the store-capability contract suites of phibkro/vektorprogrammet-reimagined (that repository's
  * ADR 0014), same author.
  */
-import { describe, expect, it } from "bun:test"
+import { describe, expect, it } from "vite-plus/test"
 import { Crypto, Effect, Layer } from "effect"
 import type { Guarantee } from "./guarantee.ts"
 

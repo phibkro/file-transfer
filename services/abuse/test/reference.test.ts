@@ -1,6 +1,6 @@
 import { secureCrypto } from "@file-transfer/conformance"
 import { Layer } from "effect"
-import { describe, expect, it } from "bun:test"
+import { describe, expect, it } from "vite-plus/test"
 import { AbuseReference, abuseGuarantees, makeAbuseReference, stripFragment } from "../src/index.ts"
 import { abuseSuite } from "./conformance.ts"
 

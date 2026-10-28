@@ -1,4 +1,4 @@
-import { expect, it } from "bun:test"
+import { expect, it } from "vite-plus/test"
 import { Effect } from "effect"
 import fc from "fast-check"
 import { assembleRecord, frameRecord } from "../src/index.ts"

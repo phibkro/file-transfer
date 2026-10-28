@@ -29,7 +29,7 @@ export const kindRules: { readonly [K in Kind]: KindRule } = {
 }
 
 /** Specifiers that only test code (and files a package marks as test support) may import. */
-export const testOnlySpecifiers: ReadonlyArray<string> = ["bun:test", "fast-check", "effect/testing", "@file-transfer/conformance"]
+export const testOnlySpecifiers: ReadonlyArray<string> = ["vite-plus/test", "bun:test", "fast-check", "effect/testing", "@file-transfer/conformance"]
 
 export const workspaceScope = "@file-transfer/"
 

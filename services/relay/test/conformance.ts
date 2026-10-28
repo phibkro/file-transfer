@@ -3,7 +3,7 @@
  * `relaySuite.run` and `relaySuite.negativeControls` with its own broken variants, as the reference layer does.
  */
 import { conformanceSuite } from "@file-transfer/conformance"
-import { expect } from "bun:test"
+import { expect } from "vite-plus/test"
 import { Effect, type Layer, Option } from "effect"
 import fc from "fast-check"
 import { Relay, relayGuarantees, type RelayGuarantee } from "../src/index.ts"

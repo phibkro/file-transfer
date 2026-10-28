@@ -1,6 +1,6 @@
 /** The Abuse service's conformance suite: one check per guarantee in `abuseGuarantees`. */
 import { conformanceSuite } from "@file-transfer/conformance"
-import { expect } from "bun:test"
+import { expect } from "vite-plus/test"
 import { Effect, type Layer } from "effect"
 import fc from "fast-check"
 import { Abuse, abuseGuarantees, type AbuseGuarantee, type Notice } from "../src/index.ts"

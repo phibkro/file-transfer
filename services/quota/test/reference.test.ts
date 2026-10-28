@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test"
+import { describe, expect, it } from "vite-plus/test"
 import { entitlementsFor, makeQuotaReference, quotaGuarantees } from "../src/index.ts"
 import { quotaSuite } from "./conformance.ts"
 

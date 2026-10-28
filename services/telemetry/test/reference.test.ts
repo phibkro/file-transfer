@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test"
+import { describe, expect, it } from "vite-plus/test"
 import fc from "fast-check"
 import { makeTelemetryReference, sizeBucketFor, sizeBuckets, TelemetryReference, telemetryGuarantees } from "../src/index.ts"
 import { telemetrySuite } from "./conformance.ts"
