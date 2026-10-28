@@ -434,6 +434,14 @@ const transfer = async (browser: Browser, base: string, scenario: TransferScenar
 
   try {
     const link = await offer(sender.page, base, files)
+
+    if (scenario === "resume") {
+      // As Chrome on Android reports a phone on mobile data (Network Information API).
+      await recipient.page.addInitScript(() => {
+        Object.defineProperty(navigator, "connection", { value: { type: "cellular" }, configurable: true })
+      })
+    }
+
     await recipient.page.goto(link)
     await waitForStatus(recipient.page, ["reviewing", "failed"])
     check((await status(recipient.page)) === "reviewing", `${scenario}: the recipient reviews the contract before any content`)
@@ -444,6 +452,14 @@ const transfer = async (browser: Browser, base: string, scenario: TransferScenar
       `${scenario}: the recipient sees every file name`,
       listed,
     )
+
+    if (scenario === "resume") {
+      check(
+        await recipient.page.getByRole("button", { name: /^Accept and download .+ on mobile data$/u }).isVisible(),
+        "resume: on mobile data, Accept states the size and asks for confirmation",
+      )
+    }
+
     await recipient.page.getByRole("button", { name: "Accept" }).click()
     const started = performance.now()
 

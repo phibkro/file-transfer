@@ -23,6 +23,30 @@ import { describeFailure, element, formatSize, progressBar, replaceChildren } fr
 
 const sequence = 0
 
+/** Offers at least this large ask for confirmation on mobile data; smaller ones would only add noise. */
+const mobileDataWarningBytes = 10_000_000
+
+interface NetworkInformation {
+  readonly type?: string
+  readonly saveData?: boolean
+}
+
+/**
+ * Whether the browser reports a cellular connection or Data Saver mode. Only Chromium-based browsers report this
+ * (Chrome on Android: `type`; Chromium: `saveData`); Safari and desktop Firefox never warn (MDN browser-compat-data,
+ * api/NetworkInformation.json).
+ */
+const onMobileData = (): boolean => {
+  if (!("connection" in navigator)) {
+    return false
+  }
+
+  // SAFETY: the `in` check above found the property; the DOM types this project builds with do not declare it.
+  const connection = navigator.connection as NetworkInformation | undefined
+
+  return connection?.type === "cellular" || connection?.saveData === true
+}
+
 /** How long a recipient that has completed stays connected to repeat `complete` to a reconnecting sender. */
 const completionLingerMilliseconds = 120_000
 
@@ -261,6 +285,15 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
       actions,
     )
     accept.focus()
+
+    if (onMobileData() && manifest.totalSize >= mobileDataWarningBytes) {
+      accept.textContent = `Accept and download ${formatSize(manifest.totalSize)} on mobile data`
+      actions.before(
+        element("p", { class: "mobile-data-warning", role: "note" }, [
+          `You seem to be on mobile data or in Data Saver mode. Accepting downloads ${formatSize(manifest.totalSize)}.`,
+        ]),
+      )
+    }
 
     const checkSpace = async () => {
       const available = await availableStorage()

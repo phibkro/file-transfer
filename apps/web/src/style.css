@@ -243,6 +243,7 @@ a {
   display: none;
 }
 
+.mobile-data-warning,
 .space-warning {
   color: var(--accent);
 }
