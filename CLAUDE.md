@@ -36,8 +36,9 @@ Platforms are isomorphic: `cloudflare` and `self-hosted` provide a Layer for the
 
 ## Testing
 
-- `bun run check` runs `vp check --deny-warnings` (format, lint, type check; lint warnings fail), the module graph check, `effx check` (Effect lint plus effect-tsgo diagnostics, every severity failing) and `vp test run`; CI adds gitleaks. `vp check --fix` formats. Tests import from `vite-plus/test`.
+- `bun run check` runs `vp check --deny-warnings` (format, type check, and lint with Ultracite core and anti-slop from `vite.config.ts`; warnings fail; docs/decisions/0014), the module graph check, `effx check` (Effect lint plus effect-tsgo diagnostics, every severity failing) and `vp test run`; CI adds gitleaks. `vp check --fix` formats. Tests import from `vite-plus/test`.
 - Each service declares its guarantees as data and has `test/conformance.ts` exporting a `conformanceSuite` with one check per guarantee (docs/decisions/0007). The reference layer and every platform layer register `suite.run` and `suite.negativeControls`, with a broken variant per guarantee that the check must reject.
+- Type assertions carry a `// SAFETY:` comment stating the checked invariant; error parameters are named `cause`; decode untrusted input at its boundary. Never run lint autofix across `libraries/parcel` at once: autofixes can change bytes on the wire (ADR 0014).
 - `libraries/parcel` is the irreversible core: every change needs test vectors and property-based tests (round trip, truncation, reordering, record swapping, wrong key). Do not change parcel v1 after it is frozen; add versions instead.
 - Prefer measuring to estimating: spikes live in `spikes/` and record results in `docs/spikes/`.
 
