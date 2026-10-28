@@ -1,0 +1,50 @@
+# Room and relay protocol (MVP)
+
+How endpoints find each other and move a parcel through a relay. The parcel itself is in `parcel.md`; terms are in `glossary.md`. The relay forwards bytes it cannot read: it checks room tokens and routes frames, nothing else (CLAUDE.md, the one invariant).
+
+Status: draft for the MVP. Codec in `libraries/transport/src/protocol.ts`.
+
+## Rooms
+
+- `POST /api/rooms` with JSON `{"roomTokenHash": <64 hex>, "maximumRecipients": <1..16>}` creates a room and answers `201 {"roomIdentifier": <22 base64url characters>}`. The server stores only the hash.
+- Link: `https://<host>/r/<roomIdentifier>#<base64url(linkSecret)>`. The fragment never reaches a server.
+- `GET /api/rooms/<roomIdentifier>/socket` upgrades to a WebSocket. Each room is one Durable Object (`idFromName(roomIdentifier)`).
+
+## Socket messages
+
+Text frames are JSON control messages; binary frames are parcel units. The first message on a socket must be `join`; the room answers `joined` or closes the socket with `error`.
+
+| Message    | Direction           | Fields                                                             | Meaning                                                                                       |
+| ---------- | ------------------- | ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------- |
+| `join`     | endpoint to room    | `role` (`sender` or `recipient`), `roomToken` (64 hex)             | Admission: the room compares `SHA-256(roomToken)` with the stored hash in constant time       |
+| `joined`   | room to endpoint    | `participantIdentifier`, `senderPresent`, `recipientCount`         | Admitted                                                                                      |
+| `peer`     | room to endpoint    | `event` (`joined` or `left`), `role`                               | Presence changes                                                                              |
+| `error`    | room to endpoint    | `reason`                                                           | Then the room closes the socket                                                               |
+| `accept`   | recipient to sender | `sequence`, `digest` (64 hex)                                      | Acceptance of exactly this contract (ADR 0012)                                                |
+| `decline`  | recipient to sender | `sequence`                                                         | Refusal; no content follows                                                                   |
+| `credit`   | recipient to sender | `records` (1..4096)                                                | Permission for that many more data records                                                    |
+| `want`     | recipient to sender | `sequence`, `ranges` (`[start, end)` pairs of data record indexes) | Missing records (ADR 0013); the sender answers each range with the covering label pages first |
+| `complete` | recipient to sender | `sequence`                                                         | Every record matched the contract                                                             |
+| `abort`    | either              | `reason`                                                           | The transfer stops; the recipient discards provisional output                                 |
+
+The room relays `accept`, `decline`, `credit`, `want` and `complete` from recipients to the sender, and `abort` both ways, without reading them. Binary frames flow only from the sender to recipients.
+
+## Parcel units in binary frames
+
+Each binary frame carries one unit: a 9-byte prefix, then the unit's bytes as `parcel.md` defines them.
+
+| Offset | Size | Field                                                                                                              |
+| ------ | ---- | ------------------------------------------------------------------------------------------------------------------ |
+| 0      | 1    | kind: `1` header, `2` manifest record, `3` label page, `4` data record                                             |
+| 1      | 4    | parcel sequence number, big-endian                                                                                 |
+| 5      | 4    | index: `0` for the header, the counter for manifest records, the page for label pages, the record for data records |
+| 9      | rest | the unit                                                                                                           |
+
+## Order of a transfer
+
+1. The sender labels the files, creates the room and shows the link.
+2. Both join. The sender sends the header and manifest records (the contract) as soon as a recipient is present.
+3. The recipient checks the key commitment, opens the contract, shows names and sizes, and answers `accept` with the digest, followed by `credit`.
+4. The sender sends each label page before the records it covers, and one data record per credit. Units may arrive in any order; the recipient drops a record whose page it has not verified and asks for it again with `want`.
+5. On a dropped connection the recipient rejoins and sends `accept` (same digest) and `want` with the ranges it still lacks.
+6. When every record matched, the recipient sends `complete` and commits its files.

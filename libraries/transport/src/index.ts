@@ -57,3 +57,5 @@ export const assembleRecord = (frames: ReadonlyArray<Frame>): Uint8Array => {
   }
   return record
 }
+
+export * from "./protocol.ts"

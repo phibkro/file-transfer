@@ -11,3 +11,6 @@ spikes/*/state/
 
 # Python bytecode from the vector check
 __pycache__/
+
+# Local deploy credentials (never committed)
+.secrets/
