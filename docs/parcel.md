@@ -1,8 +1,8 @@
-# Parcel v1 (draft)
+# Parcel v1
 
 A parcel is the encrypted, authenticated container every transfer moves: what a sender seals and recipients open, carried unchanged over direct, relayed and stored paths. Terms are defined in `glossary.md`.
 
-Status: implemented and tested; revised after the first review (docs/decisions/0011) and for contract before content (docs/decisions/0012); draft until the review's second pass. It freezes after that; after that, changes need a new version number, never an edit. Implemented in `libraries/parcel` (MIT).
+Status: **frozen** (v1, 2026-10-28). Reviewed by an adversarial reviewer agent in two passes (docs/decisions/0011) and revised for contract before content (docs/decisions/0012). Any change from here on needs a new version number, never an edit. A human applied-cryptography review is recommended before launch; if it finds a flaw, the fix is version 2. Implemented in `libraries/parcel` (MIT).
 
 The key words MUST, MUST NOT, SHOULD and MAY are used as in RFC 2119.
 
@@ -30,7 +30,7 @@ Design references: the age STREAM construction (counter nonce, final flag), synt
 - The sender generates a 32-byte random **link secret** from a cryptographically secure generator.
 - Link: `https://<host>/r/<roomIdentifier>#<fragment>`, where `fragment` is the link secret in base64url (RFC 4648 section 5) without padding: exactly 43 characters from `A-Z a-z 0-9 - _`. Receivers MUST reject any other length or alphabet, and any fragment that does not re-encode to itself (non-zero trailing bits). The fragment never reaches a server.
 - A room carries a sequence of parcels (contracts), numbered `0, 1, 2, ...` by a `u32` **sequence number**. Parcel `s` seals under its own **parcel secret** derived from the link secret and `s` (below).
-- **A parcel secret seals exactly one parcel.** A sender MUST NOT seal two different parcels (two salts, or two manifests) under one sequence number; a changed contract takes the next sequence number. A recipient that has accepted a header for a sequence number MUST reject a different header for it, including on resume.
+- **A parcel secret seals exactly one parcel.** A sender MUST NOT seal two different contracts under one sequence number (a different salt, manifest or set of labels is a different contract); a changed contract takes the next sequence number. A recipient that has accepted a contract for a sequence number pins its **contract digest** (below) and MUST reject any other contract for that sequence number (`contract-mismatch`), including on resume. Pinning the header is not enough: a sender that relabels a changed file after a reload can produce a different contract under a byte-identical header.
 
 ## Key derivation
 
@@ -121,19 +121,19 @@ A receiver MUST decode the bytes as strict UTF-8, parse them, validate the resul
 - `version` is `1`.
 - `files` has at least one entry. (A parcel always carries at least one file; it may be empty.)
 - `size` values are integers, `0 <= size`, and `totalSize` is their sum, `totalSize < 2^40` (1 TiB).
-- `mediaType` is the empty string (unknown) or a lowercase media type of at most 127 bytes: `restricted-name "/" restricted-name` (RFC 6838 section 4.2), where `restricted-name` is a letter or digit followed by up to 126 of `a-z 0-9 ! # $ & ^ _ . + -`, with no parameters. Receivers MUST NOT use it to render content on the application's origin; they save files as downloads (`Content-Disposition: attachment`, `X-Content-Type-Options: nosniff`).
+- `mediaType` is the empty string (unknown) or a lowercase media type of at most 127 bytes: `restricted-name "/" restricted-name` (RFC 6838 section 4.2), where `restricted-name` is a lowercase ASCII letter or digit followed by up to 126 of `a-z 0-9 ! # $ & ^ _ . + -`, with no parameters. Receivers MUST NOT use it to render content on the application's origin; they save files as downloads (`Content-Disposition: attachment`, `X-Content-Type-Options: nosniff`).
 - Every `name` follows the **name profile** below, and names are unique as defined there.
 
 **Name profile.** Names are `/`-separated relative paths that every common file system can store without renaming:
 
-1. The name is in Unicode Normalization Form C (NFC).
+1. The name is in Unicode Normalization Form C (NFC), computed with Unicode data of version 15.1 or later. Because rule 3 rejects every code point unassigned in 15.1, and the Unicode normalization stability policy never changes the normalization of an assigned character, every such normalizer gives the same answer. Unicode 15.1 added no character that affects NFC (per its DerivedAge.txt), so a normalizer that knows Unicode 15.0's combining marks is enough: `NFC("x" U+0301 U+10EFD)` must be `"x" U+10EFD U+0301`. Implementations SHOULD check this sentinel before accepting names.
 2. At most 4096 UTF-8 bytes; each `/`-separated segment is non-empty, at most 255 UTF-8 bytes, and neither `.` nor `..`. (So no leading, trailing or doubled `/`.)
-3. No code point in General Category Cc (controls), Cf (format: bidirectional controls such as U+202E, zero-width characters, the byte order mark), Zl, Zp, or Cs (lone surrogates), as of Unicode 15.1, and none of `\ : * ? " < > |`.
+3. No code point in General Category Cc (controls), Cf (format: bidirectional controls such as U+202E, zero-width characters, the byte order mark), Zl, Zp, Cs (lone surrogates) or Cn (unassigned, which includes the noncharacters), all as of Unicode 15.1, and none of `\ : * ? " < > |`. Characters assigned after Unicode 15.1 are therefore rejected until a new parcel version admits them.
 4. No segment ends with `.` or U+0020 SPACE.
 5. No segment is a Windows device name: its part before the first `.`, with trailing spaces removed and ASCII letters lowercased, is not `con`, `prn`, `aux`, `nul`, or `com` or `lpt` followed by one of `1`-`9`, `¹`, `²`, `³`.
 6. Uniqueness: let `key(name)` be the NFC normalisation of the full Unicode default case folding (CaseFolding.txt statuses C and F, Unicode 15.1) of the name. No two files have the same key, and no file's key followed by `/` is a prefix of another file's key (a file cannot share a path with a folder).
 
-Receivers that write to disk MAY apply further platform rules (path length limits, reserved names of their own) by renaming, never by writing outside the destination folder.
+The rules are checked in the order 3, 1, 2, 4, 5, 6 (forbidden code points before normal form), so every receiver names the same problem for a given name. Receivers that write to disk MAY apply further platform rules (path length limits, reserved names of their own) by renaming, never by writing outside the destination folder.
 
 **Manifest stream plaintext (the sealed contract).** Let `J` be the canonical JSON and `L` its length, `L <= 2^24 - 44`. The manifest stream's plaintext is
 
@@ -141,7 +141,7 @@ Receivers that write to disk MAY apply further platform rules (path length limit
 u64(n) || root || u32(L) || J || zero bytes
 ```
 
-padded to `m * 4096` bytes, where `m` is the smallest power of two with `m * 4096 >= 44 + L` (so `m <= 4096`). It is cut into `m` records of 4096 bytes at counters `0 .. m-1`, all with flag `0x00`: record 0 fixes `m`, so the manifest stream needs no final flag, and a receiver opens record 0 before it could know which record is last. A receiver reads record 0, learns `L` and so `m`, reads exactly `m` manifest records, and rejects (`invalid-manifest`) unless every padding byte is zero. It rejects (`record-count-mismatch`) unless `n = max(1, ceil(totalSize / R))` with `R = 2^recordSizeExponent`.
+padded to `m * 4096` bytes, where `m` is the smallest power of two with `m * 4096 >= 44 + L` (so `m <= 4096`). It is cut into `m` records of 4096 bytes at counters `0 .. m-1`, all with flag `0x00`: record 0 fixes `m`, so the manifest stream needs no final flag, and a receiver opens record 0 before it could know which record is last. A receiver opens record 0, learns `L` (rejecting `L > 2^24 - 44` as `invalid-manifest`) and so `m`, and opens exactly `m` manifest records. Then, in this order: if a contract was pinned for this sequence number, it compares the contract digest (`contract-mismatch`); it rejects (`invalid-manifest`) unless every padding byte is zero; it decodes and validates the JSON (`invalid-manifest`); and it rejects (`record-count-mismatch`) unless `n = max(1, ceil(totalSize / R))` with `R = 2^recordSizeExponent`.
 
 The **contract digest** is `H(header || manifest record 0 || ... || manifest record m-1)`, over the bytes as sent. A recipient's acceptance names it (the acceptance message belongs to the room protocol, not to the parcel).
 
@@ -180,7 +180,7 @@ Counters `0 .. n-1`; every record holds exactly `R` bytes of plaintext except th
 | manifest records `m` | `<= 4096`                                              |
 | labels per page      | 1024 (a page is 32 KiB plus at most 18 sibling hashes) |
 
-The size limit keeps the AES-GCM confidentiality advantage per key near `2^-57` (draft-irtf-cfrg-aead-limits); product limits are lower (docs/design.md, R5). A sender keeps 32 bytes of labels per record between the passes: 4.9 MB for 10 GB and 24 MB for 50 GB at 64 KiB records.
+At the size limit the AES-GCM confidentiality advantage per key is about `2^-57`, and the integrity advantage is about `2^-115` per forgery attempt at 64 KiB records (draft-irtf-cfrg-aead-limits, https://datatracker.ietf.org/doc/draft-irtf-cfrg-aead-limits/); product limits are lower (docs/design.md, R5). A sender keeps 32 bytes of labels per record between the passes: 4.9 MB for 10 GB and 24 MB for 50 GB at 64 KiB records.
 
 ## Sender rules
 
@@ -188,17 +188,20 @@ The size limit keeps the AES-GCM confidentiality advantage per key near `2^-57` 
 - Seal and label every data record before sending the contract; reseal while sending and stop with `source-changed` at the first record whose label differs.
 - Send no data record before the recipient has accepted the contract digest (room protocol).
 - Resume: send the identical contract again (it is deterministic given the link secret, sequence number, salt, manifest and labels), then the label page that covers record `i` and the records from `i`. Both sides can check "records `0 .. i-1` of contract X" against the labels.
+- A sender that relabels on resume (after a reload it has the source, not the labels) MUST compare the new contract digest with the one stored for the sequence number and, if they differ, stop (`source-changed`) and offer the changed files as a new contract under the next sequence number.
+- The labelling pass cannot see a source that changes while it runs: it then seals a consistent contract over mixed content. Senders SHOULD compare each file's size and last-modified time before and after the labelling pass and start over if either moved.
 
 ## Receiver rules
 
-1. Read the header; check magic, version and `recordSizeExponent`; derive the keys and compare `keyCommitment` in constant time, before reading further. Then, if a header was pinned for this sequence number, require byte equality (`header-mismatch`).
-2. Open manifest record 0, learn `m`, open records `1 .. m-1`, check the padding, decode and validate the manifest, check `n`. The contract is complete; the room protocol may now accept its digest.
+1. Read the header; check magic, version and `recordSizeExponent`; derive the keys and compare `keyCommitment` in constant time, before reading further.
+2. Open manifest record 0, learn `m`, open records `1 .. m-1`; then compare the pinned contract digest if there is one (`contract-mismatch`), check the padding, decode and validate the manifest, and check `n`, in that order (see "Manifest stream plaintext"). The contract is complete; the room protocol may now accept its digest, and the recipient pins it.
 3. For each page: verify the page against the root, then for each of its records check the label, open the record and release its plaintext provisionally.
 4. Treat end of input before record `n - 1` as `truncated` and any byte after it as `trailing-data`.
 5. **Output is provisional until the last record verifies.** A receiver may stream plaintext to its sink as records verify, but the sink MUST NOT expose the result under its final name until the whole parcel has verified, and MUST discard it on any failure: file writers commit on close and abort on error, so a receiver errors its output, never closes it, when anything fails. A record whose label differs from the contract is a **breach**: the receiver stops at that record and reports its index.
-6. **Order is a property of the stream, not of the checks.** The layout above is how a parcel is serialized as one stream or file. A transport that delivers pages and records out of order, or from several sources (ADR 0013, proposed), uses the same checks per unit: a page is verified against the root before any record it covers is accepted, each record is checked against its label and opened at its own counter, and the parcel is complete when all `n` records have verified. Rule 5 applies unchanged.
+6. **Order is a property of the stream, not of the checks.** The layout above is how a parcel is serialized as one stream or file. A transport that delivers pages and records out of order, or from several sources (ADR 0013), uses the same checks per unit: a page is verified against the root before any record it covers is accepted, each record is checked against its label and opened at its own counter, and the parcel is complete when all `n` records have verified. A record that arrives before its label page has verified is dropped and requested again (`label-page-missing`, a transport condition rather than a fault in the parcel). Rule 5 applies unchanged.
+7. **Resume and crash recovery.** A recipient resumes by naming the contract digest and the records it holds. After a crash it can reseal the plaintext it stored for record `i` under the parcel's keys and compare the result with label `i`; sealing is deterministic, so a match proves the stored piece is intact.
 
-Error reasons, in the order checks happen: `invalid-header`, `unsupported-version`, `invalid-record-size`, `key-commitment-mismatch`, `header-mismatch`, `authentication-failed`, `invalid-manifest`, `record-count-mismatch`, `label-page-mismatch`, `label-mismatch`, `size-mismatch`, `truncated`, `trailing-data`; and for senders, `source-changed`. Implementations SHOULD report these names; the negative vectors use them.
+Error reasons, roughly in the order checks happen: `invalid-header`, `unsupported-version`, `invalid-record-size`, `key-commitment-mismatch`, `authentication-failed`, `invalid-manifest`, `contract-mismatch`, `record-count-mismatch`, `label-page-mismatch`, `label-mismatch`, `size-mismatch`, `truncated`, `trailing-data`; for senders, `source-changed`; and the transport condition `label-page-missing`. When input fails several checks, a receiver reports the **first failing check in the order the receiver rules and the manifest stream section list them**. Implementations SHOULD report these names; the negative vectors use them.
 
 ## What observers learn
 
@@ -212,6 +215,11 @@ A relay, store or network observer without the secret learns:
 
 It does not learn file names, file count beyond the bucket, file boundaries, media types or content. This is acceptable for live transfers. Stored mode (phase 2) may need size padding, which would be a new version.
 
+## Threat model notes
+
+- **Freshness comes only from the live sender.** A relay or store holding every byte of an older contract (an earlier sequence number in the room) can serve it whole to a recipient who never saw a newer one, and it verifies. In live transfers the sender's presence decides which contract is current. Stored mode needs a "latest contract" pointer the sender signs or MACs under a key derived from the link secret; that is a follow-up, not part of v1.
+- **Acceptance is not authenticated by v1.** The contract digest is computable from public bytes, so a relay can forge an acceptance message. That is harmless while acceptance only gates when content flows. If acceptance ever authorizes anything (payment, deletion, delivery receipts), the room protocol MUST MAC it under a key derived from the parcel secret.
+
 ## Transport framing (not part of the parcel)
 
 Records and pages are the units of encryption, verification and resume, not of transport. `libraries/transport` splits them into frames that fit the path and may pack several into one frame. Resume asks for "data records from index i of contract X".
@@ -220,12 +228,11 @@ Records and pages are the units of encryption, verification and resume, not of t
 
 - `libraries/parcel/test/vectors/vectors.json`: a fixed link secret and salt; the room token and its hash, each case's parcel secret and derived keys, and per case the canonical manifest JSON, the header, every manifest record, the labels, the root, the contract digest, every label page, and every data record (or only its label, for the case with more than one page). Cases cover 0 bytes, 1 byte, one record minus one, exactly one record, one record plus one, three records with a short tail, several files with non-ASCII names and an empty file, the largest record size, a manifest of more than one record, a sequence number other than 0, and more than one label page.
 - `libraries/parcel/test/vectors/rejections.json`: manifests and whole parcels every receiver must reject, each with its expected reason.
-- `verify.py` reimplements this document alone (Python, pyca/cryptography over OpenSSL) and must reproduce every positive vector byte and reject every negative one with the same reason; CI runs it.
+- `verify.py` reimplements this document alone (Python, pyca/cryptography over OpenSSL) and must reproduce every positive vector byte and reject every negative one with the same reason. CI runs it on Python 3.13, whose `unicodedata` is Unicode 15.1, the version the name profile's categories and case folding are defined on; it refuses to run on other Unicode data. A negative parcel vector may carry an `expectedDigest` to test pinning.
 - Property tests: round trip for arbitrary sizes, record exponents and chunking; page proofs against the direct RFC 6962 definition; rejection of any single-bit flip, truncation at any byte, trailing data, reordered or duplicated records, a record spliced from another parcel, the wrong secret, a tampered label page, and a breach (a record that differs from its label) at the first changed record.
 - Merkle code is checked against the RFC 6962 roots published in transparency-dev/merkle (`testonly/constants.go`).
 
-## Open questions for the second review
+## Review history
 
-- The synthetic prefix is 7 bytes because the counter takes 5 of the 12 nonce bytes. Is `2^-56` per pair of differing plaintexts at one counter enough, given that only a sender whose source changed creates such pairs, and the labelling pass now stops it?
-- Label pages are plaintext and authenticated only through the root. Is there any reason to seal them?
-- Unicode 15.1 is fixed for the name profile's categories and case folding. New characters in later versions stay allowed unless they fall in a listed category at 15.1, so receivers on newer Unicode data accept the same names; NFC of characters assigned after 15.1 could still differ between runtimes.
+- First pass (docs/decisions/0011): synthetic nonces, canonical manifest, name profile, media type grammar, one parcel per parcel secret, a manifest stream, provisional output, early key commitment, negative vectors, an observer section.
+- Second pass: pin the contract digest rather than the header; reject code points unassigned in Unicode 15.1 and require a normalizer at 15.1 or later; first-failing-check precedence; records that arrive before their page are dropped and re-requested; freshness and acceptance noted above. The 7-byte synthetic prefix and plaintext label pages were judged sufficient as specified.
