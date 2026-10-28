@@ -242,3 +242,7 @@ a {
 .rejections:empty {
   display: none;
 }
+
+.space-warning {
+  color: var(--accent);
+}

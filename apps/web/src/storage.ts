@@ -17,6 +17,20 @@ export interface ParcelStorage {
 
 const transfersDirectory = "transfers"
 
+/**
+ * Bytes this site may still store here, or undefined when the browser does not say. Private windows get a small quota
+ * (about 2.1 GB in headless Chromium), so a large parcel can fail partway through unless this is checked first.
+ */
+export const availableStorage = async (): Promise<number | undefined> => {
+  try {
+    const { quota, usage } = await navigator.storage.estimate()
+
+    return quota === undefined ? undefined : Math.max(0, quota - (usage ?? 0))
+  } catch {
+    return undefined
+  }
+}
+
 /** Removes an entry, ignoring one that is already gone. */
 const removeQuietly = async (directory: FileSystemDirectoryHandle, name: string) => {
   try {

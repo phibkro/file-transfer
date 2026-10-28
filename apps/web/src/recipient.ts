@@ -15,8 +15,8 @@ import type { Connection } from "./connection.ts"
 import { spansFor } from "./files.ts"
 import { addRecord, containsRange, createRecordSet, hasRecord, isComplete, missingRanges, rangesOf } from "./ranges.ts"
 import type { RecordSet } from "./ranges.ts"
-import { setFileHashes, setProgress, setReceivedFiles, setStatus, setTotalBytes } from "./report.ts"
-import { openStorage } from "./storage.ts"
+import { setFailureDetail, setFileHashes, setProgress, setReceivedFiles, setSpaceShortfall, setStatus, setTotalBytes } from "./report.ts"
+import { availableStorage, openStorage } from "./storage.ts"
 import type { ParcelStorage } from "./storage.ts"
 import { describeFailure, element, formatSize, progressBar, replaceChildren } from "./view.ts"
 
@@ -116,6 +116,7 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
   }
 
   const fail = async (cause: unknown) => {
+    setFailureDetail(cause)
     await stop(reasonOf(cause), false)
   }
 
@@ -242,6 +243,23 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
       actions,
     )
     accept.focus()
+
+    const checkSpace = async () => {
+      const available = await availableStorage()
+
+      if (available !== undefined && available < manifest.totalSize) {
+        accept.disabled = true
+        setSpaceShortfall(available)
+        actions.before(
+          element("p", { class: "space-warning", role: "alert" }, [
+            `This browser can store about ${formatSize(available)} for this site, but the files need ${formatSize(manifest.totalSize)}. `,
+            "Free up space, or open the link in a normal window: private windows have a small storage limit.",
+          ]),
+        )
+      }
+    }
+
+    void checkSpace()
   }
 
   const onHeader = async (bytes: Uint8Array) => {

@@ -37,6 +37,10 @@ export interface TestHook {
   readonly fileSlice: (index: number, start: number, end: number) => Promise<string>
   /** Byte size of each received file; empty until the recipient completes. */
   readonly fileSizes: () => readonly number[]
+  /** The exception behind a generic failure reason, as "Name: message"; stays in the page. */
+  readonly failureDetail: () => string | undefined
+  /** Bytes the browser said it could still store, when that was less than the offer needs. */
+  readonly spaceShortfall: () => number | undefined
 }
 
 declare global {
@@ -50,6 +54,8 @@ let progress: Progress = { done: 0, total: 0 }
 let failure: string | undefined
 let hashes: () => Promise<readonly string[]> = async () => []
 let receivedFiles: readonly File[] = []
+let failureDetail: string | undefined
+let spaceShortfall: number | undefined
 const listeners = new Set<() => void>()
 let frameRequested = false
 let totalBytes = 0
@@ -95,6 +101,14 @@ export const setProgress = (done: number, total: number) => {
 
   frameRequested = true
   requestAnimationFrame(flush)
+}
+
+export const setFailureDetail = (cause: unknown) => {
+  failureDetail = cause instanceof Error ? `${cause.name}: ${cause.message}` : String(cause)
+}
+
+export const setSpaceShortfall = (available: number) => {
+  spaceShortfall = available
 }
 
 /** The recipient's committed files, for the byte-range and size hooks. */
@@ -148,6 +162,8 @@ export const installTestHook = () => {
       return file === undefined ? "" : hexOf(new Uint8Array(await file.slice(start, end).arrayBuffer()))
     },
     fileSizes: () => receivedFiles.map((file) => file.size),
+    failureDetail: () => failureDetail,
+    spaceShortfall: () => spaceShortfall,
   }
   document.body.dataset.status = status
 }

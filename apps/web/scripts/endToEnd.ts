@@ -168,25 +168,30 @@ const closeOptions = (code: number | undefined, reason: string | undefined) => {
 
 /**
  * A fresh, isolated profile per page. WebKit offers the origin-private file system only in a persistent profile (its
- * ephemeral contexts count as private browsing), so under WebKit each page gets a temporary profile directory.
+ * ephemeral contexts count as private browsing), so under WebKit, and wherever a normal quota is needed, a page gets
+ * a temporary profile directory.
  */
-const newContext = async (browser: Browser): Promise<{ readonly context: BrowserContext; readonly dispose: () => void }> => {
-  if (browserName !== "webkit") {
+const newContext = async (browser: Browser, persistent: boolean): Promise<{ readonly context: BrowserContext; readonly dispose: () => void }> => {
+  if (browserName !== "webkit" && !persistent) {
     return { context: await browser.newContext(), dispose: () => undefined }
   }
 
   const directory = mkdtempSync(nodePath.join(tmpdir(), "file-transfer-e2e-webkit-"))
 
   return {
-    context: await webkit.launchPersistentContext(directory),
+    context: await browserType.launchPersistentContext(directory),
     dispose: () => {
       rmSync(directory, { recursive: true, force: true })
     },
   }
 }
 
-const openPage = async (browser: Browser, routed = true) => {
-  const { context, dispose } = await newContext(browser)
+/**
+ * A page in its own profile. `persistent` gives it a normal on-disk profile; ephemeral contexts count as private
+ * windows, whose storage quota (about 2.1 GB in headless Chromium) is too small for the large suite.
+ */
+const openPage = async (browser: Browser, routed = true, persistent = false) => {
+  const { context, dispose } = await newContext(browser, persistent)
   // Records the extensions each socket negotiated, to report whether the relay path compresses.
   await context.addInitScript(() => {
     const negotiated: string[] = []
@@ -541,8 +546,9 @@ const sparsePayload = (gigabytes: number) => {
 const large = async (browser: Browser, base: string) => {
   const gigabytes = Number(process.env.E2E_LARGE_GB ?? 10)
   const file = sparsePayload(gigabytes)
-  const sender = await openPage(browser, false)
-  const recipient = await openPage(browser, false)
+  const sender = await openPage(browser, false, true)
+  const recipient = await openPage(browser, false, true)
+  const privateWindow = await openPage(browser, false)
 
   try {
     await sender.page.goto(`${base}/`)
@@ -551,7 +557,21 @@ const large = async (browser: Browser, base: string) => {
     await waitForStatus(sender.page, ["waiting-for-recipient", "failed"])
     check((await status(sender.page)) === "waiting-for-recipient", `large: the sender labels ${gigabytes} GB and waits`)
     await sender.page.getByRole("button", { name: "Show link" }).click()
-    await recipient.page.goto(await sender.page.inputValue("#link"))
+    const link = await sender.page.inputValue("#link")
+
+    // A private window's quota is smaller than the offer: the recipient must say so before accepting, not fail midway.
+    if (browserName === "chromium" && file.size > 2.2e9) {
+      await privateWindow.page.goto(link)
+      await waitForStatus(privateWindow.page, ["reviewing", "failed"])
+      await privateWindow.page.locator(".space-warning").waitFor({ timeout: 10_000 })
+      check(
+        await privateWindow.page.getByRole("button", { name: "Accept" }).isDisabled(),
+        "large: a private window that cannot hold the files is warned and cannot accept",
+      )
+    }
+
+    await privateWindow.close()
+    await recipient.page.goto(link)
     await waitForStatus(recipient.page, ["reviewing", "failed"])
     await recipient.page.getByRole("button", { name: "Accept" }).click()
     const started = performance.now()
@@ -561,7 +581,7 @@ const large = async (browser: Browser, base: string) => {
     check(
       (await status(recipient.page)) === "complete",
       "large: the recipient completes",
-      await recipient.page.evaluate(() => window.fileTransferTest?.failure()),
+      `${await recipient.page.evaluate(() => window.fileTransferTest?.failure())}: ${await recipient.page.evaluate(() => window.fileTransferTest?.failureDetail())}`,
     )
     const sizes = await recipient.page.evaluate(() => window.fileTransferTest?.fileSizes() ?? [])
     check(sizes.length === 1 && sizes[0] === file.size, "large: the received file has the sent size", sizes.map(String))
