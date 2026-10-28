@@ -23,7 +23,7 @@ const maximumCreateBodyLength = 1024
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } })
 
-const socketPath = /^\/api\/rooms\/([^/]+)\/socket$/
+const socketPath = /^\/api\/rooms\/([^/]+)\/socket$/u
 
 const createRoom = async (request: Request, environment: Environment): Promise<Response> => {
   const text = await request.text()

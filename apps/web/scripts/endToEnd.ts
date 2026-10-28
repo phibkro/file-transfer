@@ -136,7 +136,7 @@ const openPage = async (browser: Browser, routed = true) => {
   page.on("pageerror", (error) => errors.push(error.message))
 
   if (routed) {
-    await page.routeWebSocket(/\/api\/rooms\/.+\/socket/, (socket) => {
+    await page.routeWebSocket(/\/api\/rooms\/.+\/socket/u, (socket) => {
       observed.urls.push(socket.url())
       const server = socket.connectToServer()
       observed.sockets.push({ page: socket, server })
@@ -366,10 +366,10 @@ const wrongKey = async (browser: Browser, base: string) => {
 
   try {
     const link = await offer(sender.page, base, payload([["golf-secret.bin", 10_000]]))
-    await damaged.page.goto(link.replace(/#.*/, "#AAAA"))
+    await damaged.page.goto(link.replace(/#.*/u, "#AAAA"))
     await waitForStatus(damaged.page, ["failed"])
     check((await damaged.page.evaluate(() => window.fileTransferTest?.failure())) === "invalid-secret", "wrong key: a damaged link fails on the recipient")
-    await wrong.page.goto(link.replace(/#.*/, `#${Buffer.alloc(32, 7).toString("base64url")}`))
+    await wrong.page.goto(link.replace(/#.*/u, `#${Buffer.alloc(32, 7).toString("base64url")}`))
     await waitForStatus(wrong.page, ["failed"])
     const failure = await wrong.page.evaluate(() => window.fileTransferTest?.failure())
     check(failure === "wrong room token", "wrong key: the room refuses a well-formed wrong key", failure)

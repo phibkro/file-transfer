@@ -4,7 +4,7 @@
  */
 import { Data, Result, Schema } from "effect"
 
-const hex64 = Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/))
+const hex64 = Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/u))
 const sequence = Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 0xff_ff_ff_ff }))
 const recordIndex = Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 0xff_ff_ff_ff }))
 const role = Schema.Literals(["sender", "recipient"])

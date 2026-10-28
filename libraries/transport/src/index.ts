@@ -52,7 +52,7 @@ export const frameRecord = (recordIndex: number, record: Uint8Array, maximumFram
 
 /** Reassembles the frames of one record, in frame order. */
 export const assembleRecord = (frames: readonly Frame[]): Uint8Array => {
-  const ordered = [...frames].sort((left, right) => left.frameIndex - right.frameIndex)
+  const ordered = [...frames].toSorted((left, right) => left.frameIndex - right.frameIndex)
   const total = ordered.reduce((sum, frame) => sum + frame.bytes.length, 0)
   const record = new Uint8Array(total)
   let offset = 0

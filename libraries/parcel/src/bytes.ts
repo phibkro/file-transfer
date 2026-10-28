@@ -37,7 +37,7 @@ export const bytesEqual = (left: Uint8Array, right: Uint8Array): boolean => {
 export const toHex = (bytes: Uint8Array): string => Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")
 
 export const fromHex = (text: string): Uint8Array<ArrayBuffer> => {
-  if (text.length % 2 !== 0 || !/^[0-9a-f]*$/.test(text)) {
+  if (text.length % 2 !== 0 || !/^[0-9a-f]*$/u.test(text)) {
     throw new ParcelError("invalid-argument", "hex must be lowercase pairs of 0-9a-f")
   }
 
@@ -50,7 +50,7 @@ export const fromHex = (text: string): Uint8Array<ArrayBuffer> => {
   return bytes
 }
 
-const base64UrlAlphabet = /^[A-Za-z0-9_-]*$/
+const base64UrlAlphabet = /^[A-Za-z0-9_-]*$/u
 
 /** Base64url without padding (RFC 4648 section 5), as used in the link fragment. */
 export const encodeBase64Url = (bytes: Uint8Array): string => {
@@ -60,7 +60,7 @@ export const encodeBase64Url = (bytes: Uint8Array): string => {
     binary += String.fromCharCode(byte)
   }
 
-  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "")
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/u, "")
 }
 
 /** Strict decoding: rejects padding, other alphabets and non-canonical trailing bits. */

@@ -21,7 +21,7 @@ export const maximumRecipientsLimit = 16
 
 /** The body of `POST /api/rooms`. */
 export const CreateRoom = Schema.Struct({
-  roomTokenHash: Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/)),
+  roomTokenHash: Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/u)),
   maximumRecipients: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: maximumRecipientsLimit })),
 })
 
@@ -35,7 +35,7 @@ export const decodeCreateRoom = (body: unknown): RoomRecord | undefined => {
 }
 
 /** 16 random bytes in unpadded base64url. */
-export const roomIdentifierPattern = /^[A-Za-z0-9_-]{22}$/
+export const roomIdentifierPattern = /^[A-Za-z0-9_-]{22}$/u
 
 /** Encodes 16 random bytes as a room identifier. */
 export const encodeRoomIdentifier = (bytes: Uint8Array): string => encodeBase64Url(bytes)

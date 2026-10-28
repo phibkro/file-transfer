@@ -85,7 +85,7 @@ export const missingRanges = (set: RecordSet, end: number = set.size, limit: num
 
 /** Coalesces record indexes (any order, duplicates allowed) into sorted ranges. */
 export const rangesOf = (indexes: Iterable<number>): readonly RecordRange[] => {
-  const sorted = [...new Set(indexes)].sort((left, right) => left - right)
+  const sorted = [...new Set(indexes)].toSorted((left, right) => left - right)
   const ranges: RecordRange[] = []
 
   for (const index of sorted) {

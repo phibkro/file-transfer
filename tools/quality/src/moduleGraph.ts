@@ -207,7 +207,7 @@ const findCycles = (packages: readonly PackageFacts[]): Violation[] => {
     state.set(name, "done")
   }
 
-  for (const name of [...edges.keys()].sort()) {
+  for (const name of [...edges.keys()].toSorted()) {
     visit(name, [])
   }
 

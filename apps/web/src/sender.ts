@@ -104,7 +104,7 @@ const createRoom = async (roomTokenHash: string): Promise<string> => {
   const body: unknown = await response.json()
   const roomIdentifier = typeof body === "object" && body !== null && "roomIdentifier" in body ? body.roomIdentifier : undefined
 
-  if (typeof roomIdentifier !== "string" || !/^[A-Za-z0-9_-]{22}$/.test(roomIdentifier)) {
+  if (typeof roomIdentifier !== "string" || !/^[A-Za-z0-9_-]{22}$/u.test(roomIdentifier)) {
     throw new TransferError("room-not-created")
   }
 

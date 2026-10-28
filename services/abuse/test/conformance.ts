@@ -55,7 +55,7 @@ export const abuseSuite = conformanceSuite<Abuse, AbuseGuarantee>({
           expect(result._tag).toBe("Failure")
 
           if (result._tag === "Failure") {
-            expect([...result.failure.missing].sort()).toEqual([...blanked].sort())
+            expect([...result.failure.missing].toSorted()).toEqual([...blanked].toSorted())
           }
         }),
         { numRuns: 30 },

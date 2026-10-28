@@ -40,7 +40,7 @@ const importSpecifiers = (path: string, source: string): string[] => {
   const dynamic = module.dynamicImports.flatMap(({ moduleRequest }) => {
     const text = source.slice(moduleRequest.start, moduleRequest.end)
 
-    return /^(["'])[^"']*\1$/.test(text) ? [text.slice(1, -1)] : []
+    return /^(["'])[^"']*\1$/u.test(text) ? [text.slice(1, -1)] : []
   })
 
   return [
@@ -67,7 +67,7 @@ export const loadWorkspace = (root: string): { readonly packages: PackageFacts[]
       continue
     }
 
-    for (const entry of entries.sort()) {
+    for (const entry of entries.toSorted()) {
       const packageDirectory = join(kindDirectory, entry)
       let manifest: Manifest
 
@@ -82,8 +82,8 @@ export const loadWorkspace = (root: string): { readonly packages: PackageFacts[]
         name: manifest.name,
         kind,
         directory: relative(root, packageDirectory),
-        dependencies: Object.keys(manifest.dependencies ?? {}).sort(),
-        developmentDependencies: Object.keys(manifest.devDependencies ?? {}).sort(),
+        dependencies: Object.keys(manifest.dependencies ?? {}).toSorted(),
+        developmentDependencies: Object.keys(manifest.devDependencies ?? {}).toSorted(),
         testSupportFiles: manifest.fileTransfer?.testSupportFiles ?? [],
         sourceFileCount: files.length,
         imports: files.flatMap((path) => {

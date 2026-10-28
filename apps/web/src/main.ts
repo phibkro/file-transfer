@@ -10,7 +10,7 @@ const root = document.getElementById("app")
 
 if (root !== null) {
   installTestHook()
-  const recipientPath = /^\/r\/([A-Za-z0-9_-]{22})\/?$/.exec(location.pathname)
+  const recipientPath = /^\/r\/([A-Za-z0-9_-]{22})\/?$/u.exec(location.pathname)
   const roomIdentifier = recipientPath?.[1]
 
   if (roomIdentifier !== undefined) {

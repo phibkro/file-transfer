@@ -162,7 +162,7 @@ const createRoom = async (maximumRecipients: number): Promise<string> => {
   const response = await fetch(`${origin}/api/rooms`, { method: "POST", body: JSON.stringify({ roomTokenHash, maximumRecipients }) })
   const body = (await response.json()) as { roomIdentifier?: string }
   check(
-    response.status === 201 && /^[A-Za-z0-9_-]{22}$/.test(body.roomIdentifier ?? ""),
+    response.status === 201 && /^[A-Za-z0-9_-]{22}$/u.test(body.roomIdentifier ?? ""),
     `POST /api/rooms (maximumRecipients ${maximumRecipients}) answers 201 with a room identifier`,
     body,
   )

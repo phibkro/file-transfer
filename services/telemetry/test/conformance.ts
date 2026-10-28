@@ -50,9 +50,9 @@ export const telemetrySuite = conformanceSuite<Telemetry, TelemetryGuarantee>({
       await fc.assert(
         fc.asyncProperty(fc.array(eventArbitrary, { minLength: 1, maxLength: 20 }), async (events) => {
           const snapshot = await recordAll(layer, events)
-          expect(Object.keys(snapshot).sort()).toEqual(["byKind", "bySizeBucket"])
-          expect(Object.keys(snapshot.byKind).sort()).toEqual([...eventKinds].sort())
-          expect(Object.keys(snapshot.bySizeBucket).sort()).toEqual([...sizeBuckets].sort())
+          expect(Object.keys(snapshot).toSorted()).toEqual(["byKind", "bySizeBucket"])
+          expect(Object.keys(snapshot.byKind).toSorted()).toEqual([...eventKinds].toSorted())
+          expect(Object.keys(snapshot.bySizeBucket).toSorted()).toEqual([...sizeBuckets].toSorted())
 
           for (const count of [...Object.values(snapshot.byKind), ...Object.values(snapshot.bySizeBucket)]) {
             expect(Number.isSafeInteger(count)).toBe(true)

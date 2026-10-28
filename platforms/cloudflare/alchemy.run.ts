@@ -64,7 +64,7 @@ export default Alchemy.Stack(
     )
 
     const worker = {
-      main: `./${wrangler.main.replace(/^\.\//, "")}`,
+      main: `./${wrangler.main.replace(/^\.\//u, "")}`,
       bundle: false as const,
       compatibility: { date: wrangler.compatibility_date, flags: [...wrangler.compatibility_flags] },
       env: durableObjects,

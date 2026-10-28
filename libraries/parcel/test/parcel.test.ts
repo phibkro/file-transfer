@@ -77,7 +77,7 @@ describe("link secret", () => {
     fc.assert(
       fc.property(fc.uint8Array({ minLength: 32, maxLength: 32 }), (secret) => {
         const fragment = encodeLinkSecret(secret)
-        expect(fragment).toMatch(/^[A-Za-z0-9_-]{43}$/)
+        expect(fragment).toMatch(/^[A-Za-z0-9_-]{43}$/u)
         expect(Array.from(decodeLinkSecret(`#${fragment}`))).toEqual(Array.from(secret))
       }),
     )
@@ -268,7 +268,7 @@ describe("canonical manifest", () => {
 
   it("round trips any valid manifest, and validation equals decoding its canonical form", () => {
     // Valid names only: the pattern alone can produce reserved device names such as "con.txt", which the profile rejects.
-    const nameArbitrary = fc.stringMatching(/^[a-z0-9_-]{1,12}(\/[a-z0-9_-]{1,12}){0,2}\.(txt|bin)$/).filter((name) => nameProblem(name) === undefined)
+    const nameArbitrary = fc.stringMatching(/^[a-z0-9_-]{1,12}(\/[a-z0-9_-]{1,12}){0,2}\.(txt|bin)$/u).filter((name) => nameProblem(name) === undefined)
     fc.assert(
       fc.property(
         fc.uniqueArray(fc.record({ name: nameArbitrary, size: fc.nat({ max: 2 ** 30 }), mediaType: fc.constantFrom("", "text/plain") }), {

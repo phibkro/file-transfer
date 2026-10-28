@@ -59,7 +59,7 @@ const valid = [library, service, platform]
 const developmentDependencies = ["fast-check", "vite-plus"]
 
 const rulesBroken = (packages: readonly PackageFacts[]): Violation["rule"][] =>
-  [...new Set(checkModuleGraph(packages, developmentDependencies).map((violation) => violation.rule))].sort()
+  [...new Set(checkModuleGraph(packages, developmentDependencies).map((violation) => violation.rule))].toSorted()
 
 const replace = (original: PackageFacts, changes: Partial<PackageFacts>) => valid.map((facts) => (facts === original ? { ...facts, ...changes } : facts))
 

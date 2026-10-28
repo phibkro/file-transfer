@@ -29,7 +29,7 @@ const invalid = (message: string): never => {
 }
 
 const restrictedName = "[a-z0-9][a-z0-9!#$&^_.+-]{0,126}"
-const mediaTypePattern = new RegExp(`^${restrictedName}/${restrictedName}$`)
+const mediaTypePattern = new RegExp(`^${restrictedName}/${restrictedName}$`, "u")
 
 /** The empty string, or `type/subtype` per RFC 6838 section 4.2, lowercase ASCII, at most 127 bytes, no parameters. */
 export const isValidMediaType = (mediaType: string): boolean => mediaType === "" || (mediaType.length <= 127 && mediaTypePattern.test(mediaType))
@@ -37,9 +37,9 @@ export const isValidMediaType = (mediaType: string): boolean => mediaType === ""
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value)
 
 const hasExactKeys = (value: Record<string, unknown>, keys: readonly string[]) => {
-  const present = Object.keys(value).sort()
+  const present = Object.keys(value).toSorted()
 
-  return present.length === keys.length && [...keys].sort().every((key, index) => present[index] === key)
+  return present.length === keys.length && [...keys].toSorted().every((key, index) => present[index] === key)
 }
 
 const validateFile = (value: unknown): ManifestFile => {
