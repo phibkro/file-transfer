@@ -57,8 +57,25 @@ One meaning per term, used the same way in code, docs and conversation. Code nam
 | Save tier     | How the browser writes to disk: file picker, service worker download, or OPFS.                                                | `SaveTier`                         |
 | Resume        | Continuing an interrupted transfer from data record `i` of the same contract; both sides check records against their labels.  | `ResumeBitmap`                     |
 
+## Proposed for durable storage (ADR 0014, not yet in code)
+
+| Term               | Meaning                                                                                                                                                          |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Asset              | A parcel kept in a store under an account, with a persistence policy and an access policy. The parcel bytes are unchanged; only authorised clients decrypt it.   |
+| Wrapped key        | A copy of a parcel's link secret encrypted for one accessor (an account, a device, or a link). Wraps are independent: adding one never touches the parcel.       |
+| Catalog            | The owner's encrypted, versioned index of assets: names, folders, wrapped keys and policies. The store sees it only as ciphertext.                               |
+| Library            | What the owner sees: the catalog, decrypted on their device.                                                                                                     |
+| Keyring            | The keys that let an owner's devices unwrap the catalog, itself wrapped under keys the server never sees.                                                        |
+| Persistence policy | How long a room or asset lives: ephemeral (until the transfer ends or the room idles out) or a chosen retention. Enforced by the store from dates and sizes.     |
+| Access policy      | Who may fetch and who can decrypt: claims, a maximum number of recipients, expiry, named accounts. Enforced by rooms and stores, and by who holds a wrapped key. |
+| Grant              | One entry of an access policy: permission for a recipient or an account to fetch an asset or join a room.                                                        |
+| Claim              | The token a room gives each of the first N recipients so they can reconnect as themselves; the room stores only its hash.                                        |
+| Revocation         | Removing a grant and its wrapped key. Content the revoked party already fetched stays readable to them; new versions seal under a new link secret (lazy).        |
+
 ## Words we avoid
 
 - "Format", for the parcel: it also means code formatting (`vp fmt`) and file formats.
 - "Upload", for sending: live transfers never upload to a server; only the store (phase 2) receives a copy, and it is encrypted.
-- "Envelope": cryptographers read "envelope encryption" as wrapping keys with keys.
+- "Envelope": cryptographers read "envelope encryption" as wrapping keys with keys. Say "wrapped key" for that (ADR 0014).
+- "Session" on its own: say "relay session" (a relayed path) or "login session" (an identity in a browser); they are unrelated.
+- "Public asset": out of scope (ADR 0014, item 6); assets are private to their grants.

@@ -22,6 +22,23 @@ Facts checked on 2026-10-28:
 5. **No cross-user deduplication of private parcels.** Parcels already seal under a fresh secret per link, so identical files give different ciphertext and reveal nothing; this is a property to keep, not a gap to close. Allowed instead: re-sharing a stored parcel without uploading again (a new grant on the same ciphertext, chosen on the owner's own device), and deduplication inside one account through a per-account convergence secret (the Tahoe-LAFS model), where only the account itself could run the attacks.
 6. **Public assets are a separate, later product.** Opt-in public assets could be addressed by plaintext hash and deduplicated across users, since confirming a public file reveals nothing. They also turn private transfer into public hosting, with the abuse and notice obligations that ended Firefox Send, so they belong with seeding in phase 4 and need their own decision.
 
+## Model: one sealing, many wrapped keys (added 2026-10-28)
+
+Every surveyed system grants access by wrapping one content key per accessor, and none can withdraw access to content a reader has already seen:
+
+- age encrypts the payload once under a random file key; the header holds one recipient stanza per recipient, each wrapping "the same file key independently", and a header MAC binds the stanza list (C2SP age specification, sections Header, Recipient stanza, Header MAC).
+- Proton Drive encrypts content once with a session key and shares by encrypting that key again for the new member, without re-encrypting content; file and folder names are encrypted under the parent folder's key (proton.me/blog/protondrive-security).
+- restic keeps one master key wrapped under several passwords, so a password changes "without having to re-encrypt all data"; a leaked master key means re-encrypting the repository (restic `doc/design.rst`).
+- Plutus (Kallahalla et al., FAST 2003) and Key Regression (Fu, Kamara, Kohno, NDSS 2006) define lazy revocation: a revoked reader keeps what it could read; content written after the revocation uses a new key it cannot derive.
+
+Applied here:
+
+1. **An asset is a stored parcel, unchanged.** Parcel v1 already derives everything from the link secret, so the link secret is the content key. An asset is the parcel's ciphertext plus a list of wrapped copies of its link secret, one per accessor (an account's key, a device's key, or, as today, the link fragment). Wraps are independent and unordered: adding an accessor wraps the secret once more and never touches the parcel. The store addresses assets by ciphertext hash or a random identifier, never by a plaintext hash (restic shows plaintext hashes leaking unless kept inside encrypted metadata; git-remote-gcrypt names packs by ciphertext hash).
+2. **The catalog is the owner's encrypted index.** It holds what organises the library (names, folders, notes, which assets exist, their wrapped keys and policies) and is itself sealed, so the store sees one more ciphertext blob. It is versioned like a git history: each catalog version names its predecessor and is signed, so a store cannot roll it back or splice it unnoticed. Its key is wrapped the same way for each of the owner's devices or members (the keyring of item 4).
+3. **Two layers of access.** The access policy is enforced twice: by the room or store, which decides who may fetch ciphertext (claims, counts, expiry, accounts), and by cryptography, which decides who can decrypt (who holds a wrapped key). The persistence policy (retention, expiry) is enforced only by the store, from metadata it can see (sizes and dates, never names).
+4. **Revocation is lazy by default, eager on request.** Revoking removes the accessor's wrapped key and the store stops serving them; that is enough for anyone who never fetched the asset. For someone who did, nothing can withdraw a key they hold, so new versions seal under a new link secret (lazy revocation). When an asset itself leaked, the owner can reseal it as a new parcel, which costs one full pass and a new upload.
+5. **Groups with changing membership** can later wrap secrets under a group key from MLS (RFC 9420), whose epochs give forward secrecy and post-compromise security; an IETF draft (draft-ietf-ocm-mls-federated-groups-00) uses exactly this to wrap per-file keys. Not needed until teams.
+
 ## Consequences
 
 - Phase 1 can prepare without building accounts: the claim token in the room protocol (grants of N with anonymous claims) is useful on its own and fixes the eviction gap noted in docs/protocol.md.
