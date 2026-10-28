@@ -261,7 +261,22 @@ const offer = async (sender: Page, base: string, files: readonly PayloadFile[]) 
     await sender.evaluate(() => window.fileTransferTest?.failure()),
   )
 
-  return await sender.inputValue("#link")
+  // The link and its QR code stay hidden until asked for (apps/web/src/share.ts).
+  const masked = await sender.inputValue("#link")
+  check(
+    masked.endsWith("•".repeat(12)) && !masked.includes("#A") && (await sender.locator("#share-qr svg").count()) === 0,
+    "the link and QR code are hidden by default",
+    masked,
+  )
+  await sender.getByRole("button", { name: "Show link" }).click()
+  const link = await sender.inputValue("#link")
+  check(new URL(link).hash.length > 32, "Show link reveals the full link")
+  await sender.getByRole("button", { name: "Show QR code" }).click()
+  check(await sender.locator("#share-qr svg").isVisible(), "Show QR code draws the QR code")
+  await sender.getByRole("button", { name: "Hide QR code" }).click()
+  check(await sender.locator("#share-qr").isHidden(), "Hide QR code hides it again")
+
+  return link
 }
 
 /** The invariant from CLAUDE.md, as seen from the browsers: nothing they send carries the secret or a file name. */
@@ -361,6 +376,17 @@ const transfer = async (browser: Browser, base: string, scenario: TransferScenar
     })
     const hashes = await recipient.page.evaluate(async () => await window.fileTransferTest?.fileHashes())
     check(JSON.stringify(hashes) === JSON.stringify(files.map((file) => sha256(file.buffer))), `${scenario}: every file arrives byte-identical`, hashes)
+
+    const summaries = [
+      await sender.page.locator(".summary").textContent({ timeout: 10_000 }),
+      await recipient.page.locator(".summary").textContent({ timeout: 10_000 }),
+    ]
+
+    check(
+      summaries.every((text) => text !== null && text.includes("Speed") && !files.some((file) => file.name.length > 0 && text.includes(file.name))),
+      `${scenario}: both sides show a completion summary without file names`,
+      summaries.map((text) => text ?? ""),
+    )
 
     if (scenario === "resume" || scenario === "half-open") {
       check(recipient.observed.sockets.length >= 2 && sender.observed.sockets.length >= 2, `${scenario}: both sides reconnected after their socket was cut`, {

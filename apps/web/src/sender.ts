@@ -29,7 +29,8 @@ import { openConnection } from "./connection.ts"
 import type { Connection } from "./connection.ts"
 import { addRecord, createRecordSet, createSchedule, markSent, peekNext, prioritise, rangesAreValid, replaceDebt } from "./ranges.ts"
 import type { Schedule } from "./ranges.ts"
-import { setProgress, setStatus } from "./report.ts"
+import { setProgress, setStatus, setTotalBytes } from "./report.ts"
+import { sharePanel } from "./share.ts"
 import { describeFailure, element, formatSize, progressBar, replaceChildren } from "./view.ts"
 
 const sequence = 0
@@ -398,6 +399,7 @@ export const startSender = (root: HTMLElement) => {
     label.classList.add("disabled")
     const progress = progressBar("Preparing files")
     const total = files.reduce((sum, file) => sum + file.size, 0)
+    setTotalBytes(total)
     section.append(
       element(
         "ul",
@@ -419,27 +421,8 @@ export const startSender = (root: HTMLElement) => {
       const roomToken = await deriveRoomToken(prepared.linkSecret)
       const roomIdentifier = await createRoom(await hashRoomToken(roomToken))
       const link = `${location.origin}/r/${roomIdentifier}#${encodeLinkSecret(prepared.linkSecret)}`
-      const linkField = element("input", { type: "text", readonly: "", id: "link", value: link, "aria-label": "Share link" })
-      const copy = element("button", { type: "button" }, ["Copy link"])
-
-      const copyLink = async () => {
-        // Undefined outside secure contexts, although the DOM types say otherwise.
-        const clipboard: Clipboard | undefined = navigator.clipboard
-
-        if (clipboard === undefined) {
-          return
-        }
-
-        await clipboard.writeText(link)
-        copy.textContent = "Copied"
-      }
-
-      copy.addEventListener("click", () => {
-        linkField.select()
-        void copyLink()
-      })
       progress.update(0, prepared.contract.recordCount, () => "")
-      status.before(element("div", { class: "share" }, [element("label", { for: "link" }, ["Share this link"]), linkField, copy]))
+      status.before(sharePanel(link))
       serve(prepared, roomIdentifier, toHex(roomToken), {
         update: (text) => {
           status.textContent = text

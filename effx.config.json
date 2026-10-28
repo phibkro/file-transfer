@@ -77,10 +77,13 @@
           "apps/web/src/report.ts",
           "apps/web/src/view.ts",
           "apps/web/src/sender.ts",
-          "apps/web/src/recipient.ts"
+          "apps/web/src/recipient.ts",
+          "apps/web/src/share.ts",
+          "apps/web/src/summary.ts"
         ],
         "role": "runtime-adapter",
-        "platform": "browser"
+        "platform": "browser",
+        "adapterDependencies": ["uqr"]
       },
       {
         "files": ["apps/web/src/main.ts"],

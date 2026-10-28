@@ -15,7 +15,7 @@ import type { Connection } from "./connection.ts"
 import { spansFor } from "./files.ts"
 import { addRecord, containsRange, createRecordSet, hasRecord, isComplete, missingRanges, rangesOf } from "./ranges.ts"
 import type { RecordSet } from "./ranges.ts"
-import { setFileHashes, setProgress, setStatus } from "./report.ts"
+import { setFileHashes, setProgress, setStatus, setTotalBytes } from "./report.ts"
 import { openStorage } from "./storage.ts"
 import type { ParcelStorage } from "./storage.ts"
 import { describeFailure, element, formatSize, progressBar, replaceChildren } from "./view.ts"
@@ -207,6 +207,7 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
   }
 
   const showOffer = (manifest: Manifest) => {
+    setTotalBytes(manifest.totalSize)
     setStatus("reviewing")
     say("The sender is offering these files. Nothing is downloaded until you accept.")
     const accept = element("button", { type: "button", class: "primary" }, ["Accept"])

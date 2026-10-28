@@ -47,6 +47,10 @@ let failure: string | undefined
 let hashes: () => Promise<readonly string[]> = async () => []
 const listeners = new Set<() => void>()
 let frameRequested = false
+let totalBytes = 0
+let transferStartedAt: number | undefined
+let transferEndedAt: number | undefined
+let reconnects = 0
 
 const flush = () => {
   frameRequested = false
@@ -58,6 +62,18 @@ const flush = () => {
 }
 
 export const setStatus = (next: Status, reason?: string) => {
+  if (next === "transferring" && transferStartedAt === undefined) {
+    transferStartedAt = performance.now()
+  }
+
+  if (next === "reconnecting" && status !== "reconnecting") {
+    reconnects++
+  }
+
+  if (next === "complete" && transferEndedAt === undefined) {
+    transferEndedAt = performance.now()
+  }
+
   status = next
   failure = next === "failed" ? reason : undefined
   document.body.dataset.status = next
@@ -79,6 +95,27 @@ export const setProgress = (done: number, total: number) => {
 export const setFileHashes = (compute: () => Promise<readonly string[]>) => {
   hashes = compute
 }
+
+/** The plaintext bytes this transfer carries (the manifest's total size), for the completion summary. */
+export const setTotalBytes = (bytes: number) => {
+  totalBytes = bytes
+}
+
+export interface TransferSummary {
+  readonly bytes: number
+  /** From the first `transferring` status to `complete`, in seconds. */
+  readonly seconds: number
+  readonly reconnects: number
+}
+
+/** What the completion summary reports: sizes and timing only, never names, keys or the link. */
+export const transferSummary = (): TransferSummary => ({
+  bytes: totalBytes,
+  seconds: transferStartedAt === undefined || transferEndedAt === undefined ? 0 : (transferEndedAt - transferStartedAt) / 1000,
+  reconnects,
+})
+
+export const currentStatus = (): Status => status
 
 /** Calls `listener` after every status or progress change. */
 export const onReport = (listener: () => void) => {

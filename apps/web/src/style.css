@@ -106,7 +106,7 @@ input:focus-visible + .drop-zone {
 
 .share {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: 1fr;
   gap: 0.5rem;
   margin: 1.5rem 0;
 }
@@ -114,6 +114,63 @@ input:focus-visible + .drop-zone {
 .share label {
   grid-column: 1 / -1;
   font-weight: 600;
+}
+
+.share-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.share-warning,
+.share-qr,
+.summary {
+  grid-column: 1 / -1;
+}
+
+.share-warning {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.share-qr {
+  margin: 0.5rem 0 0;
+  justify-self: start;
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+/* A white quiet zone and black modules in both colour schemes, since scanners expect dark on light. */
+.qr-code {
+  display: block;
+  width: 12rem;
+  height: 12rem;
+  border-radius: 0.5rem;
+}
+
+.summary {
+  margin: 1.5rem 0;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--surface);
+}
+
+.summary dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.25rem 1rem;
+  margin: 0 0 1rem;
+}
+
+.summary dt {
+  color: var(--muted);
+}
+
+.summary dd {
+  margin: 0;
 }
 
 .share input {

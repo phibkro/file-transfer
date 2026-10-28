@@ -5,6 +5,7 @@
 import { startRecipient } from "./recipient.ts"
 import { installTestHook } from "./report.ts"
 import { startSender } from "./sender.ts"
+import { showSummaryOnCompletion } from "./summary.ts"
 
 const root = document.querySelector<HTMLElement>("#app")
 
@@ -15,7 +16,9 @@ if (root !== null) {
 
   if (roomIdentifier === undefined) {
     startSender(root)
+    showSummaryOnCompletion(root, "sender")
   } else {
     startRecipient(root, roomIdentifier)
+    showSummaryOnCompletion(root, "recipient")
   }
 }
