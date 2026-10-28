@@ -15,15 +15,20 @@ import type { Connection } from "./connection.ts"
 import { spansFor } from "./files.ts"
 import { addRecord, containsRange, createRecordSet, hasRecord, isComplete, missingRanges, rangesOf } from "./ranges.ts"
 import type { RecordSet } from "./ranges.ts"
-import { setFileHashes, setProgress, setStatus, setTotalBytes } from "./report.ts"
+import { setFileHashes, setProgress, setReceivedFiles, setStatus, setTotalBytes } from "./report.ts"
 import { openStorage } from "./storage.ts"
 import type { ParcelStorage } from "./storage.ts"
 import { describeFailure, element, formatSize, progressBar, replaceChildren } from "./view.ts"
 
 const sequence = 0
 
-/** Records in flight at most: 64 records of 64 KiB is 4 MiB buffered per recipient. */
-const creditWindow = 64
+/**
+ * Records the recipient lets the sender have in flight: 256 of 64 KiB, 16 MiB. With 64 (4 MiB) throughput fell from
+ * 10.5 MB/s at a 0 ms round trip to 5.2 MB/s at 300 ms; with 256 it held 9.7 MB/s (latency suite, 2026-10-28,
+ * docs/spikes/0002-transfer-measurements.md). The relay load test still has to show 16 MiB per room is safe for
+ * Durable Object memory.
+ */
+const creditWindow = 256
 
 /** A dropped record is asked for again after this pause, so neighbours share one `want`. */
 const wantDelayMilliseconds = 50
@@ -153,6 +158,7 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
     const files = await storage.commit()
     send({ type: "complete", sequence })
     connection?.close()
+    setReceivedFiles(files)
     setFileHashes(async () => await Promise.all(files.map(sha256Hex)))
     setStatus("complete")
     say("Every file arrived and matched what the sender promised.")
