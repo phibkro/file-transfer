@@ -46,7 +46,7 @@ export const relaySuite = conformanceSuite<Relay, RelayGuarantee>({
 
               const received: Uint8Array[] = []
 
-              for (let index = 0; index < frames.length; index++) {
+              for (const _sent of frames) {
                 const frame = yield* relay.take(sessionIdentifier)
 
                 if (Option.isSome(frame)) {

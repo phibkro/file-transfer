@@ -1,6 +1,6 @@
 /** Reads the workspace from disk into the facts `checkModuleGraph` compares. */
 import { readdirSync, readFileSync, statSync } from "node:fs"
-import { join, relative } from "node:path"
+import nodePath from "node:path"
 import { parseSync } from "oxc-parser"
 import { kindRules } from "./moduleGraph.ts"
 import type { Kind, PackageFacts } from "./moduleGraph.ts"
@@ -13,7 +13,7 @@ interface Manifest {
 }
 
 // SAFETY: every package.json in this repository is a manifest; the checks below read only the fields Manifest declares.
-const readManifest = (path: string): Manifest => JSON.parse(readFileSync(path, "utf8")) as Manifest
+const readManifest = (path: string): Manifest => JSON.parse(readFileSync(path, "utf-8")) as Manifest
 
 const sourceFiles = (directory: string): string[] =>
   readdirSync(directory).flatMap((entry) => {
@@ -21,7 +21,7 @@ const sourceFiles = (directory: string): string[] =>
       return []
     }
 
-    const path = join(directory, entry)
+    const path = nodePath.join(directory, entry)
 
     if (statSync(path).isDirectory()) {
       return sourceFiles(path)
@@ -41,7 +41,7 @@ const importSpecifiers = (path: string, source: string): string[] => {
   const dynamic = module.dynamicImports.flatMap(({ moduleRequest }) => {
     const text = source.slice(moduleRequest.start, moduleRequest.end)
 
-    return /^(["'])[^"']*\1$/u.test(text) ? [text.slice(1, -1)] : []
+    return /^(?<quote>["'])[^"']*\k<quote>$/u.test(text) ? [text.slice(1, -1)] : []
   })
 
   return [
@@ -61,12 +61,12 @@ export interface Workspace {
 }
 
 export const loadWorkspace = (root: string): Workspace => {
-  const rootManifest = readManifest(join(root, "package.json"))
+  const rootManifest = readManifest(nodePath.join(root, "package.json"))
   const packages: PackageFacts[] = []
 
   // SAFETY: kindRules has exactly one entry per Kind, so its entries are Kind keys with their rules.
   for (const [kind, rule] of Object.entries(kindRules) as [Kind, (typeof kindRules)[Kind]][]) {
-    const kindDirectory = join(root, rule.directory)
+    const kindDirectory = nodePath.join(root, rule.directory)
     let entries: string[]
 
     try {
@@ -76,11 +76,11 @@ export const loadWorkspace = (root: string): Workspace => {
     }
 
     for (const entry of entries.toSorted()) {
-      const packageDirectory = join(kindDirectory, entry)
+      const packageDirectory = nodePath.join(kindDirectory, entry)
       let manifest: Manifest
 
       try {
-        manifest = readManifest(join(packageDirectory, "package.json"))
+        manifest = readManifest(nodePath.join(packageDirectory, "package.json"))
       } catch {
         continue
       }
@@ -89,15 +89,15 @@ export const loadWorkspace = (root: string): Workspace => {
       packages.push({
         name: manifest.name,
         kind,
-        directory: relative(root, packageDirectory),
+        directory: nodePath.relative(root, packageDirectory),
         dependencies: Object.keys(manifest.dependencies ?? {}).toSorted(),
         developmentDependencies: Object.keys(manifest.devDependencies ?? {}).toSorted(),
         testSupportFiles: manifest.fileTransfer?.testSupportFiles ?? [],
         sourceFileCount: files.length,
         imports: files.flatMap((path) => {
-          const file = relative(packageDirectory, path)
+          const file = nodePath.relative(packageDirectory, path)
 
-          return importSpecifiers(path, readFileSync(path, "utf8")).map((specifier) => ({ file, specifier, developmentOnly: isDevelopmentOnly(file) }))
+          return importSpecifiers(path, readFileSync(path, "utf-8")).map((specifier) => ({ file, specifier, developmentOnly: isDevelopmentOnly(file) }))
         }),
       })
     }

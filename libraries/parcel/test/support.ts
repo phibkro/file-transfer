@@ -15,6 +15,10 @@ import {
   recordReaderFromBytes,
 } from "../src/index.ts"
 import type { Manifest, OpenOptions, RecordReader } from "../src/index.ts"
+import type { SenderOptions } from "../src/streams.ts"
+
+/** Sender options built up statement by statement, adding optional fields only when present. */
+export type MutableSenderOptions = { -readonly [Key in keyof SenderOptions]: SenderOptions[Key] }
 
 export const fromChunks = (chunks: readonly Uint8Array[]): ReadableStream<Uint8Array> =>
   new ReadableStream({
@@ -76,14 +80,22 @@ export const encryptAll = async (input: SendInput): Promise<Uint8Array> => {
     return await reader(index, length)
   }
 
-  const sender = await createParcelSender({
+  const options: MutableSenderOptions = {
     linkSecret: input.secret,
     manifest: input.manifest ?? singleFileManifest(input.data.length),
     recordSizeExponent: input.recordSizeExponent,
-    ...(input.salt === undefined ? {} : { salt: input.salt }),
-    ...(input.sequence === undefined ? {} : { sequence: input.sequence }),
     readRecord,
-  })
+  }
+
+  if (input.salt !== undefined) {
+    options.salt = input.salt
+  }
+
+  if (input.sequence !== undefined) {
+    options.sequence = input.sequence
+  }
+
+  const sender = await createParcelSender(options)
 
   labelled = true
 
@@ -135,6 +147,7 @@ export const outcome = async (promise: Promise<unknown>): Promise<string> => {
 }
 
 /** The same for a synchronous call. */
+// oxlint-disable-next-line anti-slop/no-unknown-returns -- runs any parcel call and reports only whether and why it threw
 export const outcomeOf = async (call: () => unknown): Promise<string> => await outcome(Promise.resolve().then(call))
 
 /** Byte offsets of each unit in a parcel built from `manifest` with records of `2^recordSizeExponent` bytes. */

@@ -73,7 +73,7 @@ const vectorCase = async (name: string, recordSizeExponent: number, manifest: Ma
   const sequence = options.sequence ?? 0
   const sealed = await sealParcel(manifest, recordSizeExponent, sequence)
 
-  return {
+  const vector = {
     name,
     recordSizeExponent,
     sequence,
@@ -86,8 +86,14 @@ const vectorCase = async (name: string, recordSizeExponent: number, manifest: Ma
     rootHash: toHex(sealed.contract.rootHash),
     contractDigest: toHex(sealed.contract.digest),
     labelPages: sealed.labelPages.map(toHex),
-    ...(options.recordsAsLabelsOnly === true ? {} : { dataRecords: sealed.dataRecords.map(toHex) }),
   }
+
+  // Large cases keep only labels; dataRecords stays the last key, so the JSON is unchanged.
+  if (options.recordsAsLabelsOnly === true) {
+    return vector
+  }
+
+  return { ...vector, dataRecords: sealed.dataRecords.map(toHex) }
 }
 
 const singleFile = (size: number) => createManifest([{ name: "vector.bin", size, mediaType: "application/octet-stream" }])

@@ -12,6 +12,7 @@ import {
   recordReaderFromBytes,
 } from "../src/index.ts"
 import { collect, decryptAll, encryptAll, fromChunks, layoutOf, outcome, receivePartially, singleFileManifest } from "./support.ts"
+import type { MutableSenderOptions } from "./support.ts"
 
 const secretArbitrary = fc.uint8Array({ minLength: 32, maxLength: 32 })
 const exponent = 12
@@ -69,7 +70,8 @@ describe("round trip", () => {
     expect(Buffer.from(await encryptAll({ secret, data, recordSizeExponent: exponent, salt })).equals(Buffer.from(first))).toBe(true)
     const third = await encryptAll({ secret, data, recordSizeExponent: exponent, salt, sequence: 3 })
     expect(Buffer.from(third.subarray(26, 58)).equals(Buffer.from(first.subarray(26, 58)))).toBe(false)
-    expect((await decryptAll(secret, third)).plaintext.length).toBe(100)
+    const decrypted = await decryptAll(secret, third)
+    expect(decrypted.plaintext.length).toBe(100)
   })
 
   it("spans several label pages, and a page that does not belong to the root is rejected", async () => {
@@ -80,7 +82,8 @@ describe("round trip", () => {
     const layout = layoutOf(singleFileManifest(length), exponent)
     expect(layout.pages.length).toBe(2)
     expect(parcel.length).toBe(layout.end)
-    expect(Buffer.from((await decryptAll(secret, parcel, 65_536)).plaintext).equals(Buffer.from(data))).toBe(true)
+    const decrypted = await decryptAll(secret, parcel, 65_536)
+    expect(Buffer.from(decrypted.plaintext).equals(Buffer.from(data))).toBe(true)
 
     for (const [page, position] of [
       [0, 0],
@@ -140,9 +143,9 @@ describe("a breach is caught at the first changed record", () => {
   })
 })
 
-describe("tampering is rejected", () => {
-  const fixture = async (secret: Uint8Array, length: number) => await encryptAll({ secret, data: bytesOf(length, 5), recordSizeExponent: exponent })
+const tamperingFixture = async (secret: Uint8Array, length: number) => await encryptAll({ secret, data: bytesOf(length, 5), recordSizeExponent: exponent })
 
+describe("tampering is rejected", () => {
   it("any single bit flip anywhere", async () => {
     await fc.assert(
       fc.asyncProperty(
@@ -151,7 +154,8 @@ describe("tampering is rejected", () => {
         fc.nat(),
         fc.integer({ min: 0, max: 7 }),
         async (secret, length, position, bit) => {
-          const parcel = (await fixture(secret, length)).slice()
+          const encrypted = await tamperingFixture(secret, length)
+          const parcel = encrypted.slice()
           const index = position % parcel.length
           parcel[index] = (parcel[index] ?? 0) ^ (1 << bit)
           expect(await outcome(decryptAll(secret, parcel))).not.toBe("accepted")
@@ -163,7 +167,7 @@ describe("tampering is rejected", () => {
 
   it("truncation at any byte, with 'truncated' at every unit boundary", async () => {
     const secret = new Uint8Array(32).fill(2)
-    const parcel = await fixture(secret, 2 * size + 100)
+    const parcel = await tamperingFixture(secret, 2 * size + 100)
     await fc.assert(
       fc.asyncProperty(fc.nat(), async (cut) => {
         expect(await outcome(decryptAll(secret, parcel.subarray(0, cut % parcel.length)))).not.toBe("accepted")
@@ -186,12 +190,12 @@ describe("tampering is rejected", () => {
 
   it("data after the last record", async () => {
     const secret = new Uint8Array(32).fill(3)
-    expect(await outcome(decryptAll(secret, concatBytes(await fixture(secret, 10), new Uint8Array([0]))))).toBe("trailing-data")
+    expect(await outcome(decryptAll(secret, concatBytes(await tamperingFixture(secret, 10), new Uint8Array([0]))))).toBe("trailing-data")
   })
 
   it("reordered and duplicated records differ from their labels", async () => {
     const secret = new Uint8Array(32).fill(4)
-    const parcel = await fixture(secret, 3 * size)
+    const parcel = await tamperingFixture(secret, 3 * size)
     const [first, second] = layoutOf(singleFileManifest(3 * size), exponent).data
 
     if (first === undefined || second === undefined) {
@@ -209,8 +213,8 @@ describe("tampering is rejected", () => {
 
   it("a record spliced in from another parcel under the same secret", async () => {
     const secret = new Uint8Array(32).fill(6)
-    const first = await fixture(secret, 2 * size)
-    const second = await fixture(secret, 2 * size)
+    const first = await tamperingFixture(secret, 2 * size)
+    const second = await tamperingFixture(secret, 2 * size)
     const [record] = layoutOf(singleFileManifest(2 * size), exponent).data
 
     if (record === undefined) {
@@ -226,7 +230,7 @@ describe("tampering is rejected", () => {
     await fc.assert(
       fc.asyncProperty(secretArbitrary, secretArbitrary, async (secret, other) => {
         fc.pre(Buffer.from(secret).compare(Buffer.from(other)) !== 0)
-        const parcel = await fixture(secret, 100)
+        const parcel = await tamperingFixture(secret, 100)
         expect(await outcome(decryptAll(other, parcel))).toBe("key-commitment-mismatch")
         expect(await outcome(decryptAll(other, parcel.subarray(0, headerLength)))).toBe("key-commitment-mismatch")
       }),
@@ -236,9 +240,10 @@ describe("tampering is rejected", () => {
 
   it("a different parcel for a sequence number that already accepted a contract (one parcel per parcel secret)", async () => {
     const secret = new Uint8Array(32).fill(7)
-    const accepted = await fixture(secret, 100)
-    const substitute = await fixture(secret, 100)
-    const expectedDigest = (await sendWithContract(secret, bytesOf(100, 5))).contract.digest
+    const accepted = await tamperingFixture(secret, 100)
+    const substitute = await tamperingFixture(secret, 100)
+    const original = await sendWithContract(secret, bytesOf(100, 5))
+    const expectedDigest = original.contract.digest
     expect(await outcome(decryptAll(secret, substitute, 777, { expectedDigest }))).toBe("contract-mismatch")
     const { contract } = await sendWithContract(secret, bytesOf(100, 5), accepted.slice(10, 26))
     expect(await outcome(decryptAll(secret, accepted, 777, { expectedDigest: contract.digest }))).toBe("accepted")
@@ -247,14 +252,22 @@ describe("tampering is rejected", () => {
 
 /** Sends `data` as one file at sequence 0, returning the contract and the parcel bytes. */
 const sendWithContract = async (secret: Uint8Array, data: Uint8Array, salt?: Uint8Array, expectedDigest?: Uint8Array) => {
-  const sender = await createParcelSender({
+  const options: MutableSenderOptions = {
     linkSecret: secret,
     manifest: singleFileManifest(data.length),
     recordSizeExponent: exponent,
     readRecord: recordReaderFromBytes(data, size),
-    ...(salt === undefined ? {} : { salt }),
-    ...(expectedDigest === undefined ? {} : { expectedDigest }),
-  })
+  }
+
+  if (salt !== undefined) {
+    options.salt = salt
+  }
+
+  if (expectedDigest !== undefined) {
+    options.expectedDigest = expectedDigest
+  }
+
+  const sender = await createParcelSender(options)
 
   return { contract: sender.contract, parcel: await collect(sender.stream) }
 }
@@ -276,7 +289,8 @@ describe("a sender that relabels a changed file on resume (second review, S1)", 
   })
 
   it("is caught by the sender itself when it compares the new digest with the stored one", async () => {
-    const stored = (await sendWithContract(secret, original, salt)).contract.digest
+    const sent = await sendWithContract(secret, original, salt)
+    const stored = sent.contract.digest
     expect(await outcome(sendWithContract(secret, changed, salt, stored))).toBe("source-changed")
     expect(await outcome(sendWithContract(secret, original, salt, stored))).toBe("accepted")
   })
@@ -285,7 +299,8 @@ describe("a sender that relabels a changed file on resume (second review, S1)", 
     const { contract, parcel } = await sendWithContract(secret, original, salt)
     const { stream, contract: received } = createDecryptionStream(secret)
     await collect(fromChunks([parcel]).pipeThrough(stream))
-    expect(Buffer.from((await received).digest).equals(Buffer.from(contract.digest))).toBe(true)
+    const receivedContract = await received
+    expect(Buffer.from(receivedContract.digest).equals(Buffer.from(contract.digest))).toBe(true)
   })
 })
 

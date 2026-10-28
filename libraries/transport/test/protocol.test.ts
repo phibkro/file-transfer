@@ -51,6 +51,7 @@ describe("control messages", () => {
 })
 
 describe("parcel units", () => {
+  // SAFETY: the keys of the const object unitKind are exactly the UnitKind names.
   const kinds = Object.keys(unitKind) as readonly UnitKind[]
 
   it("round trip for any kind, sequence, index and payload", () => {

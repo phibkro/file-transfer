@@ -73,6 +73,8 @@ export default defineConfig({
       "eslint/no-unmodified-loop-condition": "off",
       // `void promise;` as a statement marks a deliberate fire-and-forget, which no-floating-promises then accepts.
       "eslint/no-void": ["error", { allowAsStatement: true }],
+      // A JSON round trip compares values as their JSON form, which structuredClone does not produce.
+      "unicorn/prefer-structured-clone": "off",
     },
     overrides: [
       {

@@ -11,7 +11,13 @@ it("framing then assembling returns the original record, in any arrival order", 
       for (let index = frames.length - 1; index > 0; index--) {
         const swap = Math.abs(seed + index) % (index + 1)
 
-        ;[frames[index], frames[swap]] = [frames[swap]!, frames[index]!]
+        const current = frames[index]
+        const other = frames[swap]
+
+        if (current !== undefined && other !== undefined) {
+          frames[index] = other
+          frames[swap] = current
+        }
       }
 
       expect(frames.every((frame) => frame.bytes.length <= maximumFrameBytes)).toBe(true)

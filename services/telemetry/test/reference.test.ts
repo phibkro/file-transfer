@@ -10,12 +10,12 @@ telemetrySuite.negativeControls(
   telemetryGuarantees.map((guarantee) => ({ violates: guarantee.identifier, layer: makeTelemetryReference(new Set([guarantee.identifier])) })),
 )
 
+const order = (bytes: number) => sizeBuckets.indexOf(sizeBucketFor(bytes))
+
 describe("size buckets", () => {
   it("are monotonic in bytes", () => {
     fc.assert(
       fc.property(fc.nat(), fc.nat(), (left, right) => {
-        const order = (bytes: number) => sizeBuckets.indexOf(sizeBucketFor(bytes))
-
         if (left <= right) {
           expect(order(left)).toBeLessThanOrEqual(order(right))
         }

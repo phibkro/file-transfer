@@ -119,7 +119,7 @@ describe("header", () => {
   })
 
   it("rejects bad magic, versions and exponents", async () => {
-    const bytes = encodeHeader(fields).bytes
+    const { bytes } = encodeHeader(fields)
 
     const changed = (offset: number, value: number) => {
       const copy = bytes.slice()
@@ -165,7 +165,7 @@ describe("name profile", () => {
       "invoice_‮cod.exe",
       "zero​width",
       "byte﻿order",
-      "line separator",
+      "line\u2028separator",
       "lone\uD800",
       "unassigned\u0897",
       "noncharacter\uFDD0",
@@ -198,8 +198,16 @@ describe("name profile", () => {
   })
 
   it("refuses a normalizer older than Unicode 15.0 with a typed error", async () => {
-    expect(await outcomeOf(() => checkNormalizer((text) => text))).toBe("unsupported-runtime")
-    expect(await outcomeOf(() => checkNormalizer())).toBe("accepted")
+    expect(
+      await outcomeOf(() => {
+        checkNormalizer((text) => text)
+      }),
+    ).toBe("unsupported-runtime")
+    expect(
+      await outcomeOf(() => {
+        checkNormalizer()
+      }),
+    ).toBe("accepted")
   })
 
   it("treats device names as Windows does: the part before the first dot, trailing spaces removed", () => {
@@ -268,7 +276,7 @@ describe("canonical manifest", () => {
 
   it("round trips any valid manifest, and validation equals decoding its canonical form", () => {
     // Valid names only: the pattern alone can produce reserved device names such as "con.txt", which the profile rejects.
-    const nameArbitrary = fc.stringMatching(/^[a-z0-9_-]{1,12}(\/[a-z0-9_-]{1,12}){0,2}\.(txt|bin)$/u).filter((name) => nameProblem(name) === undefined)
+    const nameArbitrary = fc.stringMatching(/^[a-z0-9_-]{1,12}(?:\/[a-z0-9_-]{1,12}){0,2}\.(?:txt|bin)$/u).filter((name) => nameProblem(name) === undefined)
     fc.assert(
       fc.property(
         fc.uniqueArray(fc.record({ name: nameArbitrary, size: fc.nat({ max: 2 ** 30 }), mediaType: fc.constantFrom("", "text/plain") }), {
@@ -278,9 +286,9 @@ describe("canonical manifest", () => {
         }),
         (files) => {
           fc.pre(nameCollision(files.map((file) => file.name)) === undefined)
-          const manifest = createManifest(files)
-          expect(decodeManifestJson(encodeManifestJson(manifest))).toEqual(manifest)
-          expect(validateManifest(JSON.parse(new TextDecoder().decode(encodeManifestJson(manifest))))).toEqual(manifest)
+          const created = createManifest(files)
+          expect(decodeManifestJson(encodeManifestJson(created))).toEqual(created)
+          expect(validateManifest(JSON.parse(new TextDecoder().decode(encodeManifestJson(created))))).toEqual(created)
         },
       ),
       { numRuns: 100 },
@@ -328,16 +336,16 @@ describe("manifest stream", () => {
   })
 })
 
+const recordsSetup = async () => {
+  const keys = await deriveParcelKeys(new Uint8Array(32).fill(3), createSalt())
+  const header = encodeHeader({ recordSizeExponent: 16, sequence: 0, salt: new Uint8Array(16), keyCommitment: keys.keyCommitment })
+
+  return { keys, header: header.bytes }
+}
+
 describe("records", () => {
-  const setup = async () => {
-    const keys = await deriveParcelKeys(new Uint8Array(32).fill(3), createSalt())
-    const header = encodeHeader({ recordSizeExponent: 16, sequence: 0, salt: new Uint8Array(16), keyCommitment: keys.keyCommitment })
-
-    return { keys, header: header.bytes }
-  }
-
   it("resealing the same plaintext gives the same bytes; different plaintext at the same counter gives a different nonce", async () => {
-    const { keys, header } = await setup()
+    const { keys, header } = await recordsSetup()
     await fc.assert(
       fc.asyncProperty(fc.uint8Array({ maxLength: 64 }), fc.uint8Array({ maxLength: 64 }), fc.nat({ max: 2 ** 20 }), async (first, second, counter) => {
         fc.pre(toHex(first) !== toHex(second))
@@ -353,7 +361,7 @@ describe("records", () => {
   })
 
   it("binds the counter, the final flag, the header and the stream", async () => {
-    const { keys, header } = await setup()
+    const { keys, header } = await recordsSetup()
     const record = await sealRecord(keys.content, header, { counter: 5, isFinal: false }, textEncoder.encode("hello"))
     const otherHeader = header.slice()
     otherHeader[5] = 17
@@ -364,7 +372,7 @@ describe("records", () => {
   })
 
   it("rejects a record whose prefix is not the synthetic value of its plaintext, even with a valid tag", async () => {
-    const { keys, header } = await setup()
+    const { keys, header } = await recordsSetup()
     const plaintext = textEncoder.encode("hello")
     const position = new Uint8Array(9)
     new DataView(position.buffer).setBigUint64(0, 5n)

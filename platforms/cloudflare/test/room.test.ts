@@ -284,10 +284,10 @@ describe("sender abort goes to the recipients", () => {
   })
 })
 
-describe("peer presence events", () => {
-  const peerTexts = (instructions: readonly Instruction[]) =>
-    instructions.flatMap((instruction) => (instruction.type === "relay" ? [{ to: instruction.to, message: decoded(instruction.text) }] : []))
+const peerTexts = (instructions: readonly Instruction[]) =>
+  instructions.flatMap((instruction) => (instruction.type === "relay" ? [{ to: instruction.to, message: decoded(instruction.text) }] : []))
 
+describe("peer presence events", () => {
   it("tells the sender when a recipient joins, and not the other recipients", () => {
     expect(peerTexts(joinAs("recipient", [sender, recipient(1)]))).toEqual([
       { to: ["sender-1"], message: { type: "peer", event: "joined", role: "recipient" } },

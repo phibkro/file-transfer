@@ -38,11 +38,12 @@ describe("offset mapping from the stream to files", () => {
     fc.assert(
       fc.property(fc.array(fc.nat({ max: 300 }), { minLength: 1, maxLength: 12 }), fc.integer({ min: 1, max: 97 }), (sizes, recordSize) => {
         const { stream, files, written, starts } = reassemble(sizes, recordSize)
-        sizes.forEach((size, index) => {
+
+        for (const [index, size] of sizes.entries()) {
           expect(written[index]).toBe(size)
           const start = starts[index] ?? 0
           expect(Array.from(files[index] ?? [])).toEqual(Array.from(stream.subarray(start, start + size)))
-        })
+        }
       }),
     )
   })
