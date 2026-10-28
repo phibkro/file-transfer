@@ -29,7 +29,11 @@ describe("test vectors", () => {
       expect([manifestCase.name, await outcomeOf(() => decodeManifestJson(fromHex(manifestCase.json)))]).toEqual([manifestCase.name, manifestCase.reason])
     }
     for (const parcelCase of rejections.parcels) {
-      expect([parcelCase.name, await outcome(decryptAll(fromHex(parcelCase.secret), fromHex(parcelCase.parcel)))]).toEqual([parcelCase.name, parcelCase.reason])
+      const options = "expectedDigest" in parcelCase && parcelCase.expectedDigest !== undefined ? { expectedDigest: fromHex(parcelCase.expectedDigest) } : {}
+      expect([parcelCase.name, await outcome(decryptAll(fromHex(parcelCase.secret), fromHex(parcelCase.parcel), 777, options))]).toEqual([
+        parcelCase.name,
+        parcelCase.reason,
+      ])
     }
   })
 })

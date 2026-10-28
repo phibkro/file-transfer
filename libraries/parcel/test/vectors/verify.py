@@ -32,7 +32,7 @@ PREFIX = 8 + 32 + 4
 PAGE = 1024
 SIZE_LIMIT = 2**40
 JSON_LIMIT = 2**24 - PREFIX
-FORBIDDEN_CATEGORIES = {"Cc", "Cf", "Zl", "Zp", "Cs"}
+FORBIDDEN_CATEGORIES = {"Cc", "Cf", "Zl", "Zp", "Cs", "Cn"}
 FORBIDDEN_ASCII = set('\\:*?"<>|')
 RESTRICTED = "[a-z0-9][a-z0-9!#$&^_.+-]{0,126}"
 MEDIA_TYPE = re.compile(f"^{RESTRICTED}/{RESTRICTED}$")
@@ -235,7 +235,7 @@ def manifest_plaintext(manifest: dict, record_count: int, root: bytes) -> bytes:
 # The receiver (docs/parcel.md, "Receiver rules").
 
 
-def open_parcel(link_secret: bytes, parcel: bytes):
+def open_parcel(link_secret: bytes, parcel: bytes, expected_digest: bytes | None = None):
     offset = 0
 
     def take(length: int) -> bytes:
@@ -267,6 +267,9 @@ def open_parcel(link_secret: bytes, parcel: bytes):
     count = manifest_records_for(json_length)
     wire = [first_record] + [take(MANIFEST_RECORD + OVERHEAD) for _ in range(1, count)]
     stream = first + b"".join(open_record(keys["manifest"], header, counter, False, wire[counter]) for counter in range(1, count))
+    digest = sha256(header + b"".join(wire))
+    if expected_digest is not None and not hmac.compare_digest(expected_digest, digest):
+        raise Rejected("contract-mismatch")
     if any(stream[PREFIX + json_length :]):
         raise Rejected("invalid-manifest", "padding")
     manifest = decode_manifest_json(stream[PREFIX : PREFIX + json_length])
@@ -277,7 +280,6 @@ def open_parcel(link_secret: bytes, parcel: bytes):
     records = max(1, -(-total // size))
     if record_count != records:
         raise Rejected("record-count-mismatch")
-    digest = sha256(header + b"".join(wire))
 
     pages = -(-records // PAGE)
     plaintext = bytearray()
@@ -307,7 +309,8 @@ def check(condition: bool, message: str) -> None:
 
 def main() -> None:
     if unicodedata.unidata_version != "15.1.0":
-        print(f"warning: this Python has Unicode {unicodedata.unidata_version}; the name profile is defined on 15.1")
+        raise SystemExit(f"FAIL: this Python has Unicode {unicodedata.unidata_version}; the name profile is defined on 15.1 (use Python 3.13)")
+    check(unicodedata.normalize("NFC", "x\u0301\U00010EFD") == "x\U00010EFD\u0301", "the normalizer sentinel (docs/parcel.md, name profile rule 1)")
     folder = pathlib.Path(__file__).parent
     vectors = json.loads((folder / "vectors.json").read_text())
     link_secret = bytes.fromhex(vectors["linkSecret"])
@@ -373,7 +376,8 @@ def main() -> None:
             check(rejection.reason == case["reason"], f"manifest '{case['name']}': {rejection.reason} instead of {case['reason']}")
     for case in rejections["parcels"]:
         try:
-            open_parcel(bytes.fromhex(case["secret"]), bytes.fromhex(case["parcel"]))
+            pinned = bytes.fromhex(case["expectedDigest"]) if "expectedDigest" in case else None
+            open_parcel(bytes.fromhex(case["secret"]), bytes.fromhex(case["parcel"]), pinned)
             raise SystemExit(f"FAIL: accepted rejection parcel '{case['name']}'")
         except Rejected as rejection:
             check(rejection.reason == case["reason"], f"parcel '{case['name']}': {rejection.reason} instead of {case['reason']}")
