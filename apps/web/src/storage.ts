@@ -63,7 +63,10 @@ export const openStorage = async (roomIdentifier: string, fileCount: number): Pr
         throw new RangeError(`no file ${fileIndex}`)
       }
 
-      await writable.write({ type: "write", position, data: bytes })
+      // WebKit writes a view's whole underlying buffer rather than the view's own bytes (spike 0002: files that start
+      // or end inside a record came back wrong in Playwright's WebKit), so a partial view is copied first.
+      const data = bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength ? bytes : bytes.slice()
+      await writable.write({ type: "write", position, data })
     },
     commit: async () => {
       for (const writable of writables) {
