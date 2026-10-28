@@ -26,11 +26,12 @@ This file keeps the numbers and findings that drove decisions, as read on 2026-1
 
 ### Lifted so far
 
-| Origin                                                                               | Licence     | Into                    | What                                                      |
-| ------------------------------------------------------------------------------------ | ----------- | ----------------------- | --------------------------------------------------------- |
-| phibkro/vektorprogrammet-reimagined, machine module (its ADR 0007)                   | same author | `libraries/machine`     | Transition tables, `problems`, Mermaid output; simplified |
-| phibkro/vektorprogrammet-reimagined, store-capability contract suites (its ADR 0014) | same author | `libraries/conformance` | Named guarantees, broken variants as negative controls    |
-| phibkro/vektorprogrammet-reimagined, module-layer check (its ADR 0015)               | same author | `tools/quality`         | Module graph rules as data, with a check                  |
+| Origin                                                                               | Licence     | Into                                                | What                                                                                                  |
+| ------------------------------------------------------------------------------------ | ----------- | --------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| phibkro/vektorprogrammet-reimagined, machine module (its ADR 0007)                   | same author | `libraries/machine`                                 | Transition tables, `problems`, Mermaid output; simplified                                             |
+| phibkro/vektorprogrammet-reimagined, store-capability contract suites (its ADR 0014) | same author | `libraries/conformance`                             | Named guarantees, broken variants as negative controls                                                |
+| phibkro/vektorprogrammet-reimagined, module-layer check (its ADR 0015)               | same author | `tools/quality`                                     | Module graph rules as data, with a check                                                              |
+| job-index `infra/alchemy.run.ts`, occupational-health `deploy/alchemy.run.ts`        | same author | `spikes/0001-workerd-durable-object/alchemy.run.ts` | Async-style Alchemy v2 Worker with Durable Object binding, stage guard, secret from `Config.Redacted` |
 
 ## Platform numbers
 
