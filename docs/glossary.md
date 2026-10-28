@@ -74,6 +74,15 @@ One meaning per term, used the same way in code, docs and conversation. Code nam
 | Release-on-completion parcel | A parcel whose content secret is released only after the recipient holds and has verified every record, so partial contents stay unreadable (proposed parcel v2, ADR 0015). |
 | Revocation                   | Removing a grant and its wrapped key. Content the revoked party already fetched stays readable to them; new versions seal under a new link secret (lazy).                   |
 
+## Proposed for nearby rooms (ADR 0017, not yet in code)
+
+| Term           | Meaning                                                                                                                                                          |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Nearby listing | An opt-in listing of a room to clients that share its public address: its label and short code only, never parcels. A convenience hint, not a security boundary. |
+| Knock          | A request to join a room, with a display name and the role asked for (recipient or sender); the owner admits or refuses it.                                      |
+| Short code     | A short, single-use code shown by the room's owner, used as the password of a PAKE so an admitted knocker receives keys the server cannot learn.                 |
+| Admission      | The owner's decision on a knock, delivering what the role needs over the PAKE key: the link secret, and for a sender its sequence numbers.                       |
+
 ## Words we avoid
 
 - "Format", for the parcel: it also means code formatting (`vp fmt`) and file formats.
