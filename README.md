@@ -1,6 +1,6 @@
 # file-transfer (working name)
 
-End-to-end encrypted file transfer in the browser: send a link, the recipient streams the file straight to disk while you are still sending it. Direct peer-to-peer when possible, a relay that only ever sees ciphertext when not. Open source (AGPL-3.0) and self-hostable.
+Send files of any size from your browser with one link, no install or account needed. Files stream straight to the recipients' disks while you are still sending. They go directly between devices when possible, through relays when not, or through encrypted storage when recipients are offline. Only the sender and recipients can read the files or their names; relays and stores carry ciphertext they can check but not read. You choose which networks may carry your files, and anyone can run a node. The whole system is open source (AGPL) and free to self-host. The hosted service charges only for what it carries: relay bandwidth, speed priority and storage.
 
 Status: phase 0 (spike and parcel specification). Nothing here is usable yet.
 
