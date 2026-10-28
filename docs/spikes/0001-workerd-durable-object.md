@@ -128,3 +128,8 @@ Duration for a transfer limited by the network to 10 MB/s is about 107 s, 13.4 G
 ## Not measured here
 
 Network round trips and real links; Cloudflare's per-object CPU and the 128 MB isolate limit under load; actual billing; browser clients (which always offer compression); behaviour with several concurrent sessions per isolate. These belong to the throughput and relay-load spikes, which need the deployed Worker.
+
+## Follow-up after the first deploy (2026-10-28)
+
+- **The edge negotiates compression with browsers.** The deployed Worker (`no_web_socket_compression` set) answers a browser's offer with `Sec-WebSocket-Extensions: permessage-deflate; client_max_window_bits=15`, seen both with curl and from Chromium in `apps/web/scripts/endToEnd.ts`. Removing the header in the Worker before the room accepts the socket changed nothing under `wrangler dev`, consistent with section 1: the layer in front of the Worker answers the offer, and browsers cannot stop offering it. The cost falls on the browser, which deflates incompressible ciphertext (section 3 measured about 28 ms of CPU per MB on each side). It does not limit today's measured speeds, which stay far below about 30 MB/s; it matters for fast links. Options to evaluate: ask Cloudflare whether the edge can honour the flag, measure browser CPU on a fast link, and route fast same-network transfers over WebRTC, which has no such layer.
+- **Production end to end.** Both Chromium profiles in one cloud container, sharing one link to Cloudflare: 268 MB in 44 to 45 s (6.0 to 6.1 MB/s), resume after clean and half-open cuts, all checks passing. One shared link carries every byte twice, so this is a lower bound, not a two-network figure.

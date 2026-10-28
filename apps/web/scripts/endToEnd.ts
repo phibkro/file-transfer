@@ -103,6 +103,18 @@ const startLocalServer = async () => {
 /** A fresh browser profile whose page records every request URL and every socket frame it sends. */
 const openPage = async (browser: Browser, routed = true) => {
   const context = await browser.newContext()
+  // Records the extensions each socket negotiated, to report whether the relay path compresses.
+  await context.addInitScript(() => {
+    const negotiated: Array<string> = []
+    const Native = window.WebSocket
+    Object.assign(window, { negotiatedSocketExtensions: negotiated })
+    window.WebSocket = class extends Native {
+      constructor(url: string | URL, protocols?: string | Array<string>) {
+        super(url, protocols)
+        this.addEventListener("open", () => negotiated.push(this.extensions))
+      }
+    }
+  })
   const page = await context.newPage()
   const observed: Observed = { urls: [], frames: [], sockets: [] }
   const errors: Array<string> = []
@@ -253,6 +265,16 @@ const transfer = async (browser: Browser, base: string, scenario: "basic" | "res
     }
     console.log(`   ${scenario}: ${(total / 1e6).toFixed(1)} MB in ${seconds.toFixed(1)} s (${(total / 1e6 / seconds).toFixed(1)} MB/s)`)
     if (routed) checkNothingLeaks(link, files, [sender.observed, recipient.observed])
+    else {
+      // Unrouted sockets negotiate with the real server, so this is the relay's own answer to the browser's offer.
+      const extensions = [
+        ...(await sender.page.evaluate(() => Reflect.get(window, "negotiatedSocketExtensions") as Array<string>)),
+        ...(await recipient.page.evaluate(() => Reflect.get(window, "negotiatedSocketExtensions") as Array<string>)),
+      ]
+      // Reported, not checked: the layer in front of the Worker (Cloudflare's edge, Miniflare locally) answers the
+      // browser's permessage-deflate offer before the Worker runs, so neither the Worker nor the page can refuse it.
+      console.log(`   ${scenario}: negotiated socket extensions ${JSON.stringify([...new Set(extensions)])}`)
+    }
     check(sender.errors.length === 0 && recipient.errors.length === 0, `${scenario}: no uncaught page errors`, [...sender.errors, ...recipient.errors])
   } finally {
     await sender.close()
