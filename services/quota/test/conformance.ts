@@ -6,7 +6,7 @@ import { conformanceSuite } from "@file-transfer/conformance"
 import { expect } from "vite-plus/test"
 import { Effect, Layer } from "effect"
 import { TestClock } from "effect/testing"
-import fc from "fast-check"
+import * as fc from "fast-check"
 import { Quota, quotaGuarantees } from "../src/index.ts"
 import type { AdmissionPolicy, QuotaGuarantee } from "../src/index.ts"
 

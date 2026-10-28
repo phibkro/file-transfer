@@ -7,7 +7,7 @@ import { deriveRoomToken, hashRoomToken } from "@file-transfer/parcel"
 import { expect } from "vite-plus/test"
 import { Effect } from "effect"
 import type { Layer } from "effect"
-import fc from "fast-check"
+import * as fc from "fast-check"
 import { Room, roomGuarantees } from "../src/index.ts"
 import type { RoomGuarantee } from "../src/index.ts"
 

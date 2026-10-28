@@ -8,11 +8,11 @@
  */
 
 export interface ParcelStorage {
-  write(fileIndex: number, position: number, bytes: Uint8Array<ArrayBuffer>): Promise<void>
+  readonly write: (fileIndex: number, position: number, bytes: Uint8Array<ArrayBuffer>) => Promise<void>
   /** Publishes every file and returns them, in manifest order. */
-  commit(): Promise<readonly File[]>
+  readonly commit: () => Promise<readonly File[]>
   /** Throws away everything written. */
-  discard(): Promise<void>
+  readonly discard: () => Promise<void>
 }
 
 const transfersDirectory = "transfers"

@@ -3,7 +3,7 @@ import { conformanceSuite } from "@file-transfer/conformance"
 import { expect } from "vite-plus/test"
 import { Effect } from "effect"
 import type { Layer } from "effect"
-import fc from "fast-check"
+import * as fc from "fast-check"
 import { eventKinds, sizeBuckets, Telemetry, telemetryGuarantees } from "../src/index.ts"
 import type { TelemetryEvent, TelemetryGuarantee } from "../src/index.ts"
 

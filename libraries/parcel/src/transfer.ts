@@ -41,11 +41,11 @@ export interface ParcelLayout {
   readonly manifestRecordCount: number
   /** Label pages `k`. */
   readonly pageCount: number
-  dataRecordLength(index: number): number
+  readonly dataRecordLength: (index: number) => number
   /** The data records page `page` covers: `start` to `end - 1`. */
-  pageRecords(page: number): { readonly start: number; readonly end: number }
+  readonly pageRecords: (page: number) => { readonly start: number; readonly end: number }
   /** Bytes of label page `page`: its labels and its audit path. */
-  pageLength(page: number): number
+  readonly pageLength: (page: number) => number
 }
 
 const layoutFor = (header: Header, manifest: Manifest, manifestRecords: number): ParcelLayout => {
@@ -88,8 +88,8 @@ export interface Contract extends ParcelLayout {
   readonly rootHash: Uint8Array<ArrayBuffer>
   /** `H(header || manifest records)`: what a recipient's acceptance names. */
   readonly digest: Uint8Array<ArrayBuffer>
-  labelOf(index: number): Uint8Array
-  labelPage(page: number): Promise<Uint8Array<ArrayBuffer>>
+  readonly labelOf: (index: number) => Uint8Array
+  readonly labelPage: (page: number) => Promise<Uint8Array<ArrayBuffer>>
 }
 
 export interface SealerOptions {
@@ -107,11 +107,11 @@ export interface ParcelSealer {
   readonly manifest: Manifest
   readonly recordSize: number
   readonly recordCount: number
-  dataPlaintextLength(index: number): number
+  readonly dataPlaintextLength: (index: number) => number
   /** Seals data record `index`; its plaintext must have exactly the length the layout gives. Deterministic. */
-  sealData(index: number, plaintext: Uint8Array): Promise<Uint8Array<ArrayBuffer>>
+  readonly sealData: (index: number, plaintext: Uint8Array) => Promise<Uint8Array<ArrayBuffer>>
   /** Seals the contract over every record's label (`recordCount * 32` bytes, in order). */
-  sealContract(labels: Uint8Array): Promise<Contract>
+  readonly sealContract: (labels: Uint8Array) => Promise<Contract>
 }
 
 export const createParcelSealer = async (options: SealerOptions): Promise<ParcelSealer> => {
@@ -213,24 +213,24 @@ export interface ParcelReceiver extends ParcelLayout {
   readonly rootHash: Uint8Array<ArrayBuffer>
   readonly digest: Uint8Array<ArrayBuffer>
   /** Checks label page `page` against the root, keeps its labels for `openData`, and returns them. */
-  verifyPage(page: number, bytes: Uint8Array): Promise<readonly Uint8Array[]>
+  readonly verifyPage: (page: number, bytes: Uint8Array) => Promise<readonly Uint8Array[]>
   /**
    * Checks data record `index` against the label from its verified page, then opens it. Fails with
    * `label-page-missing` when that page has not verified yet: drop the record and request it again (receiver rule 6).
    */
-  openData(index: number, record: Uint8Array): Promise<Uint8Array<ArrayBuffer>>
+  readonly openData: (index: number, record: Uint8Array) => Promise<Uint8Array<ArrayBuffer>>
   /** Forgets a page's labels once every record it covers is in, so a sequential receiver holds one page at a time. */
-  releasePage(page: number): void
+  readonly releasePage: (page: number) => void
 }
 
 /** A header whose key commitment matched: the manifest records come next. */
 export interface ParcelOpener {
   readonly header: Header
-  openManifestRecord(counter: number, record: Uint8Array): Promise<Uint8Array<ArrayBuffer>>
+  readonly openManifestRecord: (counter: number, record: Uint8Array) => Promise<Uint8Array<ArrayBuffer>>
   /** The manifest record count the first record's plaintext announces. */
-  manifestRecordCountFrom(firstRecordPlaintext: Uint8Array): number
+  readonly manifestRecordCountFrom: (firstRecordPlaintext: Uint8Array) => number
   /** Decodes the contract from all opened manifest records (plaintexts and the records as received, in order). */
-  acceptContract(plaintexts: readonly Uint8Array[], records: readonly Uint8Array[]): Promise<ParcelReceiver>
+  readonly acceptContract: (plaintexts: readonly Uint8Array[], records: readonly Uint8Array[]) => Promise<ParcelReceiver>
 }
 
 export interface OpenOptions {

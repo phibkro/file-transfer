@@ -6,7 +6,7 @@ import { conformanceSuite } from "@file-transfer/conformance"
 import { expect } from "vite-plus/test"
 import { Effect, Option } from "effect"
 import type { Layer } from "effect"
-import fc from "fast-check"
+import * as fc from "fast-check"
 import { Relay, relayGuarantees } from "../src/index.ts"
 import type { RelayGuarantee } from "../src/index.ts"
 

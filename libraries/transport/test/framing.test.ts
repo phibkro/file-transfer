@@ -1,6 +1,6 @@
 import { expect, it } from "vite-plus/test"
 import { Effect } from "effect"
-import fc from "fast-check"
+import * as fc from "fast-check"
 import { assembleRecord, frameRecord } from "../src/index.ts"
 
 it("framing then assembling returns the original record, in any arrival order", () => {

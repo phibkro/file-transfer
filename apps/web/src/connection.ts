@@ -16,12 +16,12 @@ export interface ConnectionHandlers {
 }
 
 export interface Connection {
-  sendControl(message: ControlMessage): void
-  sendUnit(unit: Unit): void
-  isJoined(): boolean
+  readonly sendControl: (message: ControlMessage) => void
+  readonly sendUnit: (unit: Unit) => void
+  readonly isJoined: () => boolean
   /** Counts joins; a unit from an earlier epoch arrived on a socket that has since dropped. */
-  epoch(): number
-  close(): void
+  readonly epoch: () => number
+  readonly close: () => void
 }
 
 export interface ConnectionOptions {

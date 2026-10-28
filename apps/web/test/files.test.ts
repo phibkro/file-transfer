@@ -1,5 +1,5 @@
 import { Result } from "effect"
-import fc from "fast-check"
+import * as fc from "fast-check"
 import { describe, expect, it } from "vite-plus/test"
 import { fileStarts, spansFor } from "../src/files.ts"
 import type { FileSpan } from "../src/files.ts"

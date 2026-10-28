@@ -3,7 +3,7 @@ import { conformanceSuite } from "@file-transfer/conformance"
 import { expect } from "vite-plus/test"
 import { Effect } from "effect"
 import type { Layer } from "effect"
-import fc from "fast-check"
+import * as fc from "fast-check"
 import { Abuse, abuseGuarantees } from "../src/index.ts"
 import type { AbuseGuarantee, Notice } from "../src/index.ts"
 

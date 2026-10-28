@@ -1,5 +1,5 @@
 import { Result } from "effect"
-import fc from "fast-check"
+import * as fc from "fast-check"
 import { describe, expect, it } from "vite-plus/test"
 import { decodeControlMessage, decodeUnit, encodeControlMessage, encodeUnit, unitKind } from "../src/index.ts"
 import type { ControlMessage, UnitKind } from "../src/index.ts"

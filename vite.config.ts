@@ -48,6 +48,11 @@ export default defineConfig({
         // Ultracite wants `async` on every Promise-returning function; effx forbids native async in Effect code.
         rules: { "typescript/promise-function-async": "off" },
       },
+      {
+        files: ["platforms/cloudflare/src/workers.d.ts"],
+        // Hand-written mirror of Cloudflare's declarations, which use method signatures and overloads.
+        rules: { "typescript/method-signature-style": "off" },
+      },
     ],
   },
   test: {
