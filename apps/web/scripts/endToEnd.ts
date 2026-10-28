@@ -15,13 +15,22 @@
  *
  * Sockets are cut through Playwright's WebSocket routing (close code 1012, "service restart"), so the server needs no
  * test-only endpoint. Exits non-zero on the first failed check.
+ *
+ * `E2E_BROWSER` picks chromium (default), firefox or webkit for both sides. `E2E_SUITE` picks what runs:
+ *
+ * - `standard` (default): the scenarios above;
+ * - `latency`: 128 MB throughput through scripts/latencyProxy.ts at round trips of 0, 50, 150 and 300 ms (local only);
+ * - `large`: one transfer of `E2E_LARGE_GB` gigabytes (default 10) from a sparse file with random markers every GiB,
+ *   checked by size and by sampling the markers and the zeros between them, since a browser cannot hash 10 GB in
+ *   memory; the parcel's labels already check every record's contents. Set `E2E_TIMEOUT_MS` to a few hours.
  */
 import { createHash, randomBytes } from "node:crypto"
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { closeSync, ftruncateSync, mkdtempSync, openSync, rmSync, writeFileSync, writeSync } from "node:fs"
 import { tmpdir } from "node:os"
 import nodePath from "node:path"
-import { chromium } from "playwright"
-import type { Browser, Page, WebSocketRoute } from "playwright"
+import { chromium, firefox, webkit } from "playwright"
+import type { Browser, BrowserContext, Page, WebSocketRoute } from "playwright"
+import { startLatencyProxy } from "./latencyProxy.ts"
 
 declare global {
   interface Window {
@@ -45,6 +54,16 @@ interface Observed {
 const appDirectory = new URL("..", import.meta.url).pathname
 const platformDirectory = new URL("../../../platforms/cloudflare/", import.meta.url).pathname
 const configuredBase = process.env.BASE_URL
+const browserName = process.env.E2E_BROWSER ?? "chromium"
+
+const browserTypes = new Map([
+  ["chromium", chromium],
+  ["firefox", firefox],
+  ["webkit", webkit],
+])
+
+const browserType = browserTypes.get(browserName) ?? chromium
+const suite = process.env.E2E_SUITE ?? "standard"
 const timeoutMilliseconds = Number(process.env.E2E_TIMEOUT_MS ?? 180_000)
 
 let passed = 0
@@ -147,8 +166,27 @@ const closeOptions = (code: number | undefined, reason: string | undefined) => {
   return options
 }
 
+/**
+ * A fresh, isolated profile per page. WebKit offers the origin-private file system only in a persistent profile (its
+ * ephemeral contexts count as private browsing), so under WebKit each page gets a temporary profile directory.
+ */
+const newContext = async (browser: Browser): Promise<{ readonly context: BrowserContext; readonly dispose: () => void }> => {
+  if (browserName !== "webkit") {
+    return { context: await browser.newContext(), dispose: () => undefined }
+  }
+
+  const directory = mkdtempSync(nodePath.join(tmpdir(), "file-transfer-e2e-webkit-"))
+
+  return {
+    context: await webkit.launchPersistentContext(directory),
+    dispose: () => {
+      rmSync(directory, { recursive: true, force: true })
+    },
+  }
+}
+
 const openPage = async (browser: Browser, routed = true) => {
-  const context = await browser.newContext()
+  const { context, dispose } = await newContext(browser)
   // Records the extensions each socket negotiated, to report whether the relay path compresses.
   await context.addInitScript(() => {
     const negotiated: string[] = []
@@ -193,6 +231,7 @@ const openPage = async (browser: Browser, routed = true) => {
 
   const close = async () => {
     await context.close()
+    dispose()
   }
 
   return { page, observed, errors, close }
@@ -317,7 +356,7 @@ const checkNothingLeaks = (link: string, files: readonly PayloadFile[], observed
   check(leaks.length === 0, "no request URL or socket frame carries the secret or a file name", leaks.slice(0, 5))
 }
 
-type TransferScenario = "basic" | "resume" | "half-open" | "throughput"
+type TransferScenario = "basic" | "resume" | "half-open" | "throughput" | "latency"
 
 /** File names and sizes per scenario. */
 type PayloadPlan = { readonly [Scenario in TransferScenario]: readonly (readonly [string, number])[] }
@@ -338,14 +377,18 @@ const payloadSizes: PayloadPlan = {
     ["echo-readme.txt", 5000],
   ],
   throughput: [["hotel-video.bin", 256 * 1024 * 1024]],
+  latency: [["india-recording.bin", 128 * 1024 * 1024]],
 }
+
+/** Megabytes per second of the last completed transfer, for the latency suite's table. */
+let lastMegabytesPerSecond = 0
 
 const transfer = async (browser: Browser, base: string, scenario: TransferScenario) => {
   const files = payload(payloadSizes[scenario])
 
   const total = files.reduce((sum, file) => sum + file.buffer.length, 0)
   // Playwright copies every routed frame through its own protocol, so throughput runs without routing.
-  const routed = scenario !== "throughput"
+  const routed = scenario !== "throughput" && scenario !== "latency"
   const sender = await openPage(browser, routed)
   const recipient = await openPage(browser, routed)
 
@@ -405,7 +448,8 @@ const transfer = async (browser: Browser, base: string, scenario: TransferScenar
       })
     }
 
-    console.log(`   ${scenario}: ${(total / 1e6).toFixed(1)} MB in ${seconds.toFixed(1)} s (${(total / 1e6 / seconds).toFixed(1)} MB/s)`)
+    lastMegabytesPerSecond = total / 1e6 / seconds
+    console.log(`   ${scenario}: ${(total / 1e6).toFixed(1)} MB in ${seconds.toFixed(1)} s (${lastMegabytesPerSecond.toFixed(1)} MB/s)`)
 
     if (routed) {
       checkNothingLeaks(link, files, [sender.observed, recipient.observed])
@@ -467,28 +511,126 @@ const wrongKey = async (browser: Browser, base: string) => {
   }
 }
 
+const gibibyte = 1024 ** 3
+
+/**
+ * A sparse file of `gigabytes` GB holding random 64-byte markers at every GiB and at its end, so offsets can be checked
+ * by sampling. Sparse, so it costs almost no disk; only the recipient's copy is written out in full.
+ */
+const sparsePayload = (gigabytes: number) => {
+  const size = Math.round(gigabytes * 1e9)
+  const path = nodePath.join(payloadDirectory, "kilo-disk-image.bin")
+  const descriptor = openSync(path, "w")
+  const markers: { readonly offset: number; readonly hex: string }[] = []
+
+  try {
+    ftruncateSync(descriptor, size)
+
+    for (const offset of [...Array.from({ length: Math.floor((size - 64) / gibibyte) + 1 }, (_, index) => index * gibibyte), size - 64]) {
+      const marker = randomBytes(64)
+      writeSync(descriptor, marker, 0, marker.length, offset)
+      markers.push({ offset, hex: marker.toString("hex") })
+    }
+  } finally {
+    closeSync(descriptor)
+  }
+
+  return { path, size, markers }
+}
+
+const large = async (browser: Browser, base: string) => {
+  const gigabytes = Number(process.env.E2E_LARGE_GB ?? 10)
+  const file = sparsePayload(gigabytes)
+  const sender = await openPage(browser, false)
+  const recipient = await openPage(browser, false)
+
+  try {
+    await sender.page.goto(`${base}/`)
+    await sender.page.setInputFiles("#files", file.path)
+    await sender.page.getByRole("button", { name: "Create link" }).click()
+    await waitForStatus(sender.page, ["waiting-for-recipient", "failed"])
+    check((await status(sender.page)) === "waiting-for-recipient", `large: the sender labels ${gigabytes} GB and waits`)
+    await sender.page.getByRole("button", { name: "Show link" }).click()
+    await recipient.page.goto(await sender.page.inputValue("#link"))
+    await waitForStatus(recipient.page, ["reviewing", "failed"])
+    await recipient.page.getByRole("button", { name: "Accept" }).click()
+    const started = performance.now()
+    await waitForStatus(recipient.page, ["complete", "failed"])
+    await waitForStatus(sender.page, ["complete", "failed"])
+    const seconds = (performance.now() - started) / 1000
+    check(
+      (await status(recipient.page)) === "complete",
+      "large: the recipient completes",
+      await recipient.page.evaluate(() => window.fileTransferTest?.failure()),
+    )
+    const sizes = await recipient.page.evaluate(() => window.fileTransferTest?.fileSizes() ?? [])
+    check(sizes.length === 1 && sizes[0] === file.size, "large: the received file has the sent size", sizes.map(String))
+    const zeros = "00".repeat(64)
+
+    const samples = await recipient.page.evaluate(
+      async (offsets) => await Promise.all(offsets.map(async (offset) => (await window.fileTransferTest?.fileSlice(0, offset, offset + 64)) ?? "")),
+      file.markers.flatMap((marker) => [marker.offset, Math.min(marker.offset + 1024 * 1024, file.size - 128)]),
+    )
+
+    const expected = file.markers.flatMap((marker) => [marker.hex, zeros])
+    check(JSON.stringify(samples) === JSON.stringify(expected), `large: ${file.markers.length} markers and the zeros after them are at their offsets`)
+    console.log(`   large: ${(file.size / 1e9).toFixed(1)} GB in ${seconds.toFixed(0)} s (${(file.size / 1e6 / seconds).toFixed(1)} MB/s)`)
+  } finally {
+    await sender.close()
+    await recipient.close()
+  }
+}
+
+/** Throughput at several round-trip times, through a delaying proxy in front of the local server. */
+const latency = async (browser: Browser, origin: string) => {
+  const target = new URL(origin)
+  const rows: string[] = []
+
+  for (const roundTrip of [0, 50, 150, 300]) {
+    const proxy = startLatencyProxy({ hostname: target.hostname, port: Number(target.port) }, roundTrip / 2)
+
+    try {
+      console.log(`   round trip ${roundTrip} ms`)
+      await transfer(browser, proxy.origin, "latency")
+      rows.push(`${roundTrip} ms: ${lastMegabytesPerSecond.toFixed(1)} MB/s`)
+    } finally {
+      proxy.stop()
+    }
+  }
+
+  console.log(`   latency results (128 MB, credit window from apps/web/src/recipient.ts): ${rows.join(", ")}`)
+}
+
 const local = configuredBase === undefined ? await startLocalServer() : undefined
 const base = configuredBase ?? local?.origin ?? ""
 
-console.log(`end to end against ${base}`)
+console.log(`end to end against ${base} in ${browserName}, suite ${suite}`)
 
-const browser = await chromium.launch()
+const browser = await browserType.launch()
 
 try {
-  const page = await browser.newPage()
-  const response = await page.goto(`${base}/r/some-room`)
-  check(response?.ok() === true, "a recipient link path serves the app")
-  await page.close()
-  await transfer(browser, base, "basic")
-  await transfer(browser, base, "resume")
+  if (suite === "large") {
+    await large(browser, base)
+  } else if (suite === "latency") {
+    check(local !== undefined, "the latency suite runs against the local server only")
+    await latency(browser, base)
+  } else {
+    const page = await browser.newPage()
+    const response = await page.goto(`${base}/r/some-room`)
+    check(response?.ok() === true, "a recipient link path serves the app")
+    await page.close()
+    await transfer(browser, base, "basic")
+    await transfer(browser, base, "resume")
 
-  if (process.env.E2E_HALF_OPEN !== "0") {
-    await transfer(browser, base, "half-open")
+    if (process.env.E2E_HALF_OPEN !== "0") {
+      await transfer(browser, base, "half-open")
+    }
+
+    await transfer(browser, base, "throughput")
+    await decline(browser, base)
+    await wrongKey(browser, base)
   }
 
-  await transfer(browser, base, "throughput")
-  await decline(browser, base)
-  await wrongKey(browser, base)
   console.log(`\nall ${passed} checks passed`)
 } finally {
   await browser.close()

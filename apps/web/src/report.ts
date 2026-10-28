@@ -33,6 +33,10 @@ export interface TestHook {
   readonly failure: () => string | undefined
   /** SHA-256 (hex) of each received file in manifest order; empty until the recipient completes. */
   readonly fileHashes: () => Promise<readonly string[]>
+  /** Hex of bytes `start` to `end` of received file `index`, read lazily; for files too large to hash in memory. */
+  readonly fileSlice: (index: number, start: number, end: number) => Promise<string>
+  /** Byte size of each received file; empty until the recipient completes. */
+  readonly fileSizes: () => readonly number[]
 }
 
 declare global {
@@ -45,6 +49,7 @@ let status: Status = "idle"
 let progress: Progress = { done: 0, total: 0 }
 let failure: string | undefined
 let hashes: () => Promise<readonly string[]> = async () => []
+let receivedFiles: readonly File[] = []
 const listeners = new Set<() => void>()
 let frameRequested = false
 let totalBytes = 0
@@ -92,6 +97,13 @@ export const setProgress = (done: number, total: number) => {
   requestAnimationFrame(flush)
 }
 
+/** The recipient's committed files, for the byte-range and size hooks. */
+export const setReceivedFiles = (files: readonly File[]) => {
+  receivedFiles = files
+}
+
+const hexOf = (bytes: Uint8Array): string => [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("")
+
 export const setFileHashes = (compute: () => Promise<readonly string[]>) => {
   hashes = compute
 }
@@ -130,6 +142,12 @@ export const installTestHook = () => {
     progress: () => progress,
     failure: () => failure,
     fileHashes: async () => await hashes(),
+    fileSlice: async (index, start, end) => {
+      const file = receivedFiles[index]
+
+      return file === undefined ? "" : hexOf(new Uint8Array(await file.slice(start, end).arrayBuffer()))
+    },
+    fileSizes: () => receivedFiles.map((file) => file.size),
   }
   document.body.dataset.status = status
 }
