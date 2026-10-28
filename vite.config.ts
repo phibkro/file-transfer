@@ -5,9 +5,9 @@
 import { defineConfig } from "vite-plus"
 
 export default defineConfig({
-  fmt: { semi: false, printWidth: 160 },
+  fmt: { semi: false, printWidth: 160, ignorePatterns: [".claude/**"] },
   lint: {
-    ignorePatterns: ["**/node_modules/**", "spikes/**"],
+    ignorePatterns: ["**/node_modules/**", "spikes/**", ".claude/**"],
     options: { typeAware: true, typeCheck: true },
   },
   test: {

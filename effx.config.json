@@ -61,7 +61,15 @@
         "platform": "node"
       },
       {
-        "files": ["libraries/conformance/src/index.ts", "**/test/**"],
+        "files": [
+          "libraries/conformance/src/index.ts",
+          "libraries/*/test/**",
+          "services/*/test/**",
+          "platforms/*/test/**",
+          "integrations/*/test/**",
+          "apps/*/test/**",
+          "tools/*/test/**"
+        ],
         "role": "test",
         "platform": "node"
       }

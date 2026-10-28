@@ -23,8 +23,8 @@ Startup phase: prove that people want this and that some will pay, before stabil
 
 ## M1 Format (week 2)
 
-- [ ] Implement `libraries/format` per `format.md` (lift SkySend's crypto where it fits; credit it)
-- [ ] Test vectors and property-based tests
+- [x] Implement `libraries/format` per `format.md` (written fresh rather than lifted: SkySend's ECE layout differs in nonce, commitment and Merkle trailer)
+- [x] Test vectors (checked by an independent Python implementation in CI) and property-based tests
 - [ ] Two-page spec review by someone with applied-crypto experience; freeze v1
 
 ## M2 Transfer (weeks 3 and 4)

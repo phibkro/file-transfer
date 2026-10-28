@@ -9,5 +9,5 @@ import effxConfig from "./effx.config.json" with { type: "json" }
 
 export default defineConfig({
   ...effect(effxConfig.effect as EffectConfigInput),
-  ignorePatterns: ["**/node_modules/**", "spikes/**"],
+  ignorePatterns: ["**/node_modules/**", "spikes/**", ".claude/**"],
 })
