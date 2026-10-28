@@ -476,6 +476,10 @@ const transfer = async (browser: Browser, base: string, scenario: TransferScenar
 
     check(identical, `${scenario}: every file arrives byte-identical`, hashes)
 
+    if (files.length > 1) {
+      check(await recipient.page.getByRole("button", { name: /^Save all files/u }).isVisible(), `${scenario}: several files offer Save all files`)
+    }
+
     const summaries = [
       await sender.page.locator(".summary").textContent({ timeout: 10_000 }),
       await recipient.page.locator(".summary").textContent({ timeout: 10_000 }),
@@ -678,7 +682,7 @@ try {
   } else {
     const page = await browser.newPage()
     const response = await page.goto(`${base}/r/some-room`)
-    check(response?.ok() === true, "a recipient link path serves the app")
+    check(response?.ok() === true, "a recipient link path serves the app", `status ${response?.status() ?? "none"}`)
     await page.close()
     await transfer(browser, base, "basic")
     await transfer(browser, base, "resume")

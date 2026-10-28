@@ -16,11 +16,15 @@ import { spansFor } from "./files.ts"
 import { addRecord, containsRange, createRecordSet, hasRecord, isComplete, missingRanges, rangesOf } from "./ranges.ts"
 import type { RecordSet } from "./ranges.ts"
 import { setFailureDetail, setFileHashes, setProgress, setReceivedFiles, setSpaceShortfall, setStatus, setTotalBytes } from "./report.ts"
+import { saveAllControl } from "./saveAll.ts"
 import { availableStorage, openStorage } from "./storage.ts"
 import type { ParcelStorage } from "./storage.ts"
 import { describeFailure, element, formatSize, progressBar, replaceChildren } from "./view.ts"
 
 const sequence = 0
+
+/** How long a recipient that has completed stays connected to repeat `complete` to a reconnecting sender. */
+const completionLingerMilliseconds = 120_000
 
 /**
  * Records the recipient lets the sender have in flight: 256 of 64 KiB, 16 MiB. With 64 (4 MiB) throughput fell from
@@ -87,6 +91,9 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
   let storage: ParcelStorage | undefined
   let decision: "pending" | "accepted" | "declined" = "pending"
   let finished = false
+  // Set once every file is committed. The recipient then stays connected for a while, repeating `complete` whenever
+  // the sender rejoins or offers the contract again, because a `complete` sent while the sender reconnects is lost.
+  let completed = false
   let senderPresent = false
   let chain: Promise<void> = Promise.resolve()
   const dropped = new Set<number>()
@@ -149,6 +156,10 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
     topUp()
   }
 
+  const announceCompletion = () => {
+    send({ type: "complete", sequence })
+  }
+
   const finish = async () => {
     if (receiver === undefined || storage === undefined || finished) {
       return
@@ -157,26 +168,33 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
     finished = true
     const { manifest } = receiver
     const files = await storage.commit()
-    send({ type: "complete", sequence })
-    connection?.close()
+    completed = true
+    announceCompletion()
+    setTimeout(() => {
+      connection?.close()
+    }, completionLingerMilliseconds)
     setReceivedFiles(files)
     setFileHashes(async () => await Promise.all(files.map(sha256Hex)))
     setStatus("complete")
     say("Every file arrived and matched what the sender promised.")
+
+    const savable = files.map((file, index) => {
+      const name = manifest.files[index]?.name ?? String(index)
+
+      return { name, file, link: element("a", { href: URL.createObjectURL(file), download: downloadName(name) }, [`Save ${name}`]) }
+    })
+
     section.append(
       element(
         "ul",
         { class: "file-list downloads" },
-        files.map((file, index) => {
-          const name = manifest.files[index]?.name ?? String(index)
-
-          return element("li", {}, [
-            element("a", { href: URL.createObjectURL(file), download: downloadName(name) }, [`Save ${name}`]),
-            element("span", { class: "size" }, [formatSize(file.size)]),
-          ])
-        }),
+        savable.map(({ file, link }) => element("li", {}, [link, element("span", { class: "size" }, [formatSize(file.size)])])),
       ),
     )
+
+    if (savable.length > 1) {
+      section.append(saveAllControl(savable))
+    }
   }
 
   const flushWant = () => {
@@ -389,6 +407,15 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
   }
 
   const handleUnit = async (unit: Unit, epoch: number) => {
+    if (completed) {
+      // The sender offering the contract again means it reconnected without hearing `complete`.
+      if (unit.kind === "header") {
+        announceCompletion()
+      }
+
+      return
+    }
+
     if (finished) {
       return
     }
@@ -435,6 +462,20 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
   }
 
   const onControl = (message: ControlMessage) => {
+    if (completed) {
+      const senderJoined =
+        (message.type === "joined" && message.senderPresent) || (message.type === "peer" && message.role === "sender" && message.event === "joined")
+
+      if (senderJoined) {
+        announceCompletion()
+      } else if (message.type === "peer" && message.role === "sender" && message.event === "left") {
+        // The sender has finished and gone; nothing more to say.
+        connection?.close()
+      }
+
+      return
+    }
+
     if (finished) {
       return
     }

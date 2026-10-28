@@ -79,7 +79,8 @@
           "apps/web/src/sender.ts",
           "apps/web/src/recipient.ts",
           "apps/web/src/share.ts",
-          "apps/web/src/summary.ts"
+          "apps/web/src/summary.ts",
+          "apps/web/src/saveAll.ts"
         ],
         "role": "runtime-adapter",
         "platform": "browser",
