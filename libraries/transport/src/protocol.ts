@@ -55,6 +55,7 @@ export const unitKind = { header: 1, manifestRecord: 2, labelPage: 3, dataRecord
 
 export type UnitKind = keyof typeof unitKind
 
+// SAFETY: the keys of the const object unitKind are exactly the UnitKind names.
 const kindByCode = new Map<number, UnitKind>(Object.entries(unitKind).map(([name, code]) => [code, name as UnitKind]))
 
 export const unitPrefixLength = 9

@@ -5,7 +5,7 @@ import { ParcelError } from "./errors.ts"
 
 /** Web Crypto takes views over an ArrayBuffer; copy only when the input views something else (a SharedArrayBuffer). */
 export const asBufferSource = (bytes: Uint8Array): Uint8Array<ArrayBuffer> =>
-  bytes.buffer instanceof ArrayBuffer ? (bytes as Uint8Array<ArrayBuffer>) : new Uint8Array(bytes)
+  bytes.buffer instanceof ArrayBuffer ? new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength) : new Uint8Array(bytes)
 
 export const concatBytes = (...parts: readonly Uint8Array[]): Uint8Array<ArrayBuffer> => {
   const result = new Uint8Array(parts.reduce((sum, part) => sum + part.length, 0))

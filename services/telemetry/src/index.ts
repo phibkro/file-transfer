@@ -54,6 +54,7 @@ export class Telemetry extends Context.Service<
   }
 >()("file-transfer/Telemetry") {}
 
+// SAFETY: fromEntries over every member of eventKinds (and of sizeBuckets) yields exactly the keys of each Record.
 const emptySnapshot = (): TelemetrySnapshot => ({
   byKind: Object.fromEntries(eventKinds.map((kind) => [kind, 0])) as Record<TelemetryEventKind, number>,
   bySizeBucket: Object.fromEntries(sizeBuckets.map((bucket) => [bucket, 0])) as Record<SizeBucket, number>,

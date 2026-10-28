@@ -20,10 +20,9 @@ export interface Environment {
 /** A creation body is two short fields; anything longer is refused unread. */
 const maximumCreateBodyLength = 1024
 
-const json = (status: number, body: unknown) =>
-  new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } })
+const json = (status: number, body: Readonly<Record<string, string>>) => Response.json(body, { status, headers: { "cache-control": "no-store" } })
 
-const socketPath = /^\/api\/rooms\/([^/]+)\/socket$/u
+const socketPath = /^\/api\/rooms\/(?<roomIdentifier>[^/]+)\/socket$/u
 
 const createRoom = async (request: Request, environment: Environment): Promise<Response> => {
   const text = await request.text()
@@ -72,7 +71,7 @@ export default {
     const socket = socketPath.exec(url.pathname)
 
     if (socket !== null) {
-      const roomIdentifier = socket[1] ?? ""
+      const roomIdentifier = socket.groups?.roomIdentifier ?? ""
 
       if (!roomIdentifierPattern.test(roomIdentifier)) {
         return json(404, { error: "no such room" })

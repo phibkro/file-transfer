@@ -58,7 +58,7 @@ export const createParcelSender = async (options: SenderOptions): Promise<Parcel
     throw new ParcelError("source-changed", "relabelling gave a different contract than the one stored for this sequence number")
   }
 
-  async function* units(): AsyncGenerator<Uint8Array> {
+  const units = async function* (): AsyncGenerator<Uint8Array> {
     yield contract.header.bytes.slice()
 
     for (const record of contract.manifestRecords) {
@@ -87,7 +87,7 @@ export const createParcelSender = async (options: SenderOptions): Promise<Parcel
     pull: async (controller) => {
       const next = await iterator.next()
 
-      if (next.done) {
+      if (next.done === true) {
         controller.close()
       } else {
         controller.enqueue(next.value)
@@ -130,17 +130,20 @@ type Unit =
  * record), and the caller must then discard what it wrote.
  */
 export const createDecryptionStream = (linkSecret: Uint8Array, options: OpenOptions = {}): DecryptionStream => {
-  let resolveContract: (contract: ReceivedContract) => void = () => {}
-  let rejectContract: (error: unknown) => void = () => {}
+  // The executor runs synchronously, so this is set before anything below can settle the contract.
+  let settleContract: { readonly resolve: (contract: ReceivedContract) => void; readonly reject: (cause: unknown) => void } | undefined
 
   const contract = new Promise<ReceivedContract>((resolve, reject) => {
-    resolveContract = resolve
-    rejectContract = reject
+    settleContract = { resolve, reject }
   })
 
-  contract.catch(() => {})
+  contract.catch(() => {
+    // Marks the rejection as observed; whoever awaits the contract still receives it.
+  })
   const manifest = contract.then((opened) => opened.manifest)
-  manifest.catch(() => {})
+  manifest.catch(() => {
+    // As above, for the manifest.
+  })
 
   let opener: ParcelOpener | undefined
   let manifestPlaintexts: Uint8Array[] = []
@@ -216,7 +219,7 @@ export const createDecryptionStream = (linkSecret: Uint8Array, options: OpenOpti
         receiver = await opener.acceptContract(manifestPlaintexts, manifestRecords)
         manifestPlaintexts = []
         manifestRecords = []
-        resolveContract({
+        settleContract?.resolve({
           header: opener.header,
           manifest: receiver.manifest,
           recordCount: receiver.recordCount,
@@ -233,7 +236,8 @@ export const createDecryptionStream = (linkSecret: Uint8Array, options: OpenOpti
           throw new ParcelError("invalid-argument", "page before the contract")
         }
 
-        pageLabelCount = (await receiver.verifyPage(unit.page, pending)).length
+        const pageLabels = await receiver.verifyPage(unit.page, pending)
+        pageLabelCount = pageLabels.length
         currentPage = unit.page
         pageStart = receiver.pageRecords(unit.page).start
         advance({ kind: "data", index: pageStart })
@@ -261,18 +265,18 @@ export const createDecryptionStream = (linkSecret: Uint8Array, options: OpenOpti
           advance({ kind: "data", index: next })
         }
 
-        return
+        break
       }
 
       case "done": {
-        return
+        break
       }
     }
   }
 
-  const fail = (error: unknown): never => {
-    rejectContract(error)
-    throw error
+  const fail = (cause: unknown): never => {
+    settleContract?.reject(cause)
+    throw cause
   }
 
   const stream = new TransformStream<Uint8Array, Uint8Array>({

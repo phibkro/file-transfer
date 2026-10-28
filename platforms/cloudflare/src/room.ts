@@ -105,7 +105,10 @@ const violation = (reason: string): readonly Instruction[] => [
 ]
 
 const identifiersOf = (participants: readonly Participant[], role: Role): readonly string[] =>
-  participants.filter((participant) => participant.role === role).map((participant) => participant.participantIdentifier)
+  participants.flatMap((participant) => (participant.role === role ? [participant.participantIdentifier] : []))
+
+/** The relayed recipient message types, as a set of plain strings so any message type can be looked up. */
+const recipientToSenderTypeSet: ReadonlySet<string> = new Set(recipientToSenderTypes)
 
 const opposite = (role: Role): Role => (role === "sender" ? "recipient" : "sender")
 
@@ -118,7 +121,7 @@ const messageType = (text: string): string | undefined => {
       return undefined
     }
 
-    const type: unknown = (parsed as { readonly type?: unknown }).type
+    const type: unknown = "type" in parsed ? parsed.type : undefined
 
     return typeof type === "string" ? type : undefined
   } catch {
@@ -241,7 +244,7 @@ export const decide = (self: Attachment, participants: readonly Participant[], e
         return recipients.length === 0 ? [] : [{ type: "relay", to: recipients, text: event.text }]
       }
 
-      if (!(recipientToSenderTypes as readonly string[]).includes(type)) {
+      if (!recipientToSenderTypeSet.has(type)) {
         return violation(errorReasons.notAllowedForRecipient)
       }
 

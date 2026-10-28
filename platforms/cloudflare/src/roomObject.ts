@@ -22,14 +22,15 @@ const recordKey = "room"
 /** A room with no participant for this long is deleted by its alarm. */
 export const idleMilliseconds = 24 * 60 * 60 * 1000
 
-const { WebSocketPair } = globalThis as unknown as { readonly WebSocketPair: WebSocketPairConstructor }
+/** A global of the Workers runtime, absent from the DOM types this package compiles against. */
+declare const WebSocketPair: WebSocketPairConstructor
 
 const notAdmitted: Attachment = { admitted: false }
 
 /** `WebSocket.OPEN`, spelled out because workerd names its static constants differently from the DOM. */
 const openState = 1
 
-const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } })
+const json = (status: number, body: Readonly<Record<string, string>>) => Response.json(body, { status })
 
 /** Sends without throwing: a socket may be closing while the room still lists it. */
 const sendQuietly = (socket: WebSocket, data: string | ArrayBuffer) => {
@@ -71,7 +72,7 @@ export class RoomObject extends DurableObject {
     }
 
     const pair = new WebSocketPair()
-    const server = pair[1]
+    const { 1: server } = pair
     this.ctx.acceptWebSocket(server)
     this.setAttachment(server, notAdmitted)
     const init: UpgradeResponseInit = { status: 101, webSocket: pair[0] }
@@ -80,7 +81,7 @@ export class RoomObject extends DurableObject {
   }
 
   override async webSocketMessage(socket: HibernatableWebSocket, message: string | ArrayBuffer): Promise<void> {
-    if (typeof message !== "string") {
+    if (message instanceof ArrayBuffer) {
       // The frame path: synchronous, no storage, no Effect.
       this.carryOut(socket, decide(this.attachmentOf(socket), this.admittedParticipants(), { type: "binary" }), message)
 
@@ -118,7 +119,7 @@ export class RoomObject extends DurableObject {
     await this.scheduleIdleCleanupIfEmpty()
   }
 
-  override async webSocketError(socket: HibernatableWebSocket, _error: unknown): Promise<void> {
+  override async webSocketError(socket: HibernatableWebSocket): Promise<void> {
     this.depart(socket)
     await this.scheduleIdleCleanupIfEmpty()
   }
@@ -170,6 +171,7 @@ export class RoomObject extends DurableObject {
       return cached
     }
 
+    // SAFETY: setAttachment is the only writer of attachments, and it writes an Attachment.
     const stored = (socket.deserializeAttachment() as Attachment | null) ?? notAdmitted
     this.attachments.set(socket, stored)
 

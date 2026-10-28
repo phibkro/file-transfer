@@ -41,6 +41,32 @@ export default defineConfig({
       "unicorn/prefer-spread": "off",
       // Its fix deletes `undefined` arguments TypeScript requires (a machine's `Context` of `undefined`, AsyncGenerator.return).
       "unicorn/no-useless-undefined": "off",
+      // Repository file names are camelCase (moduleGraph.ts, endToEnd.ts).
+      "unicorn/filename-case": "off",
+      // Wrapping event and callback APIs (WebSocket events, stream controllers) needs the Promise constructor.
+      "promise/avoid-new": "off",
+      // A Node callback convention; it misreads the transition function `next` of libraries/machine.
+      "node/callback-return": "off",
+      // Protocol dispatchers are flat switches over message types; the count measures breadth, not tangle.
+      "eslint/complexity": "off",
+      // Switches over tagged unions are exhaustive and checked by typescript/switch-exhaustiveness-check; a default would hide a missing case.
+      "eslint/default-case": "off",
+      // TypeScript checks every return path against the declared return type, Effect.gen's `return yield*` included.
+      "typescript/consistent-return": "off",
+      // Effect convention: a service's tagged error classes live next to it.
+      "eslint/max-classes-per-file": "off",
+      // Misreads Effect.forEach(iterable, f) as Array#forEach with a this argument.
+      "unicorn/no-array-method-this-argument": "off",
+      // Effect Schema convention: a schema value and its type share one name.
+      "eslint/no-redeclare": "off",
+      // Byte-level code: Latin-1 strings from atob and hex strings are UTF-16 code units by design.
+      "unicorn/prefer-code-point": "off",
+      // promise-function-async makes functions that meet an async contract without awaiting (in-memory readers, test doubles) async.
+      "eslint/require-await": "off",
+      // Assertions follow anti-slop's policy instead: each states its checked invariant in a SAFETY comment.
+      "typescript/no-unsafe-type-assertion": "off",
+      // TypeScript already rejects use before declaration (TS2448); what remains are closures that run later.
+      "eslint/no-use-before-define": "off",
     },
     overrides: [
       {
@@ -49,9 +75,25 @@ export default defineConfig({
         rules: { "typescript/promise-function-async": "off" },
       },
       {
+        files: ["libraries/parcel/src/manifest.ts", "platforms/cloudflare/src/room.ts"],
+        // Parsers of untrusted JSON (the manifest, room creation and control messages): the I/O boundary anti-slop asks
+        // code to parse at, so they take unknown and narrow it with typeof.
+        rules: {
+          "anti-slop/no-unknown-parameters": "off",
+          "anti-slop/no-runtime-typeof": "off",
+          "anti-slop/no-unsafe-dictionary-type": "off",
+        },
+      },
+      {
         files: ["platforms/cloudflare/src/workers.d.ts"],
-        // Hand-written mirror of Cloudflare's declarations, which use method signatures and overloads.
-        rules: { "typescript/method-signature-style": "off" },
+        // Hand-written mirror of Cloudflare's declarations: their method signatures, overloads and unknown-typed values.
+        rules: {
+          "typescript/method-signature-style": "off",
+          "anti-slop/no-unknown-parameters": "off",
+          "anti-slop/no-unknown-returns": "off",
+          "typescript/no-unnecessary-type-parameters": "off",
+          "typescript/prefer-function-type": "off",
+        },
       },
     ],
   },

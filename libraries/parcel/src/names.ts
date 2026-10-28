@@ -47,7 +47,7 @@ const isForbiddenCodePoint = (codePoint: number): boolean => {
 }
 
 const deviceStems = new Set(["con", "prn", "aux", "nul"])
-const numberedDevice = /^(com|lpt)[1-9¹²³]$/u
+const numberedDevice = /^(?:com|lpt)[1-9¹²³]$/u
 
 /** Whether Windows reads a segment as a device: its part before the first dot, trailing spaces removed, ASCII lowercased. */
 export const isWindowsDeviceName = (segment: string): boolean => {

@@ -65,4 +65,25 @@ export const assembleRecord = (frames: readonly Frame[]): Uint8Array => {
   return record
 }
 
-export * from "./protocol.ts"
+export {
+  Abort,
+  Accept,
+  Complete,
+  ControlMessage,
+  Credit,
+  Decline,
+  decodeControlMessage,
+  decodeUnit,
+  encodeControlMessage,
+  encodeUnit,
+  ErrorMessage,
+  Join,
+  Joined,
+  Peer,
+  ProtocolError,
+  recipientToSenderTypes,
+  unitKind,
+  unitPrefixLength,
+  Want,
+} from "./protocol.ts"
+export type { Role, Unit, UnitKind } from "./protocol.ts"

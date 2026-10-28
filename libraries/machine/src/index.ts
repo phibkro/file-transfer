@@ -81,6 +81,7 @@ export const next = <State extends string, Command extends string, Context>(
 export const problems = <State extends string, Command extends string, Context>(machine: Machine<State, Command, Context>): readonly string[] => {
   const found: string[] = []
 
+  // SAFETY: a command is a string, and a calculated change starts from a State, which State | Boundary includes.
   const edges = [
     ...machine.transitions.flatMap((transition) => transition.from.map((from) => ({ from, to: transition.to, label: transition.command as string }))),
     ...machine.calculated.map((change) => ({ from: change.from as State | Boundary, to: change.to, label: change.when })),
