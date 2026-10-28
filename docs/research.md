@@ -50,7 +50,7 @@ This file keeps the numbers and findings that drove decisions, as read on 2026-1
 ## Ecosystems
 
 - TypeScript (Bun, Effect) for browser, edge and self-hosted platform; Effect 4.0 stable (4.0.7, LTS to 2029-09); `effect/cluster` stability unstated.
-- Rust for native nodes (iroh 1.4.1) and CLI in phase 4, as a second implementation of the format checked by shared vectors.
+- Rust for native nodes (iroh 1.4.1) and CLI in phase 4, as a second implementation of parcels checked by shared vectors.
 - BEAM is strong for rooms and relays but would duplicate every service; it cannot run on Workers. JVM offers no decisive advantage.
 
 ## Business

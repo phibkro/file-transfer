@@ -1,10 +1,10 @@
 """
-Independent check of the format v1 test vectors, written from docs/format.md alone (no code shared with the
+Independent check of the parcel v1 test vectors, written from docs/parcel.md alone (no code shared with the
 TypeScript implementation) on pyca/cryptography (OpenSSL) instead of Web Crypto. It re-derives every key,
 re-encrypts every record, rebuilds the Merkle root, and compares each byte with vectors.json; then it decrypts
 each case and checks the plaintext.
 
-Run: python3 -I libraries/format/test/vectors/verify.py   (needs: pip install cryptography)
+Run: python3 -I libraries/parcel/test/vectors/verify.py   (needs: pip install cryptography)
 """
 
 import base64

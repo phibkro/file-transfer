@@ -12,6 +12,6 @@ TypeScript with Bun and Effect 4 for libraries, services, platforms, integration
 
 ## Consequences
 
-- `docs/format.md` and its test vectors, not either codebase, are the source of truth for the wire format.
+- `docs/parcel.md` and its test vectors, not either codebase, are the source of truth for the bytes on the wire.
 - No Rust toolchain in the MVP.
 - BEAM (strong for rooms and relays) was rejected because a BEAM platform would duplicate every service and cannot run on Workers.

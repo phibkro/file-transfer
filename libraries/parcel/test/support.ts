@@ -1,4 +1,4 @@
-/** Helpers for the format tests: run whole transfers through the streams with chosen chunking. */
+/** Helpers for the parcel tests: run whole transfers through the streams with chosen chunking. */
 import { concatBytes, createDecryptionStream, createEncryptionStream, createManifest, type Manifest } from "../src/index.ts"
 
 export const fromChunks = (chunks: ReadonlyArray<Uint8Array>): ReadableStream<Uint8Array> =>
@@ -49,7 +49,7 @@ export const decryptAll = async (secret: Uint8Array, ciphertext: Uint8Array, chu
   return { manifest: await manifest, plaintext }
 }
 
-/** The `reason` of the FormatError a promise rejects with, or "accepted". */
+/** The `reason` of the ParcelError a promise rejects with, or "accepted". */
 export const outcome = async (promise: Promise<unknown>): Promise<string> => {
   try {
     await promise

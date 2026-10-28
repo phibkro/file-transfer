@@ -23,7 +23,7 @@ Adapted from the module-layer check of phibkro/vektorprogrammet-reimagined (its 
 
 The `effx` coordinator pins reviewed versions (oxlint 1.86.0, TypeScript 7.0.2, @effect/tsgo 0.48.0); upgrades follow the plugin's compatibility file.
 
-`libraries/format` opts out of the Effect lint with a reasoned file-level escape: it is the MIT wire-format core, deliberately free of Effect so other clients can adopt it, with Web Crypto as its one capability.
+`libraries/parcel` opts out of the Effect lint with a reasoned file-level escape: it is the MIT parcel core, deliberately free of Effect so other clients can adopt it, with Web Crypto as its one capability.
 
 ## Consequences
 

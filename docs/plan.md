@@ -6,7 +6,7 @@ Startup phase: prove that people want this and that some will pay, before stabil
 
 | Phase              | Scope                                                                                             | Gate to the next phase                                                                        |
 | ------------------ | ------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| 0 Spike and format | Measure throughput and save tiers; write format v1 with test vectors; external review             | 5 GB transfers work on every target browser; format reviewed and frozen                       |
+| 0 Spike and parcel | Measure throughput and save tiers; write parcel v1 with test vectors; external review             | 5 GB transfers work on every target browser; parcel v1 reviewed and frozen                    |
 | 1 MVP launch       | Live encrypted transfers, relay fallback, resume, abuse page, fake doors; Show HN; no money taken | Completion and repeat-sender targets met; fake-door clicks above the threshold set in advance |
 | 2 Paid store       | Accounts, R2 store with expiry and revoke, merchant-of-record billing                             | Paying users; relay plus TURN cost above the fixed cost of own relays                         |
 | 3 Stabilise        | Own relays (workerd or celld, Bun fallback), coturn, self-host parity                             | Teams or self-hosters asking for private networks and native clients                          |
@@ -21,9 +21,9 @@ Startup phase: prove that people want this and that some will pay, before stabil
 - [ ] Run the same Worker and Durable Object code (hibernation included) on workerd; confirm Effect services run inside a Durable Object
 - [ ] Record results in `docs/spikes/` and decide record size, frame size, and direct-first versus relay-first for large files
 
-## M1 Format (week 2)
+## M1 Parcel (week 2)
 
-- [x] Implement `libraries/format` per `format.md` (written fresh rather than lifted: SkySend's ECE layout differs in nonce, commitment and Merkle trailer)
+- [x] Implement `libraries/parcel` per `parcel.md` (written fresh rather than lifted: SkySend's ECE layout differs in nonce, commitment and Merkle trailer)
 - [x] Test vectors (checked by an independent Python implementation in CI) and property-based tests
 - [ ] Two-page spec review by someone with applied-crypto experience; freeze v1
 
@@ -61,7 +61,7 @@ Startup phase: prove that people want this and that some will pay, before stabil
 ## Open decisions
 
 - Positioning: consumer, or teams from the start (test a team offer as a fake door in phase 1)
-- Who reviews the format spec in M1
+- Who reviews the parcel specification in M1
 - Brand name, domain, trademark, and who holds them
 - Vite with plain TypeScript or Astro for the landing page
 - Apply for Stripe Managed Payments early (eligibility review takes time)

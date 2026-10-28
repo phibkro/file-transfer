@@ -5,7 +5,7 @@ import { generateVectors, plaintextByte, secret } from "./vectors/generate.ts"
 import vectors from "./vectors/vectors.json" with { type: "json" }
 
 describe("test vectors", () => {
-  it("the implementation still produces vectors.json exactly (changing it means a new format version)", async () => {
+  it("the implementation still produces vectors.json exactly (changing it means a new parcel version)", async () => {
     expect(JSON.parse(JSON.stringify(await generateVectors()))).toEqual(vectors)
   })
 

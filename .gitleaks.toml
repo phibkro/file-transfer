@@ -5,8 +5,8 @@ title = "file-transfer"
 [extend]
 useDefault = true
 
-# Format v1 test vectors publish keys derived from the fixed, public secret 00 01 .. 1f on purpose:
+# Parcel v1 test vectors publish keys derived from the fixed, public secret 00 01 .. 1f on purpose:
 # other implementations need them to check their key derivation. Only this exact file is exempt.
 [allowlist]
-description = "public format test vectors"
-paths = ['''^libraries/format/test/vectors/vectors\.json$''']
+description = "public parcel test vectors"
+paths = ['''^libraries/parcel/test/vectors/vectors\.json$''']

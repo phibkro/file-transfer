@@ -19,7 +19,7 @@
         "reason": "workspace package of plain guarantee declarations, governed by its own group below; tools/quality checks the edge"
       },
       {
-        "specifier": "@file-transfer/format",
+        "specifier": "@file-transfer/parcel",
         "reason": "workspace package governed by its own group below; tools/quality checks the edge"
       },
       {
@@ -40,7 +40,7 @@
         "platform": "portable"
       },
       {
-        "files": ["libraries/format/src/**", "tools/quality/src/moduleGraph.ts"],
+        "files": ["libraries/parcel/src/**", "tools/quality/src/moduleGraph.ts"],
         "role": "pure-library",
         "platform": "portable"
       },

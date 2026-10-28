@@ -1,5 +1,5 @@
 /**
- * Prints the v1 test vectors as JSON: `bun libraries/format/test/vectors/generate.ts > libraries/format/test/vectors/vectors.json`.
+ * Prints the v1 test vectors as JSON: `bun libraries/parcel/test/vectors/generate.ts > libraries/parcel/test/vectors/vectors.json`.
  * Inputs are fixed; `vectors.test.ts` regenerates and compares, and `verify.py` reproduces every byte independently.
  */
 import { createEncryptor, createManifest, derivationInfo, deriveRoomToken, hashRoomToken, type Manifest, merkleRoot, toHex } from "../../src/index.ts"
@@ -43,7 +43,7 @@ export const generateVectors = async () => {
   const singleFile = (size: number) => createManifest([{ name: "vector.bin", size, mediaType: "application/octet-stream" }])
   const roomToken = await deriveRoomToken(secret)
   return {
-    description: "Encrypted object format v1 test vectors (docs/format.md). Plaintext byte i is i mod 251, files concatenated in manifest order.",
+    description: "Parcel v1 test vectors (docs/parcel.md). Plaintext byte i is i mod 251, files concatenated in manifest order.",
     secret: toHex(secret),
     linkFragment: "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
     salt: toHex(salt),

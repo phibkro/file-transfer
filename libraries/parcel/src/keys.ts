@@ -1,9 +1,9 @@
 // oxlint-effect-plugin ignore-file:
-// reason: the wire-format core is MIT and deliberately free of Effect so other clients can adopt it; Web Crypto is its one capability and callers wrap it (docs/decisions/0009)
-/** The link secret and every key derived from it (docs/format.md, "Key derivation"). */
+// reason: the parcel library is MIT and deliberately free of Effect so other clients can adopt it; Web Crypto is its one capability and callers wrap it (docs/decisions/0009)
+/** The link secret and every key derived from it (docs/parcel.md, "Key derivation"). */
 import { asBufferSource, decodeBase64Url, encodeBase64Url, toHex } from "./bytes.ts"
 import { derivationInfo, keyCommitmentLength, saltLength, secretLength } from "./constants.ts"
-import { FormatError } from "./errors.ts"
+import { ParcelError } from "./errors.ts"
 
 const textEncoder = new TextEncoder()
 
@@ -14,7 +14,7 @@ export interface TransferKeys {
 }
 
 const requireLength = (bytes: Uint8Array, length: number, reason: "invalid-secret" | "invalid-argument", name: string) => {
-  if (bytes.length !== length) throw new FormatError(reason, `${name} must be ${length} bytes`)
+  if (bytes.length !== length) throw new ParcelError(reason, `${name} must be ${length} bytes`)
 }
 
 /** A fresh 32-byte link secret. */
@@ -34,7 +34,7 @@ export const decodeLinkSecret = (fragment: string): Uint8Array<ArrayBuffer> => {
   try {
     secret = decodeBase64Url(fragment.startsWith("#") ? fragment.slice(1) : fragment)
   } catch {
-    throw new FormatError("invalid-secret", "the link fragment is not a valid secret")
+    throw new ParcelError("invalid-secret", "the link fragment is not a valid secret")
   }
   requireLength(secret, secretLength, "invalid-secret", "secret")
   return secret

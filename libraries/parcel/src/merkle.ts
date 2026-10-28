@@ -1,11 +1,11 @@
 // oxlint-effect-plugin ignore-file:
-// reason: the wire-format core is MIT and deliberately free of Effect so other clients can adopt it; Web Crypto is its one capability and callers wrap it (docs/decisions/0009)
+// reason: the parcel library is MIT and deliberately free of Effect so other clients can adopt it; Web Crypto is its one capability and callers wrap it (docs/decisions/0009)
 /**
- * RFC 6962 Merkle tree hash over ciphertext records (docs/format.md, "Trailer"). `MerkleFrontier` keeps one hash per
+ * RFC 6962 Merkle tree hash over ciphertext records (docs/parcel.md, "Trailer"). `MerkleFrontier` keeps one hash per
  * complete subtree (at most log2(n) of them), so the sender hashes while streaming and never holds the records.
  */
 import { asBufferSource, concatBytes, fromHex, toHex } from "./bytes.ts"
-import { FormatError } from "./errors.ts"
+import { ParcelError } from "./errors.ts"
 
 const sha256 = async (bytes: Uint8Array): Promise<Uint8Array<ArrayBuffer>> => new Uint8Array(await crypto.subtle.digest("SHA-256", asBufferSource(bytes)))
 
@@ -77,7 +77,7 @@ export class MerkleFrontier {
         hash.length === 64 &&
         (index === 0 || size < (snapshot[index - 1]?.size ?? 0)),
     )
-    if (!valid) throw new FormatError("invalid-argument", "not a Merkle frontier snapshot")
+    if (!valid) throw new ParcelError("invalid-argument", "not a Merkle frontier snapshot")
     const frontier = new MerkleFrontier()
     frontier.#subtrees = snapshot.map(({ size, hash }) => ({ size, hash: fromHex(hash) }))
     return frontier

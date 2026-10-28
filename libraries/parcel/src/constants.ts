@@ -1,9 +1,9 @@
 // oxlint-effect-plugin ignore-file:
-// reason: the wire-format core is MIT and deliberately free of Effect so other clients can adopt it; Web Crypto is its one capability and callers wrap it (docs/decisions/0009)
-/** The numbers docs/format.md fixes. Nothing else in the repository hard-codes them. */
-import { FormatError } from "./errors.ts"
+// reason: the parcel library is MIT and deliberately free of Effect so other clients can adopt it; Web Crypto is its one capability and callers wrap it (docs/decisions/0009)
+/** The numbers docs/parcel.md fixes. Nothing else in the repository hard-codes them. */
+import { ParcelError } from "./errors.ts"
 
-export const formatVersion = 1
+export const parcelVersion = 1
 
 /** Magic bytes at the start of every header. */
 export const headerMagic = new Uint8Array([0x45, 0x32, 0x45, 0x01])
@@ -38,7 +38,7 @@ export const isRecordSizeExponent = (exponent: number): boolean =>
 
 export const recordSize = (exponent: number): number => {
   if (!isRecordSizeExponent(exponent)) {
-    throw new FormatError("invalid-record-size", `record size exponent must be an integer from ${minimumRecordSizeExponent} to ${maximumRecordSizeExponent}`)
+    throw new ParcelError("invalid-record-size", `record size exponent must be an integer from ${minimumRecordSizeExponent} to ${maximumRecordSizeExponent}`)
   }
   return 2 ** exponent
 }
@@ -50,6 +50,6 @@ export const dataRecordCount = (totalSize: number, size: number): number => Math
 export const dataPlaintextLength = (index: number, totalSize: number, size: number): number => {
   const count = dataRecordCount(totalSize, size)
   if (!Number.isSafeInteger(index) || index < 0 || index >= count)
-    throw new FormatError("invalid-argument", `record index ${index} is outside 0 to ${count - 1}`)
+    throw new ParcelError("invalid-argument", `record index ${index} is outside 0 to ${count - 1}`)
   return index < count - 1 ? size : totalSize - (count - 1) * size
 }

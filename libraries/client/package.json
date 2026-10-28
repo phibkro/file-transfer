@@ -8,7 +8,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@file-transfer/format": "workspace:*",
+    "@file-transfer/parcel": "workspace:*",
     "@file-transfer/sink": "workspace:*",
     "@file-transfer/transport": "workspace:*"
   }

@@ -19,7 +19,7 @@ jobs:
       - run: bun install --frozen-lockfile
       # Vite+ check (format, lint, types), module graph, Effect profile (effx), tests (Vitest).
       - run: bun run check
-      # Independent re-implementation of format v1 (Python, OpenSSL) must reproduce every test vector byte.
+      # Independent re-implementation of parcel v1 (Python, OpenSSL) must reproduce every test vector byte.
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"

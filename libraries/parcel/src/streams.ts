@@ -1,5 +1,5 @@
 // oxlint-effect-plugin ignore-file:
-// reason: the wire-format core is MIT and deliberately free of Effect so other clients can adopt it; Web Crypto is its one capability and callers wrap it (docs/decisions/0009)
+// reason: the parcel library is MIT and deliberately free of Effect so other clients can adopt it; Web Crypto is its one capability and callers wrap it (docs/decisions/0009)
 /**
  * Whole transfers as Web Streams with constant memory: one record buffer and an O(log n) Merkle frontier.
  * Encryption emits one chunk per unit (header, manifest record, each data record, trailer), which is what the
@@ -7,7 +7,7 @@
  */
 import { bytesEqual } from "./bytes.ts"
 import { headerLength, trailerCiphertextLength } from "./constants.ts"
-import { FormatError } from "./errors.ts"
+import { ParcelError } from "./errors.ts"
 import { decodeHeader } from "./header.ts"
 import type { Manifest } from "./manifest.ts"
 import { leafHash, MerkleFrontier } from "./merkle.ts"
@@ -43,7 +43,7 @@ export const createEncryptionStream = async (options: EncryptorOptions): Promise
     },
     transform: async (chunk, controller) => {
       received += chunk.length
-      if (received > manifest.totalSize) throw new FormatError("size-mismatch", "more plaintext than the manifest declares")
+      if (received > manifest.totalSize) throw new ParcelError("size-mismatch", "more plaintext than the manifest declares")
       let offset = 0
       while (offset < chunk.length) {
         const taken = Math.min(recordSize - filled, chunk.length - offset)
@@ -54,7 +54,7 @@ export const createEncryptionStream = async (options: EncryptorOptions): Promise
       }
     },
     flush: async (controller) => {
-      if (received !== manifest.totalSize) throw new FormatError("size-mismatch", "less plaintext than the manifest declares")
+      if (received !== manifest.totalSize) throw new ParcelError("size-mismatch", "less plaintext than the manifest declares")
       if (nextIndex < recordCount) await sealNext(controller, filled)
       controller.enqueue(await encryptor.sealTrailer({ recordCount, rootHash: await frontier.root() }))
     },
@@ -77,7 +77,7 @@ type Unit =
 
 /**
  * Ciphertext in, plaintext out. Every record is authenticated before its plaintext is emitted; the stream errors
- * with a `FormatError` on any failure, and the caller must then discard what it wrote (docs/format.md, "Receiver rules").
+ * with a `ParcelError` on any failure, and the caller must then discard what it wrote (docs/parcel.md, "Receiver rules").
  */
 export const createDecryptionStream = (secret: Uint8Array): DecryptionStream => {
   let resolveManifest: (manifest: Manifest) => void = () => {}
@@ -129,7 +129,7 @@ export const createDecryptionStream = (secret: Uint8Array): DecryptionStream => 
         advance({ kind: "data", index: 0 })
         return
       case "data": {
-        if (decryptor === undefined) throw new FormatError("invalid-argument", "data before the manifest")
+        if (decryptor === undefined) throw new ParcelError("invalid-argument", "data before the manifest")
         const plaintext = await decryptor.openData(unit.index, pending)
         await frontier.appendLeafHash(await leafHash(pending))
         controller.enqueue(plaintext)
@@ -137,12 +137,12 @@ export const createDecryptionStream = (secret: Uint8Array): DecryptionStream => 
         return
       }
       case "trailer": {
-        if (decryptor === undefined) throw new FormatError("invalid-argument", "trailer before the manifest")
+        if (decryptor === undefined) throw new ParcelError("invalid-argument", "trailer before the manifest")
         const trailer = await decryptor.openTrailer(pending)
         if (trailer.recordCount !== decryptor.recordCount)
-          throw new FormatError("record-count-mismatch", "the trailer's record count does not match the manifest")
+          throw new ParcelError("record-count-mismatch", "the trailer's record count does not match the manifest")
         if (!bytesEqual(trailer.rootHash, await frontier.root()))
-          throw new FormatError("root-hash-mismatch", "the trailer's root hash does not match the records")
+          throw new ParcelError("root-hash-mismatch", "the trailer's root hash does not match the records")
         advance({ kind: "done" })
         return
       }
@@ -161,7 +161,7 @@ export const createDecryptionStream = (secret: Uint8Array): DecryptionStream => 
       try {
         let offset = 0
         while (offset < chunk.length) {
-          if (unit.kind === "done") throw new FormatError("trailing-data", "bytes after the trailer")
+          if (unit.kind === "done") throw new ParcelError("trailing-data", "bytes after the trailer")
           const taken = Math.min(pending.length - filled, chunk.length - offset)
           pending.set(chunk.subarray(offset, offset + taken), filled)
           filled += taken
@@ -173,7 +173,7 @@ export const createDecryptionStream = (secret: Uint8Array): DecryptionStream => 
       }
     },
     flush: () => {
-      if (unit.kind !== "done") fail(new FormatError("truncated", "the transfer ended before its trailer"))
+      if (unit.kind !== "done") fail(new ParcelError("truncated", "the transfer ended before its trailer"))
     },
   })
   return { stream, manifest }

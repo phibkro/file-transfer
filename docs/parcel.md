@@ -1,6 +1,8 @@
-# Encrypted object format v1 (draft)
+# Parcel v1 (draft)
 
-Status: implemented and tested; draft until the external review in milestone M1. It freezes after that review; after that, changes need a new version number, never an edit. Implemented in `libraries/format` (MIT).
+A parcel is the encrypted, authenticated container every transfer moves: what a sender seals and recipients open, carried unchanged over direct, relayed and stored paths. Terms are defined in `glossary.md`.
+
+Status: implemented and tested; draft until the external review in milestone M1. It freezes after that review; after that, changes need a new version number, never an edit. Implemented in `libraries/parcel` (MIT).
 
 Design references: RFC 8188 record layout, the age STREAM construction (counter nonce plus final flag), SkySend's 64 KiB AES-256-GCM records, croc's stored-transfer design (associated data binding), RFC 6962 Merkle trees. Rationale is in `research.md`.
 
@@ -53,7 +55,7 @@ Every length is known before the bytes arrive, so a receiver cuts the stream wit
 - Cipher: AES-256-GCM, 16-byte tag. Ciphertext length is plaintext length plus 16.
 - Nonce (12 bytes): 11-byte big-endian record counter followed by one flag byte, `0x01` for the last record of its stream and `0x00` otherwise.
 - Associated data: the 54 header bytes.
-- Two streams share the format:
+- Two streams share the record layout:
   - Metadata stream under `manifestKey`: counter 0 is the manifest (flag `0x00`), counter 1 is the trailer (flag `0x01`).
   - Data stream under `contentKey`: counters `0 .. n-1`, all records exactly `2^recordSizeExponent` bytes of plaintext except the last, which has flag `0x01` and may be shorter. An empty transfer has a single empty final data record.
 
@@ -94,13 +96,13 @@ Merkle tree (RFC 6962 shape): leaf hash `SHA-256(0x00 || ciphertextRecord)`, int
 4. Verify the trailer's record count and `rootHash` against what was received.
 5. Any failure aborts the transfer and discards unverified output.
 
-## Transport framing (not part of the format)
+## Transport framing (not part of the parcel)
 
 Records are the unit of encryption and resume, not of transport. `libraries/transport` splits a ciphertext record into frames that fit the path (WebRTC data channels default to a 64 KiB maximum message, and a 64 KiB record is 65,552 bytes of ciphertext) and reassembles them. Resume asks for "data records from index i".
 
 ## Test vectors and tests
 
-- `libraries/format/test/vectors/vectors.json`: fixed secret and salt; the room token and its hash, the three derived keys, and for each case the header, manifest record, every data record, root hash and trailer. Cases: 0 bytes, 1 byte, one record minus one, exactly one record, one record plus one, three records with a short tail, two files plus an empty one (record size 2^12), and 1 byte at the default record size.
+- `libraries/parcel/test/vectors/vectors.json`: fixed secret and salt; the room token and its hash, the three derived keys, and for each case the header, manifest record, every data record, root hash and trailer. Cases: 0 bytes, 1 byte, one record minus one, exactly one record, one record plus one, three records with a short tail, two files plus an empty one (record size 2^12), and 1 byte at the default record size.
 - `verify.py` next to it reimplements v1 from this document alone (Python, pyca/cryptography over OpenSSL, no shared code) and must reproduce every byte; CI runs it. `vectors.test.ts` fails if the TypeScript implementation drifts from the file.
 - Property tests: round trip for arbitrary sizes, record exponents and chunking; rejection of any single-bit flip, truncation at any byte (`truncated` at every record boundary), trailing data, reordered or duplicated records, a data record swapped with the trailer, a record spliced from another transfer, the wrong secret, and a trailer with a wrong root or record count from a sender holding the keys.
 - Merkle code is checked against the RFC 6962 roots for 1 to 8 leaves published in transparency-dev/merkle (`testonly/constants.go`).

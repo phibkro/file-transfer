@@ -13,9 +13,9 @@ describe("module graph", () => {
 
 /** A small valid workspace; each negative control below breaks one rule in it. */
 const library: PackageFacts = {
-  name: "@file-transfer/format",
+  name: "@file-transfer/parcel",
   kind: "library",
-  directory: "libraries/format",
+  directory: "libraries/parcel",
   dependencies: [],
   testSupportFiles: [],
   sourceFileCount: 1,
@@ -26,11 +26,11 @@ const service: PackageFacts = {
   name: "@file-transfer/service-room",
   kind: "service",
   directory: "services/room",
-  dependencies: ["@file-transfer/format", "effect"],
+  dependencies: ["@file-transfer/parcel", "effect"],
   testSupportFiles: [],
   sourceFileCount: 2,
   imports: [
-    { file: "src/index.ts", specifier: "@file-transfer/format", inTest: false },
+    { file: "src/index.ts", specifier: "@file-transfer/parcel", inTest: false },
     { file: "src/index.ts", specifier: "effect", inTest: false },
     { file: "test/room.test.ts", specifier: "vite-plus/test", inTest: true },
     { file: "test/room.test.ts", specifier: "fast-check", inTest: true },

@@ -77,7 +77,7 @@ Rule: price only what we pay for. Throttling a path we do not carry would recrea
 See `CLAUDE.md` for the kinds and import rules.
 
 ```
-libraries/   format  transport  sink  client
+libraries/   parcel  transport  sink  client
 services/    room  relay  quota  telemetry  abuse
 platforms/   cloudflare  self-hosted
 integrations/ turn  captcha  analytics
@@ -104,8 +104,8 @@ Abuse: the free path stores nothing; stores need accounts, short expiry and quot
 
 Fixed from the MVP onward: the format, the libraries' `Transport` interface, the service declarations. Later phases add platform layers and integrations, not rewrites.
 
-| Phase | Adds                                                                                                                                                     |
-| ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 2     | Accounts (magic link), R2 store with expiry and revoke (croc's stored-transfer semantics), merchant-of-record billing                                    |
-| 3     | Own relays on Hetzner via workerd or celld (Bun fallback), coturn, self-host parity                                                                      |
-| 4     | Rust: iroh native nodes and CLI implementing the same format; signed network directory and transfer policies; seeding; PAKE short codes; team-run relays |
+| Phase | Adds                                                                                                                                                                   |
+| ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2     | Accounts (magic link), R2 store with expiry and revoke (croc's stored-transfer semantics), merchant-of-record billing                                                  |
+| 3     | Own relays on Hetzner via workerd or celld (Bun fallback), coturn, self-host parity                                                                                    |
+| 4     | Rust: iroh native nodes and CLI implementing the same parcel specification; signed network directory and transfer policies; seeding; PAKE short codes; team-run relays |

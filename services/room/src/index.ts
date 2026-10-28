@@ -3,7 +3,7 @@
  * the SHA-256 of its room token, never the link secret.
  */
 import { declareGuarantees } from "@file-transfer/conformance/guarantee"
-import { constantTimeEqual, hashRoomToken, toHex } from "@file-transfer/format"
+import { constantTimeEqual, hashRoomToken, toHex } from "@file-transfer/parcel"
 import * as Machine from "@file-transfer/machine"
 import { Context, Crypto, Data, Effect, Layer, Ref } from "effect"
 

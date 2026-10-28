@@ -1,5 +1,5 @@
 {
-  "description": "Encrypted object format v1 test vectors (docs/format.md). Plaintext byte i is i mod 251, files concatenated in manifest order.",
+  "description": "Parcel v1 test vectors (docs/parcel.md). Plaintext byte i is i mod 251, files concatenated in manifest order.",
   "secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
   "linkFragment": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
   "salt": "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf",

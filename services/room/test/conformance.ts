@@ -3,7 +3,7 @@
  * `roomSuite.run` and `roomSuite.negativeControls` with its own broken variants, as the reference layer does.
  */
 import { conformanceSuite } from "@file-transfer/conformance"
-import { deriveRoomToken, hashRoomToken } from "@file-transfer/format"
+import { deriveRoomToken, hashRoomToken } from "@file-transfer/parcel"
 import { expect } from "vite-plus/test"
 import { Effect, type Layer } from "effect"
 import fc from "fast-check"

@@ -1,7 +1,7 @@
 // oxlint-effect-plugin ignore-file:
-// reason: the wire-format core is MIT and deliberately free of Effect so other clients can adopt it; Web Crypto is its one capability and callers wrap it (docs/decisions/0009)
+// reason: the parcel library is MIT and deliberately free of Effect so other clients can adopt it; Web Crypto is its one capability and callers wrap it (docs/decisions/0009)
 /** Byte helpers with no dependencies. */
-import { FormatError } from "./errors.ts"
+import { ParcelError } from "./errors.ts"
 
 /** Web Crypto takes views over an ArrayBuffer; copy only when the input views something else (a SharedArrayBuffer). */
 export const asBufferSource = (bytes: Uint8Array): Uint8Array<ArrayBuffer> =>
@@ -28,7 +28,7 @@ export const bytesEqual = (left: Uint8Array, right: Uint8Array): boolean => {
 export const toHex = (bytes: Uint8Array): string => Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")
 
 export const fromHex = (text: string): Uint8Array<ArrayBuffer> => {
-  if (text.length % 2 !== 0 || !/^[0-9a-f]*$/.test(text)) throw new FormatError("invalid-argument", "hex must be lowercase pairs of 0-9a-f")
+  if (text.length % 2 !== 0 || !/^[0-9a-f]*$/.test(text)) throw new ParcelError("invalid-argument", "hex must be lowercase pairs of 0-9a-f")
   const bytes = new Uint8Array(text.length / 2)
   for (let index = 0; index < bytes.length; index++) bytes[index] = Number.parseInt(text.slice(index * 2, index * 2 + 2), 16)
   return bytes
@@ -45,9 +45,9 @@ export const encodeBase64Url = (bytes: Uint8Array): string => {
 
 /** Strict decoding: rejects padding, other alphabets and non-canonical trailing bits. */
 export const decodeBase64Url = (text: string): Uint8Array<ArrayBuffer> => {
-  if (!base64UrlAlphabet.test(text) || text.length % 4 === 1) throw new FormatError("invalid-argument", "not unpadded base64url")
+  if (!base64UrlAlphabet.test(text) || text.length % 4 === 1) throw new ParcelError("invalid-argument", "not unpadded base64url")
   const binary = atob(text.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - (text.length % 4)) % 4))
   const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0))
-  if (encodeBase64Url(bytes) !== text) throw new FormatError("invalid-argument", "base64url is not canonical")
+  if (encodeBase64Url(bytes) !== text) throw new ParcelError("invalid-argument", "base64url is not canonical")
   return bytes
 }

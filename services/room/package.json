@@ -10,8 +10,8 @@
   },
   "dependencies": {
     "@file-transfer/conformance": "workspace:*",
-    "@file-transfer/format": "workspace:*",
     "@file-transfer/machine": "workspace:*",
+    "@file-transfer/parcel": "workspace:*",
     "effect": "^4.0.7"
   }
 }

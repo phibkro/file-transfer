@@ -1,12 +1,12 @@
 // oxlint-effect-plugin ignore-file:
-// reason: the wire-format core is MIT and deliberately free of Effect so other clients can adopt it; Web Crypto is its one capability and callers wrap it (docs/decisions/0009)
+// reason: the parcel library is MIT and deliberately free of Effect so other clients can adopt it; Web Crypto is its one capability and callers wrap it (docs/decisions/0009)
 /**
- * The manifest (docs/format.md, "Manifest"): what the transfer contains. Its plaintext fills exactly one record: a
+ * The manifest (docs/parcel.md, "Manifest"): what the transfer contains. Its plaintext fills exactly one record: a
  * 4-byte big-endian JSON length, the UTF-8 JSON, then zero bytes. A fixed length lets a receiver parse the stream
  * without delimiters and hides how long the file names are.
  */
 import { manifestLengthPrefix } from "./constants.ts"
-import { FormatError } from "./errors.ts"
+import { ParcelError } from "./errors.ts"
 
 export interface ManifestFile {
   /** A `/`-separated relative path. */
@@ -23,7 +23,7 @@ export interface Manifest {
 }
 
 const invalid = (message: string): never => {
-  throw new FormatError("invalid-manifest", message)
+  throw new ParcelError("invalid-manifest", message)
 }
 
 /**
@@ -79,7 +79,7 @@ const textDecoder = new TextDecoder("utf-8", { fatal: true })
 
 export const encodeManifestPlaintext = (manifest: Manifest, recordSize: number): Uint8Array<ArrayBuffer> => {
   const json = textEncoder.encode(JSON.stringify(validateManifest(manifest)))
-  if (manifestLengthPrefix + json.length > recordSize) throw new FormatError("invalid-manifest", "the manifest does not fit in one record")
+  if (manifestLengthPrefix + json.length > recordSize) throw new ParcelError("invalid-manifest", "the manifest does not fit in one record")
   const plaintext = new Uint8Array(recordSize)
   new DataView(plaintext.buffer).setUint32(0, json.length)
   plaintext.set(json, manifestLengthPrefix)

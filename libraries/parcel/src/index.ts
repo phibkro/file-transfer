@@ -1,6 +1,6 @@
 // oxlint-effect-plugin ignore-file:
-// reason: the wire-format core is MIT and deliberately free of Effect so other clients can adopt it; Web Crypto is its one capability and callers wrap it (docs/decisions/0009)
-/** Encrypted object format v1. Specification: docs/format.md. MIT licensed. */
+// reason: the parcel library is MIT and deliberately free of Effect so other clients can adopt it; Web Crypto is its one capability and callers wrap it (docs/decisions/0009)
+/** Parcel v1. Specification: docs/parcel.md. MIT licensed. */
 export * from "./bytes.ts"
 export * from "./constants.ts"
 export * from "./errors.ts"
