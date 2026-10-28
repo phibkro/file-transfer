@@ -29,10 +29,6 @@
       {
         "specifier": "@file-transfer/machine",
         "reason": "workspace package governed by its own group below; tools/quality checks the edge"
-      },
-      {
-        "specifier": "@file-transfer/transport",
-        "reason": "workspace package governed by its own group below; tools/quality checks the edge"
       }
     ],
     "groups": [
