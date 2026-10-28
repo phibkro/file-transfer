@@ -49,12 +49,74 @@ Server parts       web assets | signaling room | relay | TURN
 
 ## Transfer flow
 
-1. Sender drops a file. The client generates a 256-bit secret, requests a room (Turnstile-checked) and shows the link immediately: `https://host/r/<room>#<secret>`. The fragment never reaches a server.
+Contract before content (ADR 0012, proposed): the sender labels every piece first, the recipient agrees to the contract, and only then does content move. Any piece that differs from the contract is a breach.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant Sender as Sender browser
+  participant Room as Room (signaling)
+  participant Relay as Relay (courier)
+  participant Recipient as Recipient browser
+
+  Note over Sender: Label: seal every piece once, record its label (fingerprint), build the contract
+  Sender->>Room: create room (stores only a hash of the room token)
+  Sender-->>Recipient: link with the secret in its fragment, shared by chat or email, never via our servers
+  Recipient->>Room: join with the room token
+  Room-->>Sender: recipient is here
+
+  rect rgba(120, 160, 255, 0.15)
+    Note over Sender,Recipient: Contract before content
+    Sender->>Relay: sealed contract (header, manifest, piece count, labels)
+    Relay->>Recipient: sealed contract (the relay cannot read it)
+    Note over Recipient: check the key fingerprint, open the contract, show names and total size
+    Recipient->>Relay: accept (digest of this exact contract)
+    Relay->>Sender: accept
+  end
+
+  rect rgba(120, 220, 160, 0.15)
+    Note over Sender,Recipient: Delivery
+    loop each piece, while the recipient has granted credits
+      Sender->>Relay: sealed piece i
+      Relay->>Recipient: sealed piece i
+      Note over Recipient: open the seal, compare with label i, write provisionally
+      Recipient-->>Sender: credits (I can take more)
+    end
+  end
+
+  alt every piece matched the contract
+    Recipient->>Sender: complete
+    Note over Recipient: commit the files under their final names
+  else a piece does not match its label
+    Note over Recipient: breach: abort, discard provisional output, report it
+  else the connection drops
+    Recipient->>Sender: resume: I hold pieces 0 to i-1 of contract X
+    Note over Sender: re-seal from piece i, and stop if a re-sealed piece differs from its own label (the file changed)
+  else the sender wants to change the files
+    Sender->>Recipient: new contract (a new parcel)
+    Recipient->>Sender: accept again, or decline
+  end
+```
+
+1. Sender drops files. The client generates a 256-bit secret, labels every piece (one sealing pass), requests a room (Turnstile-checked) and shows the link: `https://host/r/<room>#<secret>`. The fragment never reaches a server.
 2. Recipient opens the link and joins the room. Peers exchange WebRTC offers through the signaling room.
-3. Path selection (relay-first, from Tailscale): on paid plans data starts on the relay at once and moves to the direct path when WebRTC connects; on the free plan clients wait a few seconds for a direct path and use the relay as fallback.
-4. Sender streams encrypted records; recipient verifies each, writes it to disk, and returns credits so the sender never outruns the slower side.
-5. On a dropped connection the recipient reports its last verified record; the sender resumes from that offset. Path switches use the same mechanism.
-6. The signaling room counts events (created, joined, completed, direct or relayed, size bucket, failure reason) and never sees names, keys or contents.
+3. Path selection (relay-first, from Tailscale): on paid plans the contract and data start on the relay at once and move to the direct path when WebRTC connects; on the free plan clients wait a few seconds for a direct path and use the relay as fallback.
+4. The sender sends the sealed contract; the recipient checks the key fingerprint, shows names and total size, and accepts that exact contract.
+5. Sender streams sealed pieces; the recipient opens each, compares it with its label, writes it provisionally and returns credits so the sender never outruns the slower side.
+6. On a dropped connection the recipient reports the pieces it holds of contract X; the sender re-seals from there and stops if its own file no longer matches the contract. Path switches use the same mechanism.
+7. When every piece matches, the recipient commits the files under their final names.
+8. The signaling room counts events (created, joined, completed, direct or relayed, size bucket, failure reason) and never sees names, keys or contents.
+
+What each layer is responsible for:
+
+```mermaid
+flowchart TB
+  Contract["<b>Contract layer</b> (sender and recipient only)<br/>Contract: names, sizes, piece count, labels · acceptance before content · breach when a piece differs from its label"]
+  Parcel["<b>Parcel layer</b> (sealed pieces)<br/>A seal per piece catches tampering, reordering and cut-offs · the key fingerprint makes a wrong link fail at once"]
+  Transport["<b>Transport layer</b> (our code)<br/>Frames pack pieces for the path · credits keep the faster side from outrunning the slower · resume from piece i after a drop"]
+  Path["<b>Path layer</b> (browser and network)<br/>Direct: WebRTC data channel, SCTP over DTLS over UDP · Relayed: WebSocket over TLS over TCP, through a relay<br/>Both encrypt and checksum every packet, so bit errors become a dropped connection, never wrong bytes"]
+  Contract --> Parcel --> Transport --> Path
+```
 
 ## Disk writing on the recipient
 
