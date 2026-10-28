@@ -1,6 +1,6 @@
-# 0015 Content key released on completion (parcel version 2 candidate)
+# 0015 Two parcel kinds: streaming and release on completion
 
-Status: proposed (2026-10-28), not scheduled. Parcel v1 is frozen (ADR 0011); this would be parcel version 2.
+Status: proposed (2026-10-28), not scheduled. Parcel v1 is frozen (ADR 0011) and stays the streaming kind; release on completion would be a second kind specified as parcel version 2, an alternative alongside v1 rather than its successor.
 
 ## Context
 
@@ -21,10 +21,13 @@ Withholding fits this design, because labels are hashes of sealed records (ADR 0
 2. **Contract, then ciphertext, then key.** The recipient opens and accepts the contract as today, receives every data record and checks each against its label (no key needed), then reports completion. Only then does the sender, or a store holding the wrapped content secret, release it, sealed under the parcel secret. The recipient decrypts in a second pass, in place.
 3. **Revocation before release leaves nothing readable.** If access changes before release, the sender or store simply never releases the content secret; the recipient holds ciphertext and labels only. With several recipients, release is per recipient.
 4. **Completion becomes an authorisation, so it must be authenticated.** v1 notes that acceptance and completion messages are computable from public bytes; once completion releases a key, the room protocol must MAC it under a key derived from the parcel secret (`docs/parcel.md`, Observer section). A recipient who claims completion early gains only the ability to decrypt the records it already holds.
-5. **A per-transfer policy, not a silent default.** Streaming (v1 behaviour: plaintext as it arrives, video can play while downloading) and release on completion (nothing readable until the end) both have uses. The access policy names which one a transfer uses; stored assets and multi-recipient grants would default to release on completion.
+5. **Two kinds, chosen per parcel by its access policy.** A **streaming parcel** (v1) makes plaintext available as it arrives, so audio and video can play while downloading. A **release-on-completion parcel** (v2) keeps everything unreadable until the end. Both write ciphertext to disk while the sender sends, so release on completion costs only the second decryption pass and the loss of partial preview, not transfer time.
+6. **Secure by default, streaming when it earns its place.** The sender's client proposes the kind from the manifest it is sealing: release on completion by default, streaming offered when the content is media that benefits from playing early (audio and video media types). The sender can override either way, and an account's or network's policy can forbid streaming. The choice is made on the sender's device, where the media types are already in plaintext.
+7. **Mixed sends split into parcels.** A room already carries a sequence of contracts (ADR 0012), so a send of a video and some documents can be two parcels with different kinds, each accepted separately.
+8. **The kind is visible to relays and stores.** A key-release step at the end of a transfer marks it as release on completion, so an observer can guess that streaming parcels are more likely media. That is a small metadata leak on top of the sizes and timing they already see (ADR 0012, security posture), accepted for now and noted for the observer section of the v2 specification.
 
 ## Consequences
 
 - Plaintext appears only after the last record: no partial preview, and a second decryption pass over the whole parcel (about 21 s per 10 GB at the desktop sealing rate in ADR 0012; phones unmeasured). Bytes still flow while the sender sends (design R7); only readability waits.
 - The window this protects is the transfer itself. Once a recipient holds every record and the content secret, revocation cannot take the contents back (ADR 0014, lazy revocation), and a recipient can always copy what it can read.
-- Needs parcel version 2 with its own test vectors, property tests and review, like v1. v1 stays the streaming format.
+- Needs parcel version 2 with its own test vectors, property tests and review, like v1. Receivers support both kinds; the header's version byte tells them apart.
