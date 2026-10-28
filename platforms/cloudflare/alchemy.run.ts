@@ -102,11 +102,11 @@ export default Alchemy.Stack(
         workersDev: true,
       })
 
-      return { stage, url: production.url }
+      return { stage, url: production.url, urls: production.urls }
     }
 
     const preview = yield* Cloudflare.Worker("Site", { ...worker, preview: { of: wrangler.name, message: `stage ${stage}` } })
 
-    return { stage, url: preview.url }
+    return { stage, url: preview.url, urls: preview.urls }
   }),
 )
