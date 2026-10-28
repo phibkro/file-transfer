@@ -8,3 +8,6 @@ spikes/*/state/
 
 # Agent worktrees
 .claude/worktrees/
+
+# Python bytecode from the vector check
+__pycache__/
