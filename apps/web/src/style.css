@@ -213,3 +213,32 @@ a:focus-visible {
 a {
   color: var(--accent);
 }
+
+.file-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.file-list .size {
+  margin-left: auto;
+  color: var(--muted);
+}
+
+.file-list .remove {
+  padding: 0.125rem 0.5rem;
+  font-size: 0.85rem;
+}
+
+.selection-total {
+  color: var(--muted);
+}
+
+.rejections {
+  color: var(--accent);
+  padding-left: 1.25rem;
+}
+
+.rejections:empty {
+  display: none;
+}

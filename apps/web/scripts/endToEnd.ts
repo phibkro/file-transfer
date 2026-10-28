@@ -241,7 +241,16 @@ const offer = async (sender: Page, base: string, files: readonly PayloadFile[]) 
   const total = files.reduce((sum, file) => sum + file.buffer.length, 0)
 
   if (total < 40 * 1024 * 1024) {
-    await sender.setInputFiles("#files", [...files])
+    // Two batches, so the check covers adding files after the first choice; all of them become one parcel.
+    const split = Math.ceil(files.length / 2)
+    await sender.setInputFiles("#files", files.slice(0, split))
+
+    if (split < files.length) {
+      await sender.setInputFiles("#files", files.slice(split))
+    }
+
+    const listed = await sender.locator(".file-list li").count()
+    check(listed === files.length, "files chosen in two batches are all in the list", { listed, expected: files.length })
   } else {
     // The browser reads files lazily, so they stay until the run ends; deleting them early is a source change.
     for (const file of files) {
@@ -254,6 +263,7 @@ const offer = async (sender: Page, base: string, files: readonly PayloadFile[]) 
     )
   }
 
+  await sender.getByRole("button", { name: "Create link" }).click()
   await waitForStatus(sender, ["waiting-for-recipient", "failed"])
   check(
     (await status(sender)) === "waiting-for-recipient",

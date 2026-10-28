@@ -30,6 +30,7 @@ import type { Connection } from "./connection.ts"
 import { addRecord, createRecordSet, createSchedule, markSent, peekNext, prioritise, rangesAreValid, replaceDebt } from "./ranges.ts"
 import type { Schedule } from "./ranges.ts"
 import { setProgress, setStatus, setTotalBytes } from "./report.ts"
+import { addToSelection, removeFromSelection } from "./selection.ts"
 import { sharePanel } from "./share.ts"
 import { describeFailure, element, formatSize, progressBar, replaceChildren } from "./view.ts"
 
@@ -377,37 +378,80 @@ const serve = (prepared: Prepared, roomIdentifier: string, roomToken: string, vi
 
 export const startSender = (root: HTMLElement) => {
   const input = element("input", { type: "file", multiple: "", id: "files", class: "visually-hidden" })
-  const label = element("label", { for: "files", class: "drop-zone" }, [element("strong", {}, ["Choose files"]), element("span", {}, [" or drop them here"])])
+  const pickLabel = element("strong", {}, ["Choose files"])
+  const label = element("label", { for: "files", class: "drop-zone" }, [pickLabel, element("span", {}, [" or drop them here"])])
   const status = element("p", { class: "status", role: "status" })
+  const list = element("ul", { class: "file-list", "aria-label": "Files to send" })
+  const totals = element("p", { class: "selection-total" })
+  const rejections = element("ul", { class: "rejections", role: "alert" })
+  const createLink = element("button", { type: "button", class: "primary", disabled: "" }, ["Create link"])
+  let selected: readonly File[] = []
+  let sealed = false
 
   const section = element("section", { "aria-labelledby": "send-heading" }, [
     element("h1", { id: "send-heading" }, ["Send files"]),
     element("p", {}, ["Files are encrypted in this browser. The link holds the key; the server never sees it."]),
     input,
     label,
+    rejections,
+    list,
+    totals,
+    createLink,
     status,
   ])
 
   replaceChildren(root, section)
+
+  const renderSelection = () => {
+    list.replaceChildren(
+      ...selected.map((file, index) => {
+        const item = element("li", {}, [file.name, element("span", { class: "size" }, [formatSize(file.size)])])
+
+        if (!sealed) {
+          const remove = element("button", { type: "button", class: "remove", "aria-label": `Remove ${file.name}` }, ["Remove"])
+          remove.addEventListener("click", () => {
+            selected = removeFromSelection(selected, index)
+            renderSelection()
+          })
+          item.append(remove)
+        }
+
+        return item
+      }),
+    )
+    const total = selected.reduce((sum, file) => sum + file.size, 0)
+    totals.textContent = selected.length === 0 ? "" : `${selected.length} ${selected.length === 1 ? "file" : "files"}, ${formatSize(total)} in total`
+    pickLabel.textContent = selected.length === 0 ? "Choose files" : "Add more files"
+    createLink.disabled = sealed || selected.length === 0
+  }
+
+  const add = (files: readonly File[]) => {
+    if (sealed) {
+      return
+    }
+
+    const change = addToSelection(selected, files)
+    selected = change.selected
+    rejections.replaceChildren(...change.rejected.map((rejection) => element("li", {}, [`${rejection.name} was not added: ${rejection.reason}.`])))
+    renderSelection()
+  }
 
   const begin = async (files: readonly File[]) => {
     if (files.length === 0) {
       return
     }
 
+    sealed = true
     input.disabled = true
     label.classList.add("disabled")
+    label.hidden = true
+    createLink.hidden = true
+    rejections.replaceChildren()
+    renderSelection()
     const progress = progressBar("Preparing files")
     const total = files.reduce((sum, file) => sum + file.size, 0)
     setTotalBytes(total)
-    section.append(
-      element(
-        "ul",
-        { class: "file-list" },
-        files.map((file) => element("li", {}, [file.name, element("span", { class: "size" }, [formatSize(file.size)])])),
-      ),
-      progress.node,
-    )
+    status.before(progress.node)
     setStatus("labelling")
 
     try {
@@ -440,7 +484,12 @@ export const startSender = (root: HTMLElement) => {
   }
 
   input.addEventListener("change", () => {
-    void begin([...(input.files ?? [])])
+    add([...(input.files ?? [])])
+    // Cleared so choosing the same file again still fires `change`.
+    input.value = ""
+  })
+  createLink.addEventListener("click", () => {
+    void begin(selected)
   })
   label.addEventListener("dragover", (event) => {
     event.preventDefault()
@@ -452,9 +501,6 @@ export const startSender = (root: HTMLElement) => {
   label.addEventListener("drop", (event) => {
     event.preventDefault()
     label.classList.remove("active")
-
-    if (!input.disabled) {
-      void begin([...(event.dataTransfer?.files ?? [])])
-    }
+    add([...(event.dataTransfer?.files ?? [])])
   })
 }
