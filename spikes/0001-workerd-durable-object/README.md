@@ -21,13 +21,17 @@ Modes are chosen per connection with `?mode=direct|attached|effect|standard`. `w
 
 ## Deploying to Cloudflare (real-network measurements)
 
-Runs on your machine with your Alchemy profile (`alchemy profile edit --add Cloudflare` once, if you have not); credentials never leave it. The deployed relay is public, so it requires a token.
+Runs on your machine with your Alchemy profile; credentials never leave it. The deployed relay is public, so it requires a token.
 
 ```sh
-export SPIKE_ACCESS_TOKEN=$(openssl rand -hex 32)    # the clients send it too
-bun install && bun run deploy                         # stage "spike"; prints the Worker URL
-SPIKE_ACCESS_TOKEN=$SPIKE_ACCESS_TOKEN bun clients/throughput.ts wss://<worker-host> direct 64 1024 32
-bun run destroy                                       # when done
+nix-shell                                   # NixOS: pinned Bun 1.4, Node and git (shell.nix)
+bun run setup                               # installs the workspace (the spike bundles services/relay) and the spike
+bun run profile                             # once, only if you have no Alchemy Cloudflare profile yet
+export SPIKE_ACCESS_TOKEN=$(bun run --silent token)
+bun run deploy                              # stage "spike"; prints the Worker URL
+export SPIKE_URL=wss://file-transfer-spike-0001-relay.YOUR-SUBDOMAIN.workers.dev   # from the deploy output
+bun run measure                             # 1 GiB through the relay, prints one JSON line
+bun run destroy                             # when done
 ```
 
 The stack (`alchemy.run.ts`) uploads the same prebuilt `dist/worker.js` with `bundle: false`, so compatibility flags (`no_web_socket_compression`) are used exactly as declared.

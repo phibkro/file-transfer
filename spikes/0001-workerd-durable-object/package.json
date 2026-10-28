@@ -4,11 +4,16 @@
   "license": "AGPL-3.0-only",
   "type": "module",
   "scripts": {
+    "setup": "bun install --cwd ../.. && bun install",
+    "token": "bun -e \"console.log(Array.from(crypto.getRandomValues(new Uint8Array(32)), (byte) => byte.toString(16).padStart(2, '0')).join(''))\"",
+    "profile": "alchemy profile edit --add Cloudflare",
     "build": "esbuild src/worker.ts --bundle --format=esm --platform=neutral --target=es2022 --external:cloudflare:workers --outfile=dist/worker.js",
     "deploy": "bun run build && alchemy deploy --stage spike",
+    "measure": "bun clients/throughput.ts $SPIKE_URL direct 64 1024 32",
     "destroy": "alchemy destroy --stage spike"
   },
   "devDependencies": {
+    "@effect/platform-bun": "4.0.7",
     "alchemy": "2.0.0-beta.80",
     "effect": "^4.0.7",
     "esbuild": "^0.28.0",
