@@ -30,6 +30,7 @@
     "platforms/*/src/**/*.ts",
     "integrations/*/src/**/*.ts",
     "apps/*/src/**/*.ts",
+    "apps/*/test/**/*.ts",
     "tools/*/src/**/*.ts",
     "tools/*/test/**/*.ts"
   ]

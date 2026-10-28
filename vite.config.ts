@@ -17,6 +17,7 @@ export default defineConfig({
       "platforms/*/test/**/*.test.ts",
       "integrations/*/test/**/*.test.ts",
       "tools/*/test/**/*.test.ts",
+      "apps/*/test/**/*.test.ts",
     ],
   },
 })
