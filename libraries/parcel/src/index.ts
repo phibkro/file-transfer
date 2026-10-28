@@ -8,6 +8,8 @@ export * from "./header.ts"
 export * from "./keys.ts"
 export * from "./manifest.ts"
 export * from "./merkle.ts"
+export * from "./names.ts"
+export * from "./records.ts"
 export * from "./streams.ts"
 export * from "./transfer.ts"
 
