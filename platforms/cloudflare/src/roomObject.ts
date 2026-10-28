@@ -12,7 +12,8 @@
  */
 import { DurableObject, type HibernatableWebSocket, type UpgradeResponseInit, type WebSocketPairConstructor } from "cloudflare:workers"
 import { fromHex, hashRoomToken } from "@file-transfer/parcel"
-import { type Attachment, decide, decodeCreateRoom, type Instruction, joinTokenOf, type Participant, type RoomRecord } from "./room.ts"
+import { encodeControlMessage } from "@file-transfer/transport"
+import { type Attachment, decide, decodeCreateRoom, type Instruction, joinTokenOf, type Participant, replacedCloseCode, type RoomRecord } from "./room.ts"
 
 const recordKey = "room"
 
@@ -211,6 +212,17 @@ export class RoomObject extends DurableObject {
           this.depart(socket)
           closeQuietly(socket, instruction.code, instruction.reason)
           break
+        case "evict": {
+          const target = this.admittedSockets().get(instruction.participantIdentifier)
+          if (target === undefined) break
+          this.admittedSockets().delete(instruction.participantIdentifier)
+          this.participants = this.listParticipants()
+          // Not admitted any more, so its eventual close (if the room ever hears it) tells nobody it left.
+          this.setAttachment(target, notAdmitted)
+          sendQuietly(target, encodeControlMessage({ type: "error", reason: instruction.reason }))
+          closeQuietly(target, replacedCloseCode, instruction.reason)
+          break
+        }
       }
     }
   }

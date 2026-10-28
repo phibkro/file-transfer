@@ -189,22 +189,28 @@ const run = async () => {
   await expectRefusal(early, "join first", "a binary frame before join is refused and closed")
 
   // The sender and a recipient.
-  const sender = connect(roomIdentifier)
-  const senderJoined = (await joinRoom(sender, "sender")) as Record<string, unknown>
+  const firstSender = connect(roomIdentifier)
+  const senderJoined = (await joinRoom(firstSender, "sender")) as Record<string, unknown>
   check(
     senderJoined["type"] === "joined" && senderJoined["senderPresent"] === true && senderJoined["recipientCount"] === 0,
     "the sender is admitted",
     senderJoined,
   )
 
-  const secondSender = connect(roomIdentifier)
-  await joinRoom(secondSender, "sender").then(async (message) => {
-    const { code } = await secondSender.closed
-    check(JSON.stringify(message) === JSON.stringify({ type: "error", reason: "a sender is already present" }) && code === 1008, "a second sender is refused")
-  })
+  // A reconnecting sender replaces the one the room still holds; the old socket is told why and closed with 4000.
+  const sender = connect(roomIdentifier)
+  const replacingSender = (await joinRoom(sender, "sender")) as Record<string, unknown>
+  check(replacingSender["type"] === "joined" && replacingSender["senderPresent"] === true, "a newer sender join is admitted", replacingSender)
+  const replacedSender = await nextControl(firstSender)
+  const { code: replacedSenderCode } = await firstSender.closed
+  check(
+    JSON.stringify(replacedSender) === JSON.stringify({ type: "error", reason: "replaced by a newer connection" }) && replacedSenderCode === 4000,
+    "the older sender is replaced with error and close code 4000",
+    { replacedSender, replacedSenderCode },
+  )
 
-  const recipient = connect(roomIdentifier)
-  const recipientJoined = (await joinRoom(recipient, "recipient")) as Record<string, unknown>
+  const firstRecipient = connect(roomIdentifier)
+  const recipientJoined = (await joinRoom(firstRecipient, "recipient")) as Record<string, unknown>
   check(
     recipientJoined["type"] === "joined" && recipientJoined["senderPresent"] === true && recipientJoined["recipientCount"] === 1,
     "the recipient is admitted",
@@ -215,14 +221,25 @@ const run = async () => {
     "the sender is told a recipient joined",
   )
 
-  const extra = connect(roomIdentifier)
-  await joinRoom(extra, "recipient").then(async (message) => {
-    const { code } = await extra.closed
-    check(
-      JSON.stringify(message) === JSON.stringify({ type: "error", reason: "the room is full" }) && code === 1008,
-      "a recipient beyond maximumRecipients is refused",
-    )
-  })
+  // The room was created for one recipient, so a second recipient join is a reconnect that replaces the first.
+  const recipient = connect(roomIdentifier)
+  const replacingRecipient = (await joinRoom(recipient, "recipient")) as Record<string, unknown>
+  check(
+    replacingRecipient["type"] === "joined" && replacingRecipient["recipientCount"] === 1,
+    "a newer recipient join is admitted at the limit",
+    replacingRecipient,
+  )
+  const replacedRecipient = await nextControl(firstRecipient)
+  const { code: replacedRecipientCode } = await firstRecipient.closed
+  check(
+    JSON.stringify(replacedRecipient) === JSON.stringify({ type: "error", reason: "replaced by a newer connection" }) && replacedRecipientCode === 4000,
+    "the older recipient is replaced with error and close code 4000",
+    { replacedRecipient, replacedRecipientCode },
+  )
+  check(
+    JSON.stringify(await nextControl(sender)) === JSON.stringify({ type: "peer", event: "joined", role: "recipient" }),
+    "the sender is told the replacing recipient joined, and not that one left",
+  )
 
   // The contract: header and manifest records, relayed byte for byte.
   const contract = [unit("header", 0, 120), unit("manifestRecord", 0, 300), unit("manifestRecord", 1, 300)]

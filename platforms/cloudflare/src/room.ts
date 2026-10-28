@@ -69,9 +69,17 @@ export type Instruction =
   | { readonly type: "forwardFrame"; readonly to: ReadonlyArray<string> }
   /** Close the acting socket. */
   | { readonly type: "close"; readonly code: number; readonly reason: string }
+  /**
+   * Remove another participant without telling the other side it left (a newer connection of the same role replaces
+   * it): send it `error` with this reason and close it with `replacedCloseCode`.
+   */
+  | { readonly type: "evict"; readonly participantIdentifier: string; readonly reason: string }
 
 /** Close code for every protocol violation (RFC 6455: policy violation). */
 export const violationCloseCode = 1008
+
+/** Close code for a participant replaced by a newer connection of the same role (application range, RFC 6455 7.4.2). */
+export const replacedCloseCode = 4000
 
 /** Longest text frame the room accepts, in UTF-16 code units; a `want` with 1024 ranges of two u32 values fits in about 23,000. */
 export const maximumTextLength = 64 * 1024
@@ -81,8 +89,7 @@ export const errorReasons = {
   notAJoin: "the first message must be a valid join",
   alreadyJoined: "already joined",
   wrongToken: "wrong room token",
-  senderPresent: "a sender is already present",
-  roomFull: "the room is full",
+  replaced: "replaced by a newer connection",
   framesFromSenderOnly: "only the sender sends binary frames",
   notAControlMessage: "not a control message",
   textTooLong: "control message too long",
@@ -119,15 +126,24 @@ export const joinTokenOf = (text: string): string | undefined => {
   return Result.isSuccess(decoded) && decoded.success.type === "join" ? decoded.success.roomToken : undefined
 }
 
+/**
+ * Admits a join that presents the room token. When its role is at capacity (one sender, `maximumRecipients`
+ * recipients), the oldest participant of that role is evicted first: a reconnecting endpoint usually arrives before
+ * the room has noticed its old socket is gone, and after a network change the room may never notice. Every holder of
+ * the link can already act as either role, so newest-wins grants nothing the token did not.
+ */
 const join = (participants: ReadonlyArray<Participant>, role: Role, admission: Admission): ReadonlyArray<Instruction> => {
   if (!constantTimeEqual(admission.presentedTokenHash, admission.record.roomTokenHash)) return violation(errorReasons.wrongToken)
-  const senderPresent = participants.some((participant) => participant.role === "sender")
-  const recipientCount = participants.length - (senderPresent ? 1 : 0)
-  if (role === "sender" && senderPresent) return violation(errorReasons.senderPresent)
-  if (role === "recipient" && recipientCount >= admission.record.maximumRecipients) return violation(errorReasons.roomFull)
+  const capacity = role === "sender" ? 1 : admission.record.maximumRecipients
+  const sameRole = identifiersOf(participants, role)
+  const evicted = sameRole.slice(0, Math.max(0, sameRole.length - capacity + 1))
+  const remaining = participants.filter((participant) => !evicted.includes(participant.participantIdentifier))
+  const senderPresent = remaining.some((participant) => participant.role === "sender")
+  const recipientCount = remaining.length - (senderPresent ? 1 : 0)
   const { participantIdentifier } = admission
-  const others = identifiersOf(participants, opposite(role))
+  const others = identifiersOf(remaining, opposite(role))
   const instructions: Array<Instruction> = [
+    ...evicted.map((identifier): Instruction => ({ type: "evict", participantIdentifier: identifier, reason: errorReasons.replaced })),
     { type: "admit", participant: { role, participantIdentifier } },
     {
       type: "reply",

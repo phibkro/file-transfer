@@ -14,20 +14,29 @@ Status: draft for the MVP. Codec in `libraries/transport/src/protocol.ts`.
 
 Text frames are JSON control messages; binary frames are parcel units. The first message on a socket must be `join`; the room answers `joined` or closes the socket with `error`.
 
-| Message    | Direction           | Fields                                                             | Meaning                                                                                       |
-| ---------- | ------------------- | ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------- |
-| `join`     | endpoint to room    | `role` (`sender` or `recipient`), `roomToken` (64 hex)             | Admission: the room compares `SHA-256(roomToken)` with the stored hash in constant time       |
-| `joined`   | room to endpoint    | `participantIdentifier`, `senderPresent`, `recipientCount`         | Admitted                                                                                      |
-| `peer`     | room to endpoint    | `event` (`joined` or `left`), `role`                               | Presence changes                                                                              |
-| `error`    | room to endpoint    | `reason`                                                           | Then the room closes the socket                                                               |
-| `accept`   | recipient to sender | `sequence`, `digest` (64 hex)                                      | Acceptance of exactly this contract (ADR 0012)                                                |
-| `decline`  | recipient to sender | `sequence`                                                         | Refusal; no content follows                                                                   |
-| `credit`   | recipient to sender | `records` (1..4096)                                                | Permission for that many more data records                                                    |
-| `want`     | recipient to sender | `sequence`, `ranges` (`[start, end)` pairs of data record indexes) | Missing records (ADR 0013); the sender answers each range with the covering label pages first |
-| `complete` | recipient to sender | `sequence`                                                         | Every record matched the contract                                                             |
-| `abort`    | either              | `reason`                                                           | The transfer stops; the recipient discards provisional output                                 |
+| Message    | Direction           | Fields                                                             | Meaning                                                                                        |
+| ---------- | ------------------- | ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| `join`     | endpoint to room    | `role` (`sender` or `recipient`), `roomToken` (64 hex)             | Admission: the room compares SHA-256 of the 32 token bytes with the stored hash, constant time |
+| `joined`   | room to endpoint    | `participantIdentifier`, `senderPresent`, `recipientCount`         | Admitted                                                                                       |
+| `peer`     | room to endpoint    | `event` (`joined` or `left`), `role`                               | Presence changes                                                                               |
+| `error`    | room to endpoint    | `reason`                                                           | Then the room closes the socket                                                                |
+| `accept`   | recipient to sender | `sequence`, `digest` (64 hex)                                      | Acceptance of exactly this contract (ADR 0012)                                                 |
+| `decline`  | recipient to sender | `sequence`                                                         | Refusal; no content follows                                                                    |
+| `credit`   | recipient to sender | `records` (1..4096)                                                | Permission for that many more data records                                                     |
+| `want`     | recipient to sender | `sequence`, `ranges` (`[start, end)` pairs of data record indexes) | Missing records (ADR 0013); the sender answers each range with the covering label pages first  |
+| `complete` | recipient to sender | `sequence`                                                         | Every record matched the contract                                                              |
+| `abort`    | either              | `reason`                                                           | The transfer stops; the recipient discards provisional output                                  |
 
 The room relays `accept`, `decline`, `credit`, `want` and `complete` from recipients to the sender, and `abort` both ways, without reading them. Binary frames flow only from the sender to recipients.
+
+### Reconnecting
+
+A reconnecting endpoint usually joins before the room has noticed its old socket is gone, and after a network change the room may never notice (a half-open socket). So the newest valid join wins:
+
+- When a join's role is at capacity (one sender, or `maximumRecipients` recipients), the room evicts the oldest participant of that role, sends it `error` with reason `replaced by a newer connection` and closes it with code 4000. The other side hears `peer joined` for the newcomer and no `peer left` for the evicted socket.
+- An endpoint that receives `error` stops rejoining, so two live tabs holding the same link cannot evict each other in a loop; the older tab simply stops.
+- This grants nothing new: every holder of the link holds the room token and can join as either role. Rooms with several recipients will need recipient identities (a later phase) so that a new recipient does not evict another one.
+- Close code 1012 (service restart) and any close without `error` mean "rejoin and resume". `scripts/endToEnd.ts` in `apps/web` cuts sockets both cleanly and half-open mid-transfer and checks the files still arrive byte-identical.
 
 ## Parcel units in binary frames
 

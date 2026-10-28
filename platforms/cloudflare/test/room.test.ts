@@ -155,8 +155,18 @@ describe("one sender", () => {
     })
   })
 
-  it("refuses a second sender", () => {
-    expectViolation(joinAs("sender", [sender]), errorReasons.senderPresent)
+  it("replaces the present sender with a newer sender join, without telling recipients it left", () => {
+    const instructions = joinAs("sender", [sender, recipient(1)])
+    expect(instructions[0]).toEqual({ type: "evict", participantIdentifier: "sender-1", reason: errorReasons.replaced })
+    expect(admitted(instructions)).toBeDefined()
+    const reply = instructions.find((instruction) => instruction.type === "reply")
+    expect(reply?.type === "reply" && decoded(reply.text)).toMatchObject({ senderPresent: true, recipientCount: 1 })
+    const relays = instructions.filter((instruction) => instruction.type === "relay")
+    expect(relays.map((relay) => relay.type === "relay" && decoded(relay.text))).toEqual([{ type: "peer", event: "joined", role: "sender" }])
+  })
+
+  it("does not let a wrong token replace anyone", () => {
+    expectViolation(joinAs("sender", [sender], "0".repeat(64)), errorReasons.wrongToken)
   })
 })
 
@@ -165,8 +175,23 @@ describe("at most maximumRecipients recipients", () => {
     expect(admitted(joinAs("recipient", [sender, recipient(1)], roomTokenHash, 2))).toBeDefined()
   })
 
-  it("refuses the recipient beyond the limit", () => {
-    expectViolation(joinAs("recipient", [sender, recipient(1), recipient(2)], roomTokenHash, 2), errorReasons.roomFull)
+  it("replaces the oldest recipient when a join would exceed the limit", () => {
+    const instructions = joinAs("recipient", [sender, recipient(1), recipient(2)], roomTokenHash, 2)
+    expect(instructions.filter((instruction) => instruction.type === "evict")).toEqual([
+      { type: "evict", participantIdentifier: "recipient-1", reason: errorReasons.replaced },
+    ])
+    const reply = instructions.find((instruction) => instruction.type === "reply")
+    expect(reply?.type === "reply" && decoded(reply.text)).toMatchObject({ senderPresent: true, recipientCount: 2 })
+  })
+
+  it("replaces the only recipient of a one-recipient room, the reconnect case", () => {
+    const instructions = joinAs("recipient", [sender, recipient(1)], roomTokenHash, 1)
+    expect(instructions[0]).toEqual({ type: "evict", participantIdentifier: "recipient-1", reason: errorReasons.replaced })
+    expect(admitted(instructions)).toBeDefined()
+  })
+
+  it("evicts nobody below the limit", () => {
+    expect(joinAs("recipient", [sender, recipient(1)], roomTokenHash, 2).some((instruction) => instruction.type === "evict")).toBe(false)
   })
 
   it("does not count the sender against the recipient limit", () => {
