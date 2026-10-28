@@ -24,9 +24,10 @@ Startup phase: prove that people want this and that some will pay, before stabil
 
 ## M1 Parcel (week 2)
 
-- [x] Implement `libraries/parcel` per `parcel.md` (written fresh rather than lifted: SkySend's ECE layout differs in nonce, commitment and Merkle trailer)
+- [x] Implement `libraries/parcel` per `parcel.md` (written fresh rather than lifted: SkySend's ECE layout differs in nonce, commitment and Merkle tree)
+- [x] First review (agent reviewer) and revision: synthetic nonces, canonical manifest, name profile, contract with labels and label pages (ADR 0011, ADR 0012)
 - [x] Test vectors (checked by an independent Python implementation in CI) and property-based tests
-- [ ] Two-page spec review by someone with applied-crypto experience; freeze v1
+- [ ] Second review of the revision (open questions in `parcel.md`), then a human applied-crypto review; freeze v1
 
 ## M2 Transfer (weeks 3 and 4)
 
@@ -35,7 +36,7 @@ Startup phase: prove that people want this and that some will pay, before stabil
   - From spike 0001: relay session state as a value with pure transitions (a `Ref` in the reference layer, socket attachments or `ctx.storage` in the Durable Object, so a pause past hibernation keeps credits); the object is the session (`idFromName`), forwards frames without queueing, sets `binaryType = "arraybuffer"` and `no_web_socket_compression`
   - `libraries/transport`: allow several records per frame (256 KiB to 1 MiB) to cut CPU and billed messages
 - [ ] `libraries/transport`: direct and relayed paths, relay-first switching, resume
-- [ ] `libraries/sink`: save tiers and OPFS resume bitmap
+- [ ] `libraries/sink`: save tiers and OPFS resume bitmap; provisional output until the parcel verifies; rename on write when a file system refuses a name the parcel allowed (ADR 0011)
 - [ ] Network matrix: home broadband, mobile data, corporate Wi-Fi, two browsers per side
 
 ## M3 Launch readiness (week 5)
@@ -64,7 +65,7 @@ Startup phase: prove that people want this and that some will pay, before stabil
 ## Open decisions
 
 - Positioning: consumer, or teams from the start (test a team offer as a fake door in phase 1)
-- Who reviews the parcel specification in M1
+- Who gives the parcel specification its human applied-crypto review before v1 freezes
 - Brand name, domain, trademark, and who holds them
 - Vite with plain TypeScript or Astro for the landing page
 - Apply for Stripe Managed Payments early (eligibility review takes time)

@@ -26,11 +26,12 @@ This file keeps the numbers and findings that drove decisions, as read on 2026-1
 
 ### Lifted so far
 
-| Origin                                                                               | Licence     | Into                    | What                                                      |
-| ------------------------------------------------------------------------------------ | ----------- | ----------------------- | --------------------------------------------------------- |
-| phibkro/vektorprogrammet-reimagined, machine module (its ADR 0007)                   | same author | `libraries/machine`     | Transition tables, `problems`, Mermaid output; simplified |
-| phibkro/vektorprogrammet-reimagined, store-capability contract suites (its ADR 0014) | same author | `libraries/conformance` | Named guarantees, broken variants as negative controls    |
-| phibkro/vektorprogrammet-reimagined, module-layer check (its ADR 0015)               | same author | `tools/quality`         | Module graph rules as data, with a check                  |
+| Origin                                                                               | Licence     | Into                            | What                                                                                                                                                                        |
+| ------------------------------------------------------------------------------------ | ----------- | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| phibkro/vektorprogrammet-reimagined, machine module (its ADR 0007)                   | same author | `libraries/machine`             | Transition tables, `problems`, Mermaid output; simplified                                                                                                                   |
+| phibkro/vektorprogrammet-reimagined, store-capability contract suites (its ADR 0014) | same author | `libraries/conformance`         | Named guarantees, broken variants as negative controls                                                                                                                      |
+| phibkro/vektorprogrammet-reimagined, module-layer check (its ADR 0015)               | same author | `tools/quality`                 | Module graph rules as data, with a check                                                                                                                                    |
+| cn-homage, `packages/core/src/7-bulk/names.ts` and its test                          | same author | `libraries/parcel` (`names.ts`) | Portable name rules; adapted to reject instead of rename, Cf added, case folding from Unicode 15.1 tables; device names cross-checked against disktree's `misread_by_win32` |
 
 ## Platform numbers
 
