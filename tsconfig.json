@@ -28,6 +28,8 @@
     "services/*/src/**/*.ts",
     "services/*/test/**/*.ts",
     "platforms/*/src/**/*.ts",
+    "platforms/*/test/**/*.ts",
+    "platforms/*/scripts/**/*.ts",
     "integrations/*/src/**/*.ts",
     "apps/*/src/**/*.ts",
     "tools/*/src/**/*.ts",
