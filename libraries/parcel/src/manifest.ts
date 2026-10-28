@@ -102,12 +102,22 @@ export const decodeManifestJson = (bytes: Uint8Array): Manifest => {
   return manifest
 }
 
-/** The manifest stream plaintext: u32 length, canonical JSON, zero padding to a power-of-two number of 4 KiB records. */
-export const encodeManifestStream = (manifest: Manifest): Uint8Array<ArrayBuffer> => {
+/** What the sealed contract promises besides the manifest: the data record count and the root over their labels. */
+export interface ContractTerms {
+  readonly recordCount: number
+  readonly rootHash: Uint8Array
+}
+
+/** The manifest stream plaintext: u64 record count, root, u32 JSON length, canonical JSON, zero padding to a power-of-two number of 4 KiB records. */
+export const encodeManifestStream = (manifest: Manifest, terms: ContractTerms): Uint8Array<ArrayBuffer> => {
   const json = encodeManifestJson(manifest)
   if (json.length > maximumManifestJsonLength) return invalid("the manifest is too large")
+  if (terms.rootHash.length !== 32) throw new ParcelError("invalid-argument", "the root is 32 bytes")
   const plaintext = new Uint8Array(manifestRecordCount(json.length) * manifestRecordSize)
-  new DataView(plaintext.buffer).setUint32(0, json.length)
+  const view = new DataView(plaintext.buffer)
+  view.setBigUint64(0, BigInt(terms.recordCount))
+  plaintext.set(terms.rootHash, 8)
+  view.setUint32(40, json.length)
   plaintext.set(json, manifestLengthPrefix)
   return plaintext
 }
@@ -115,16 +125,24 @@ export const encodeManifestStream = (manifest: Manifest): Uint8Array<ArrayBuffer
 /** The JSON length a first manifest record announces, checked against the limit. */
 export const manifestJsonLength = (firstRecordPlaintext: Uint8Array): number => {
   if (firstRecordPlaintext.length !== manifestRecordSize) return invalid("a manifest record must hold 4096 bytes")
-  const length = new DataView(firstRecordPlaintext.buffer, firstRecordPlaintext.byteOffset, firstRecordPlaintext.byteLength).getUint32(0)
+  const length = new DataView(firstRecordPlaintext.buffer, firstRecordPlaintext.byteOffset, firstRecordPlaintext.byteLength).getUint32(40)
   if (length > maximumManifestJsonLength) return invalid("the manifest length exceeds the limit")
   return length
 }
 
+export interface DecodedContract {
+  readonly manifest: Manifest
+  readonly recordCount: number
+  readonly rootHash: Uint8Array<ArrayBuffer>
+}
+
 /** Decodes the whole manifest stream plaintext: its length must be the minimal record count, and the padding zero. */
-export const decodeManifestStream = (plaintext: Uint8Array): Manifest => {
+export const decodeManifestStream = (plaintext: Uint8Array): DecodedContract => {
   const length = manifestJsonLength(plaintext.subarray(0, manifestRecordSize))
   if (plaintext.length !== manifestRecordCount(length) * manifestRecordSize) return invalid("the manifest stream has the wrong number of records")
   const end = manifestLengthPrefix + length
   if (plaintext.subarray(end).some((byte) => byte !== 0)) return invalid("manifest padding must be zero bytes")
-  return decodeManifestJson(plaintext.subarray(manifestLengthPrefix, end))
+  const count = new DataView(plaintext.buffer, plaintext.byteOffset, plaintext.byteLength).getBigUint64(0)
+  if (count > BigInt(Number.MAX_SAFE_INTEGER)) throw new ParcelError("record-count-mismatch", "the record count is out of range")
+  return { manifest: decodeManifestJson(plaintext.subarray(manifestLengthPrefix, end)), recordCount: Number(count), rootHash: plaintext.slice(8, 40) }
 }

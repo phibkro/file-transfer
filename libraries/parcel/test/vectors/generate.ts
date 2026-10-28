@@ -7,19 +7,23 @@
  */
 import {
   concatBytes,
-  createEncryptor,
   createManifest,
+  createParcelSealer,
   derivationInfo,
   derivationSalt,
   deriveParcelKeys,
+  deriveParcelSecret,
   deriveRoomToken,
   encodeManifestJson,
+  encodeManifestStream,
   hashRoomToken,
   headerLength,
+  labelRecords,
+  leafHash,
   type Manifest,
   manifestRecordSize,
-  merkleRoot,
   recordNonce,
+  recordReaderFromBytes,
   sealRecord,
   toHex,
 } from "../../src/index.ts"
@@ -30,45 +34,54 @@ export const plaintextByte = (index: number) => index % 251
 
 const textEncoder = new TextEncoder()
 
-const expandHex = async (label: string, withSalt: boolean) => {
-  const material = await crypto.subtle.importKey("raw", secret, "HKDF", false, ["deriveBits"])
-  const info = withSalt ? concatBytes(textEncoder.encode(label), salt) : textEncoder.encode(label)
+const expandHex = async (ikm: Uint8Array, label: string, suffix: Uint8Array) => {
+  const material = await crypto.subtle.importKey("raw", new Uint8Array(ikm), "HKDF", false, ["deriveBits"])
+  const info = concatBytes(textEncoder.encode(label), suffix)
   return toHex(new Uint8Array(await crypto.subtle.deriveBits({ name: "HKDF", hash: "SHA-256", salt: textEncoder.encode(derivationSalt), info }, material, 256)))
 }
 
-const plaintextOf = (manifest: Manifest) => Uint8Array.from({ length: manifest.totalSize }, (_, index) => plaintextByte(index))
+const keysHex = async (parcelSecret: Uint8Array) => ({
+  contentKey: await expandHex(parcelSecret, derivationInfo.contentKey, salt),
+  contentSyntheticKey: await expandHex(parcelSecret, derivationInfo.contentSyntheticKey, salt),
+  manifestKey: await expandHex(parcelSecret, derivationInfo.manifestKey, salt),
+  manifestSyntheticKey: await expandHex(parcelSecret, derivationInfo.manifestSyntheticKey, salt),
+  keyCommitment: await expandHex(parcelSecret, derivationInfo.keyCommitment, salt),
+})
 
-const sealParcel = async (manifest: Manifest, recordSizeExponent: number) => {
+const plaintextOf = (manifest: Manifest, change?: number) =>
+  Uint8Array.from({ length: manifest.totalSize }, (_, index) => (index === change ? plaintextByte(index) ^ 0xff : plaintextByte(index)))
+
+const sealParcel = async (manifest: Manifest, recordSizeExponent: number, sequence = 0) => {
   const size = 2 ** recordSizeExponent
   const plaintext = plaintextOf(manifest)
-  const encryptor = await createEncryptor({ secret, salt, manifest, recordSizeExponent })
+  const sealer = await createParcelSealer({ linkSecret: secret, sequence, salt, manifest, recordSizeExponent })
+  const labels = await labelRecords(sealer, recordReaderFromBytes(plaintext, size))
+  const contract = await sealer.sealContract(labels)
   const dataRecords: Array<Uint8Array> = []
-  for (let index = 0; index < encryptor.recordCount; index++) {
-    dataRecords.push(await encryptor.sealData(index, plaintext.subarray(index * size, Math.min((index + 1) * size, plaintext.length))))
+  for (let index = 0; index < sealer.recordCount; index++) {
+    dataRecords.push(await sealer.sealData(index, plaintext.subarray(index * size, index * size + sealer.dataPlaintextLength(index))))
   }
-  const rootHash = await merkleRoot(dataRecords)
-  return {
-    encryptor,
-    manifestRecords: await encryptor.sealManifest(),
-    dataRecords,
-    rootHash,
-    trailer: await encryptor.sealTrailer({ recordCount: encryptor.recordCount, rootHash }),
-  }
+  const labelPages = await Promise.all(Array.from({ length: contract.pageCount }, (_, page) => contract.labelPage(page)))
+  return { sealer, labels, contract, dataRecords, labelPages }
 }
 
-const vectorCase = async (name: string, recordSizeExponent: number, manifest: Manifest) => {
-  const sealed = await sealParcel(manifest, recordSizeExponent)
+const vectorCase = async (name: string, recordSizeExponent: number, manifest: Manifest, options: { sequence?: number; recordsAsLabelsOnly?: boolean } = {}) => {
+  const sequence = options.sequence ?? 0
+  const sealed = await sealParcel(manifest, recordSizeExponent, sequence)
   return {
     name,
     recordSizeExponent,
+    sequence,
     manifest,
     manifestJson: new TextDecoder().decode(encodeManifestJson(manifest)),
-    recordCount: sealed.encryptor.recordCount,
-    header: toHex(sealed.encryptor.header.bytes),
-    manifestRecords: sealed.manifestRecords.map(toHex),
-    dataRecords: sealed.dataRecords.map(toHex),
-    rootHash: toHex(sealed.rootHash),
-    trailer: toHex(sealed.trailer),
+    recordCount: sealed.sealer.recordCount,
+    header: toHex(sealed.contract.header.bytes),
+    manifestRecords: sealed.contract.manifestRecords.map(toHex),
+    labels: Array.from({ length: sealed.sealer.recordCount }, (_, index) => toHex(sealed.contract.labelOf(index))),
+    rootHash: toHex(sealed.contract.rootHash),
+    contractDigest: toHex(sealed.contract.digest),
+    labelPages: sealed.labelPages.map(toHex),
+    ...(options.recordsAsLabelsOnly === true ? {} : { dataRecords: sealed.dataRecords.map(toHex) }),
   }
 }
 
@@ -76,20 +89,18 @@ const singleFile = (size: number) => createManifest([{ name: "vector.bin", size,
 
 export const generateVectors = async () => {
   const roomToken = await deriveRoomToken(secret)
+  const parcelSecret = await deriveParcelSecret(secret, 0)
+  const parcelSecretSeven = await deriveParcelSecret(secret, 7)
   return {
-    description: "Parcel v1 test vectors (docs/parcel.md). Plaintext byte i is i mod 251, files concatenated in manifest order.",
-    secret: toHex(secret),
+    description:
+      "Parcel v1 test vectors (docs/parcel.md). Plaintext byte i is i mod 251, files concatenated in manifest order. Keys are for sequence 0 with the given salt; the multi-page case lists labels instead of data records.",
+    linkSecret: toHex(secret),
     linkFragment: "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
     salt: toHex(salt),
     roomToken: toHex(roomToken),
     roomTokenHash: await hashRoomToken(roomToken),
-    keys: {
-      contentKey: await expandHex(derivationInfo.contentKey, true),
-      contentSyntheticKey: await expandHex(derivationInfo.contentSyntheticKey, true),
-      manifestKey: await expandHex(derivationInfo.manifestKey, true),
-      manifestSyntheticKey: await expandHex(derivationInfo.manifestSyntheticKey, true),
-      keyCommitment: await expandHex(derivationInfo.keyCommitment, true),
-    },
+    parcelSecrets: { "0": toHex(parcelSecret), "7": toHex(parcelSecretSeven) },
+    keys: await keysHex(parcelSecret),
     cases: [
       await vectorCase("empty", 12, singleFile(0)),
       await vectorCase("one byte", 12, singleFile(1)),
@@ -118,6 +129,8 @@ export const generateVectors = async () => {
           })),
         ),
       ),
+      await vectorCase("sequence 7", 12, singleFile(100), { sequence: 7 }),
+      await vectorCase("two label pages", 12, singleFile(1024 * 4096 + 1), { recordsAsLabelsOnly: true }),
     ],
   }
 }
@@ -157,99 +170,123 @@ const manifestRejections: ReadonlyArray<readonly [string, string]> = [
   ["media type with a line break", '{"version":1,"files":[{"name":"a","size":1,"mediaType":"a\\r\\nX: 1/b"}],"totalSize":1}'],
 ]
 
-const sealManifestStream = async (keys: Awaited<ReturnType<typeof deriveParcelKeys>>, header: Uint8Array, plaintext: Uint8Array) => {
-  const records: Array<Uint8Array> = []
-  for (let counter = 0; counter * manifestRecordSize < plaintext.length; counter++) {
-    records.push(
-      await sealRecord(
-        keys.manifest,
-        header,
-        { counter, isFinal: false },
-        plaintext.subarray(counter * manifestRecordSize, (counter + 1) * manifestRecordSize),
-      ),
-    )
-  }
-  return records
-}
-
-const manifestStreamOf = (json: Uint8Array, records: number) => {
-  const plaintext = new Uint8Array(records * manifestRecordSize)
-  new DataView(plaintext.buffer).setUint32(0, json.length)
-  plaintext.set(json, 4)
-  return plaintext
-}
-
 export const generateRejections = async () => {
-  const base = await sealParcel(singleFile(100), 12)
-  const header = base.encryptor.header.bytes
-  const keys = await deriveParcelKeys(secret, salt)
-  const whole = (manifestRecords: ReadonlyArray<Uint8Array>, dataRecords: ReadonlyArray<Uint8Array> = base.dataRecords, trailer: Uint8Array = base.trailer) =>
-    concatBytes(header, ...manifestRecords, ...dataRecords, trailer)
-  const honest = whole(base.manifestRecords)
-  const validJson = textEncoder.encode('{"version":1,"files":[{"name":"vector.bin","size":100,"mediaType":"application/octet-stream"}],"totalSize":100}')
+  const manifest = singleFile(100)
+  const base = await sealParcel(manifest, 12)
+  const header = base.contract.header.bytes
+  const keys = await deriveParcelKeys(await deriveParcelSecret(secret, 0), salt)
+  const label = base.contract.labelOf(0)
+  const honest = concatBytes(header, ...base.contract.manifestRecords, ...base.labelPages, ...base.dataRecords)
+  const validJson = encodeManifestJson(manifest)
 
-  const dirtyPadding = manifestStreamOf(validJson, 1)
-  dirtyPadding[manifestRecordSize - 1] = 1
-  const forgedPrefix = await (async () => {
-    // A data record with a valid tag under a nonce that is not the synthetic value of its plaintext.
-    const material = await crypto.subtle.importKey("raw", secret, "HKDF", false, ["deriveKey"])
-    const aeadKey = await crypto.subtle.deriveKey(
-      { name: "HKDF", hash: "SHA-256", salt: textEncoder.encode(derivationSalt), info: concatBytes(textEncoder.encode(derivationInfo.contentKey), salt) },
-      material,
-      { name: "AES-GCM", length: 256 },
-      false,
-      ["encrypt"],
-    )
+  /** A manifest stream with chosen terms, JSON bytes, record count and padding, sealed under the vectors' keys. */
+  const manifestRecordsOf = async (
+    options: { recordCount?: number; json?: Uint8Array; records?: number; dirtyPadding?: boolean; labels?: Uint8Array } = {},
+  ) => {
+    const json = options.json ?? validJson
+    const template = encodeManifestStream(manifest, { recordCount: options.recordCount ?? 1, rootHash: options.labels ?? label })
+    const plaintext = new Uint8Array((options.records ?? 1) * manifestRecordSize)
+    plaintext.set(template.subarray(0, 40), 0)
+    new DataView(plaintext.buffer).setUint32(40, json.length)
+    plaintext.set(json, 44)
+    if (options.dirtyPadding === true) plaintext[plaintext.length - 1] = 1
+    const records: Array<Uint8Array> = []
+    for (let counter = 0; counter * manifestRecordSize < plaintext.length; counter++) {
+      records.push(
+        await sealRecord(
+          keys.manifest,
+          header,
+          { counter, isFinal: false },
+          plaintext.subarray(counter * manifestRecordSize, (counter + 1) * manifestRecordSize),
+        ),
+      )
+    }
+    return records
+  }
+
+  // A data record with a valid tag under a nonce that is not the synthetic value of its plaintext, and a contract whose label matches it.
+  const forged = await (async () => {
     const prefix = new Uint8Array(7).fill(0x42)
     const position = new Uint8Array(9)
     position[8] = 1
     const sealed = await crypto.subtle.encrypt(
       { name: "AES-GCM", iv: recordNonce(0, prefix), additionalData: concatBytes(header, position), tagLength: 128 },
-      aeadKey,
-      Uint8Array.from({ length: 100 }, (_, index) => plaintextByte(index)),
+      keys.content.aeadKey,
+      plaintextOf(manifest),
     )
     return concatBytes(prefix, new Uint8Array(sealed))
   })()
+  const forgedLabel = await leafHash(forged)
+  const breached = await base.sealer.sealData(0, plaintextOf(manifest, 50))
+  const tamperedPage = base.labelPages[0]?.slice() ?? new Uint8Array(32)
+  tamperedPage[0] = (tamperedPage[0] ?? 0) ^ 1
   const otherSecret = new Uint8Array(32).fill(0xee)
+  const wire = (manifestRecords: ReadonlyArray<Uint8Array>, page: Uint8Array, record: Uint8Array) =>
+    toHex(concatBytes(header, ...manifestRecords, page, record))
 
   const parcels: Array<{ name: string; secret: string; parcel: string; reason: string }> = [
     { name: "wrong secret", secret: toHex(otherSecret), parcel: toHex(honest), reason: "key-commitment-mismatch" },
     { name: "header only, wrong secret", secret: toHex(otherSecret), parcel: toHex(honest.subarray(0, headerLength)), reason: "key-commitment-mismatch" },
-    { name: "cut before the trailer", secret: toHex(secret), parcel: toHex(honest.subarray(0, honest.length - base.trailer.length)), reason: "truncated" },
-    { name: "a byte after the trailer", secret: toHex(secret), parcel: toHex(concatBytes(honest, new Uint8Array([0]))), reason: "trailing-data" },
+    { name: "cut inside the last record", secret: toHex(secret), parcel: toHex(honest.subarray(0, honest.length - 1)), reason: "truncated" },
+    { name: "a byte after the last record", secret: toHex(secret), parcel: toHex(concatBytes(honest, new Uint8Array([0]))), reason: "trailing-data" },
     {
-      name: "flipped synthetic prefix",
+      name: "flipped synthetic prefix of manifest record 0",
       secret: toHex(secret),
       parcel: toHex(honest.map((byte, index) => (index === headerLength ? byte ^ 1 : byte))),
       reason: "authentication-failed",
     },
-    { name: "nonce that is not synthetic", secret: toHex(secret), parcel: toHex(whole(base.manifestRecords, [forgedPrefix])), reason: "authentication-failed" },
+    {
+      name: "nonce that is not synthetic, with a matching label",
+      secret: toHex(secret),
+      parcel: wire(await manifestRecordsOf({ labels: forgedLabel }), forgedLabel, forged),
+      reason: "authentication-failed",
+    },
     {
       name: "non-zero manifest padding",
       secret: toHex(secret),
-      parcel: toHex(whole(await sealManifestStream(keys, header, dirtyPadding))),
+      parcel: wire(await manifestRecordsOf({ dirtyPadding: true }), label, base.dataRecords[0] ?? label),
+      reason: "invalid-manifest",
+    },
+    {
+      name: "manifest not in canonical form",
+      secret: toHex(secret),
+      parcel: wire(
+        await manifestRecordsOf({ json: textEncoder.encode(new TextDecoder().decode(validJson).replace(",", ", ")) }),
+        label,
+        base.dataRecords[0] ?? label,
+      ),
       reason: "invalid-manifest",
     },
     {
       name: "manifest stream longer than the minimal power of two",
       secret: toHex(secret),
-      parcel: toHex(whole(await sealManifestStream(keys, header, manifestStreamOf(validJson, 2)))),
-      // The receiver takes m from the announced length, so it reads the extra manifest record as data record 0.
-      reason: "authentication-failed",
+      // The receiver takes m from the announced length, so the extra record's first bytes are read as label page 0.
+      parcel: wire(await manifestRecordsOf({ records: 2 }), label, base.dataRecords[0] ?? label),
+      reason: "label-page-mismatch",
     },
     {
-      name: "manifest not in canonical form",
+      name: "contract record count that does not match the manifest",
       secret: toHex(secret),
-      parcel: toHex(
-        whole(await sealManifestStream(keys, header, manifestStreamOf(textEncoder.encode(new TextDecoder().decode(validJson).replace(",", ", ")), 1))),
-      ),
-      reason: "invalid-manifest",
+      parcel: wire(await manifestRecordsOf({ recordCount: 2 }), label, base.dataRecords[0] ?? label),
+      reason: "record-count-mismatch",
+    },
+    {
+      name: "label page that does not belong to the root",
+      secret: toHex(secret),
+      parcel: wire(base.contract.manifestRecords, tamperedPage, base.dataRecords[0] ?? label),
+      reason: "label-page-mismatch",
+    },
+    {
+      name: "record that differs from its label (breach)",
+      secret: toHex(secret),
+      parcel: wire(base.contract.manifestRecords, label, breached),
+      reason: "label-mismatch",
     },
   ]
 
   return {
     description:
-      "Parcel v1 rejection vectors (docs/parcel.md). Every receiver must reject each manifest JSON (hex bytes) and each parcel with the given reason. Parcels use the vectors' salt.",
+      "Parcel v1 rejection vectors (docs/parcel.md). Every receiver must reject each manifest JSON (hex bytes) and each parcel with the given reason. Parcels use the vectors' link secret, sequence 0 and salt.",
     manifests: manifestRejections.map(([name, text]) => ({ name, json: toHex(textEncoder.encode(text)), reason: "invalid-manifest" })),
     parcels,
   }

@@ -24,11 +24,13 @@ import {
   isValidMediaType,
   isWindowsDeviceName,
   keyCommitmentLength,
+  auditPath,
+  foldAuditPath,
   leafHash,
   manifestRecordCount,
   manifestRecordSize,
-  MerkleFrontier,
   merkleRoot,
+  treeHash,
   nameCollision,
   nameKey,
   nameProblem,
@@ -45,8 +47,8 @@ import { outcome, outcomeOf } from "./support.ts"
 const textEncoder = new TextEncoder()
 
 describe("constants", () => {
-  it("the header layout adds up to the documented 54 bytes", () => {
-    expect(headerMagic.length + 1 + 1 + saltLength + keyCommitmentLength).toBe(headerLength)
+  it("the header layout adds up to the documented 58 bytes", () => {
+    expect(headerMagic.length + 1 + 1 + 4 + saltLength + keyCommitmentLength).toBe(headerLength)
   })
 
   it("record sizes are powers of two from 2^12 to 2^22", () => {
@@ -55,9 +57,9 @@ describe("constants", () => {
     expect(() => recordSize(23)).toThrow()
   })
 
-  it("the manifest takes the smallest power of two of 4 KiB records that holds the length and the JSON", () => {
-    expect([0, 4092, 4093, 8188, 8189, 3 * 4096, 2 ** 24 - 4].map(manifestRecordCount)).toEqual([1, 1, 2, 2, 4, 4, 4096])
-    expect(() => manifestRecordCount(2 ** 24 - 3)).toThrow()
+  it("the manifest takes the smallest power of two of 4 KiB records that holds the contract terms and the JSON", () => {
+    expect([0, 4052, 4053, 8148, 8149, 3 * 4096, 2 ** 24 - 44].map(manifestRecordCount)).toEqual([1, 1, 2, 2, 4, 4, 4096])
+    expect(() => manifestRecordCount(2 ** 24 - 43)).toThrow()
   })
 
   it("nonces are the counter in 5 big-endian bytes, then the 7 synthetic bytes", () => {
@@ -105,11 +107,13 @@ describe("room token", () => {
 })
 
 describe("header", () => {
-  const fields = { recordSizeExponent: 16, salt: new Uint8Array(16).fill(1), keyCommitment: new Uint8Array(32).fill(2) }
+  const fields = { recordSizeExponent: 16, sequence: 0x01020304, salt: new Uint8Array(16).fill(1), keyCommitment: new Uint8Array(32).fill(2) }
 
   it("round trips", () => {
     const header = encodeHeader(fields)
-    expect(header.bytes.length).toBe(54)
+    expect(header.bytes.length).toBe(58)
+    expect(toHex(header.bytes.subarray(6, 10))).toBe("01020304")
+    expect(decodeHeader(header.bytes).sequence).toBe(0x01020304)
     expect(toHex(decodeHeader(header.bytes).salt)).toBe(toHex(fields.salt))
   })
 
@@ -123,7 +127,7 @@ describe("header", () => {
     expect(await outcomeOf(() => decodeHeader(changed(0, 0)))).toBe("invalid-header")
     expect(await outcomeOf(() => decodeHeader(changed(4, 2)))).toBe("unsupported-version")
     expect(await outcomeOf(() => decodeHeader(changed(5, 11)))).toBe("invalid-record-size")
-    expect(await outcomeOf(() => decodeHeader(bytes.subarray(0, 53)))).toBe("invalid-header")
+    expect(await outcomeOf(() => decodeHeader(bytes.subarray(0, 57)))).toBe("invalid-header")
   })
 })
 
@@ -254,27 +258,31 @@ describe("canonical manifest", () => {
 })
 
 describe("manifest stream", () => {
-  it("pads to whole records and decodes back", () => {
+  const terms = { recordCount: 3, rootHash: new Uint8Array(32).fill(9) }
+
+  it("carries the contract terms and the JSON, padded to whole records, and decodes back", () => {
     const small = createManifest([{ name: "a", size: 1, mediaType: "" }])
-    expect(encodeManifestStream(small).length).toBe(manifestRecordSize)
-    expect(decodeManifestStream(encodeManifestStream(small))).toEqual(small)
+    const plaintext = encodeManifestStream(small, terms)
+    expect(plaintext.length).toBe(manifestRecordSize)
+    expect(toHex(plaintext.subarray(0, 8))).toBe("0000000000000003")
+    expect(decodeManifestStream(plaintext)).toEqual({ manifest: small, recordCount: 3, rootHash: terms.rootHash })
     const large = createManifest(
       Array.from({ length: 200 }, (_, index) => ({ name: `folder/file-${index}.bin`, size: index, mediaType: "application/octet-stream" })),
     )
-    const stream = encodeManifestStream(large)
+    const stream = encodeManifestStream(large, terms)
     expect(stream.length).toBe(manifestRecordCount(encodeManifestJson(large).length) * manifestRecordSize)
     expect(stream.length / manifestRecordSize).toBeGreaterThan(1)
-    expect(decodeManifestStream(stream)).toEqual(large)
+    expect(decodeManifestStream(stream).manifest).toEqual(large)
   })
 
-  it("rejects non-zero padding and a record count that is not the minimal power of two", async () => {
-    const plaintext = encodeManifestStream(createManifest([{ name: "a", size: 1, mediaType: "" }]))
+  it("rejects non-zero padding, a record count that is not the minimal power of two, and a length beyond the limit", async () => {
+    const plaintext = encodeManifestStream(createManifest([{ name: "a", size: 1, mediaType: "" }]), terms)
     const dirty = plaintext.slice()
     dirty[manifestRecordSize - 1] = 1
     expect(await outcomeOf(() => decodeManifestStream(dirty))).toBe("invalid-manifest")
     expect(await outcomeOf(() => decodeManifestStream(concatBytes(plaintext, new Uint8Array(manifestRecordSize))))).toBe("invalid-manifest")
     const lying = plaintext.slice()
-    new DataView(lying.buffer).setUint32(0, 2 ** 24)
+    new DataView(lying.buffer).setUint32(40, 2 ** 24)
     expect(await outcomeOf(() => decodeManifestStream(lying))).toBe("invalid-manifest")
   })
 })
@@ -282,7 +290,7 @@ describe("manifest stream", () => {
 describe("records", () => {
   const setup = async () => {
     const keys = await deriveParcelKeys(new Uint8Array(32).fill(3), createSalt())
-    const header = encodeHeader({ recordSizeExponent: 16, salt: new Uint8Array(16), keyCommitment: keys.keyCommitment })
+    const header = encodeHeader({ recordSizeExponent: 16, sequence: 0, salt: new Uint8Array(16), keyCommitment: keys.keyCommitment })
     return { keys, header: header.bytes }
   }
 
@@ -344,26 +352,39 @@ describe("Merkle tree (RFC 6962)", () => {
     "5dc9da79a70659a9ad559cb701ded9a2ab9d823aad2f4960cfe370eff4604328",
   ]
 
-  it("matches the reference roots for 1 to 8 leaves, directly and incrementally", async () => {
-    const frontier = new MerkleFrontier()
-    for (const [index, leaf] of leaves.entries()) {
-      await frontier.append(leaf)
-      expect(toHex(await frontier.root())).toBe(roots[index])
-      expect(toHex(await merkleRoot(leaves.slice(0, index + 1)))).toBe(roots[index])
+  it("matches the reference roots for 1 to 8 leaves, directly and over leaf hashes", async () => {
+    for (const [index] of leaves.entries()) {
+      const prefix = leaves.slice(0, index + 1)
+      expect(toHex(await merkleRoot(prefix))).toBe(roots[index])
+      expect(toHex(await treeHash(await Promise.all(prefix.map(leafHash))))).toBe(roots[index])
     }
   })
 
-  it("the frontier equals the direct definition for any leaves, also after snapshot and restore", async () => {
+  it("pages of any power-of-two size are nodes: the tree over page roots is the root, and every page's audit path folds to it", async () => {
     await fc.assert(
-      fc.asyncProperty(fc.array(fc.uint8Array({ maxLength: 8 }), { minLength: 1, maxLength: 40 }), fc.nat(), async (input, cut) => {
-        const split = cut % input.length
-        let frontier = new MerkleFrontier()
-        for (const leaf of input.slice(0, split)) await frontier.append(leaf)
-        frontier = MerkleFrontier.restore(frontier.snapshot())
-        for (const leaf of input.slice(split)) await frontier.appendLeafHash(await leafHash(leaf))
-        expect(frontier.leafCount).toBe(input.length)
-        expect(toHex(await frontier.root())).toBe(toHex(await merkleRoot(input)))
-      }),
+      fc.asyncProperty(
+        fc.array(fc.uint8Array({ maxLength: 8 }), { minLength: 1, maxLength: 70 }),
+        fc.integer({ min: 0, max: 4 }),
+        async (input, pageExponent) => {
+          const pageSize = 2 ** pageExponent
+          const labels = await Promise.all(input.map(leafHash))
+          const root = await merkleRoot(input)
+          const pageCount = Math.ceil(labels.length / pageSize)
+          const pageRoots = await Promise.all(
+            Array.from({ length: pageCount }, (_, page) => treeHash(labels, page * pageSize, Math.min(labels.length, (page + 1) * pageSize))),
+          )
+          expect(toHex(await treeHash(pageRoots))).toBe(toHex(root))
+          for (let page = 0; page < pageCount; page++) {
+            const path = auditPath(pageCount, page)
+            const siblings = await Promise.all(path.map((sibling) => treeHash(pageRoots, sibling.start, sibling.end)))
+            expect(toHex(await foldAuditPath(pageRoots[page] ?? new Uint8Array(32), path, siblings))).toBe(toHex(root))
+            if (siblings.length > 0) {
+              const wrong = siblings.map((hash, index) => (index === 0 ? new Uint8Array(32) : hash))
+              expect(toHex(await foldAuditPath(pageRoots[page] ?? new Uint8Array(32), path, wrong))).not.toBe(toHex(root))
+            }
+          }
+        },
+      ),
       { numRuns: 60 },
     )
   })

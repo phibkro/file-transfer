@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test"
-import { concatBytes, decodeManifestJson, fromHex } from "../src/index.ts"
+import { concatBytes, decodeManifestJson, fromHex, labelsPerPage } from "../src/index.ts"
 import { decryptAll, outcome, outcomeOf } from "./support.ts"
 import { generateRejections, generateVectors, plaintextByte, secret } from "./vectors/generate.ts"
 import rejections from "./vectors/rejections.json" with { type: "json" }
@@ -11,14 +11,12 @@ describe("test vectors", () => {
     expect(JSON.parse(JSON.stringify(await generateRejections()))).toEqual(rejections)
   })
 
-  it("every positive vector decrypts to its plaintext", async () => {
+  it("every positive vector with its records opens to its plaintext", async () => {
     for (const vectorCase of vectors.cases) {
-      const parcel = concatBytes(
-        fromHex(vectorCase.header),
-        ...vectorCase.manifestRecords.map(fromHex),
-        ...vectorCase.dataRecords.map(fromHex),
-        fromHex(vectorCase.trailer),
-      )
+      if (!("dataRecords" in vectorCase) || vectorCase.dataRecords === undefined) continue
+      const records = vectorCase.dataRecords.map(fromHex)
+      const pages = vectorCase.labelPages.map((page, index) => concatBytes(fromHex(page), ...records.slice(index * labelsPerPage, (index + 1) * labelsPerPage)))
+      const parcel = concatBytes(fromHex(vectorCase.header), ...vectorCase.manifestRecords.map(fromHex), ...pages)
       const { manifest, plaintext } = await decryptAll(secret, parcel)
       expect(manifest).toEqual(vectorCase.manifest)
       expect(plaintext.length).toBe(vectorCase.manifest.totalSize)

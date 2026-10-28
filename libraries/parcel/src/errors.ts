@@ -12,12 +12,13 @@ export type ParcelErrorReason =
   | "header-mismatch"
   | "authentication-failed"
   | "invalid-manifest"
-  | "invalid-trailer"
+  | "record-count-mismatch"
+  | "label-page-mismatch"
+  | "label-mismatch"
   | "size-mismatch"
   | "truncated"
   | "trailing-data"
-  | "record-count-mismatch"
-  | "root-hash-mismatch"
+  | "source-changed"
 
 export class ParcelError extends Error {
   override readonly name = "ParcelError"

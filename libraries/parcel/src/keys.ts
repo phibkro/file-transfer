@@ -6,7 +6,7 @@
  * `expand(info)` for a 256-bit output.
  */
 import { asBufferSource, concatBytes, decodeBase64Url, encodeBase64Url, toHex } from "./bytes.ts"
-import { derivationInfo, derivationSalt, keyCommitmentLength, saltLength, secretLength } from "./constants.ts"
+import { derivationInfo, derivationSalt, keyCommitmentLength, saltLength, secretLength, sequenceLimit } from "./constants.ts"
 import { ParcelError } from "./errors.ts"
 
 const textEncoder = new TextEncoder()
@@ -69,10 +69,19 @@ export const deriveRoomToken = async (secret: Uint8Array): Promise<Uint8Array<Ar
 export const hashRoomToken = async (roomToken: Uint8Array): Promise<string> =>
   toHex(new Uint8Array(await crypto.subtle.digest("SHA-256", asBufferSource(roomToken))))
 
-/** Every key of one parcel, non-extractable, and its key commitment. */
-export const deriveParcelKeys = async (secret: Uint8Array, salt: Uint8Array): Promise<ParcelKeys> => {
+/** The secret parcel `sequence` of a room seals under: `expand(linkSecret, "parcel/v1/parcel-secret" || u32(sequence))`. */
+export const deriveParcelSecret = async (linkSecret: Uint8Array, sequence: number): Promise<Uint8Array<ArrayBuffer>> => {
+  if (!Number.isSafeInteger(sequence) || sequence < 0 || sequence >= sequenceLimit) throw new ParcelError("invalid-argument", "sequence must be a u32")
+  const material = await importSecret(linkSecret)
+  const sequenceBytes = new Uint8Array(4)
+  new DataView(sequenceBytes.buffer).setUint32(0, sequence)
+  return new Uint8Array(await crypto.subtle.deriveBits(hkdf(infoFor(derivationInfo.parcelSecret, sequenceBytes)), material, 256))
+}
+
+/** Every key of one parcel, non-extractable, and its key commitment, from the parcel secret and the header's salt. */
+export const deriveParcelKeys = async (parcelSecret: Uint8Array, salt: Uint8Array): Promise<ParcelKeys> => {
   requireLength(salt, saltLength, "invalid-argument", "salt")
-  const material = await importSecret(secret)
+  const material = await importSecret(parcelSecret)
   const aes = { name: "AES-GCM", length: 256 }
   const hmac = { name: "HMAC", hash: "SHA-256", length: 256 }
   const [contentKey, contentSyntheticKey, manifestKey, manifestSyntheticKey, keyCommitment] = await Promise.all([

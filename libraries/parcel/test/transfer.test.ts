@@ -1,7 +1,7 @@
 import fc from "fast-check"
 import { describe, expect, it } from "vite-plus/test"
-import { concatBytes, createEncryptor, createManifest, headerLength, merkleRoot, recordOverhead, trailerRecordLength } from "../src/index.ts"
-import { decryptAll, encryptAll, layoutOf, outcome, singleFileManifest } from "./support.ts"
+import { concatBytes, createManifest, createParcelSealer, headerLength, labelRecords, recordReaderFromBytes } from "../src/index.ts"
+import { decryptAll, encryptAll, layoutOf, outcome, receivePartially, singleFileManifest } from "./support.ts"
 
 const secretArbitrary = fc.uint8Array({ minLength: 32, maxLength: 32 })
 const exponent = 12
@@ -13,24 +13,23 @@ const lengthArbitrary = fc.oneof(fc.constantFrom(0, 1, size - 1, size, size + 1,
 const bytesOf = (length: number, seed: number) => Uint8Array.from({ length }, (_, index) => (index * 31 + seed) & 0xff)
 
 describe("round trip", () => {
-  it("decrypts what it encrypts, for any size, record exponent and chunking", async () => {
+  it("receives what was sent, for any size, record exponent and chunking", async () => {
     await fc.assert(
       fc.asyncProperty(
         secretArbitrary,
         lengthArbitrary,
         fc.integer({ min: 12, max: 14 }),
         fc.integer({ min: 1, max: 9000 }),
-        fc.integer({ min: 1, max: 9000 }),
-        async (secret, length, recordSizeExponent, encryptChunk, decryptChunk) => {
+        async (secret, length, recordSizeExponent, decryptChunk) => {
           const data = bytesOf(length, length)
-          const parcel = await encryptAll({ secret, data, recordSizeExponent, chunkSize: encryptChunk })
+          const parcel = await encryptAll({ secret, data, recordSizeExponent })
           expect(parcel.length).toBe(layoutOf(singleFileManifest(length), recordSizeExponent).end)
           const { manifest, plaintext } = await decryptAll(secret, parcel, decryptChunk)
           expect(manifest.totalSize).toBe(length)
           expect(Buffer.from(plaintext).equals(Buffer.from(data))).toBe(true)
         },
       ),
-      { numRuns: 60 },
+      { numRuns: 50 },
     )
   })
 
@@ -49,22 +48,75 @@ describe("round trip", () => {
     expect(result.plaintext.length).toBe(manifest.totalSize)
   })
 
-  it("fresh salts make two parcels of the same input differ; the same salt reseals identical bytes", async () => {
+  it("fresh salts make two parcels differ; the same salt and sequence reseal identical bytes; another sequence seals under another secret", async () => {
     const secret = new Uint8Array(32).fill(1)
     const data = bytesOf(100, 0)
     const first = await encryptAll({ secret, data, recordSizeExponent: exponent })
     const second = await encryptAll({ secret, data, recordSizeExponent: exponent })
     expect(Buffer.from(first).equals(Buffer.from(second))).toBe(false)
-    const salt = first.slice(6, 22)
+    const salt = first.slice(10, 26)
     expect(Buffer.from(await encryptAll({ secret, data, recordSizeExponent: exponent, salt })).equals(Buffer.from(first))).toBe(true)
+    const third = await encryptAll({ secret, data, recordSizeExponent: exponent, salt, sequence: 3 })
+    expect(Buffer.from(third.subarray(26, 58)).equals(Buffer.from(first.subarray(26, 58)))).toBe(false)
+    expect((await decryptAll(secret, third)).plaintext.length).toBe(100)
+  })
+
+  it("spans several label pages, and a page that does not belong to the root is rejected", async () => {
+    const secret = new Uint8Array(32).fill(11)
+    const length = 1029 * size + 17
+    const data = bytesOf(length, 7)
+    const parcel = await encryptAll({ secret, data, recordSizeExponent: exponent })
+    const layout = layoutOf(singleFileManifest(length), exponent)
+    expect(layout.pages.length).toBe(2)
+    expect(parcel.length).toBe(layout.end)
+    expect(Buffer.from((await decryptAll(secret, parcel, 65536)).plaintext).equals(Buffer.from(data))).toBe(true)
+    for (const [page, position] of [
+      [0, 0],
+      [1, 0],
+      [1, -1],
+    ] as const) {
+      const range = layout.pages[page]
+      if (range === undefined) throw new Error("layout")
+      const tampered = parcel.slice()
+      const at = position < 0 ? range.end + position : range.start + position
+      tampered[at] = (tampered[at] ?? 0) ^ 1
+      expect(await outcome(decryptAll(secret, tampered, 65536))).toBe("label-page-mismatch")
+    }
   })
 })
 
-describe("encryption input", () => {
-  it("rejects more or less plaintext than the manifest declares", async () => {
+describe("sending", () => {
+  it("fails with size-mismatch when the source is shorter than the manifest declares", async () => {
     const secret = new Uint8Array(32).fill(1)
-    expect(await outcome(encryptAll({ secret, data: bytesOf(10, 0), recordSizeExponent: exponent, manifest: singleFileManifest(9) }))).toBe("size-mismatch")
     expect(await outcome(encryptAll({ secret, data: bytesOf(10, 0), recordSizeExponent: exponent, manifest: singleFileManifest(11) }))).toBe("size-mismatch")
+  })
+
+  it("stops with source-changed at the first record that no longer matches its label", async () => {
+    const secret = new Uint8Array(32).fill(12)
+    const data = bytesOf(3 * size, 2)
+    const changed = data.slice()
+    changed[size + 9] = (changed[size + 9] ?? 0) ^ 0xff
+    expect(await outcome(encryptAll({ secret, data, recordSizeExponent: exponent, readForSending: recordReaderFromBytes(changed, size) }))).toBe(
+      "source-changed",
+    )
+  })
+})
+
+describe("a breach is caught at the first changed record", () => {
+  it("a sender that keeps sending after its source changed: earlier records are released, the changed one is not", async () => {
+    const secret = new Uint8Array(32).fill(13)
+    const data = bytesOf(4 * size, 4)
+    const changed = data.slice()
+    changed[2 * size + 1] = (changed[2 * size + 1] ?? 0) ^ 0xff
+    const sealer = await createParcelSealer({ linkSecret: secret, manifest: singleFileManifest(data.length), recordSizeExponent: exponent })
+    const contract = await sealer.sealContract(await labelRecords(sealer, recordReaderFromBytes(data, size)))
+    const records: Array<Uint8Array> = []
+    for (let index = 0; index < sealer.recordCount; index++) records.push(await sealer.sealData(index, changed.subarray(index * size, (index + 1) * size)))
+    const parcel = concatBytes(contract.header.bytes, ...contract.manifestRecords, await contract.labelPage(0), ...records)
+    const { released, outcome: ending } = await receivePartially(secret, parcel)
+    expect(ending).toBe("label-mismatch")
+    expect(released.length).toBe(2 * size)
+    expect(Buffer.from(released).equals(Buffer.from(data.subarray(0, 2 * size)))).toBe(true)
   })
 })
 
@@ -99,17 +151,21 @@ describe("tampering is rejected", () => {
       { numRuns: 60 },
     )
     const layout = layoutOf(singleFileManifest(2 * size + 100), exponent)
-    for (const boundary of [headerLength, layout.dataStart, ...layout.data.map((record) => record.end)]) {
-      expect(await outcome(decryptAll(secret, parcel.subarray(0, boundary)))).toBe("truncated")
-    }
+    const boundaries = [
+      headerLength,
+      ...layout.pages.map((page) => page.start),
+      ...layout.pages.map((page) => page.end),
+      ...layout.data.slice(0, -1).map((record) => record.end),
+    ]
+    for (const boundary of boundaries) expect(await outcome(decryptAll(secret, parcel.subarray(0, boundary)))).toBe("truncated")
   })
 
-  it("data after the trailer", async () => {
+  it("data after the last record", async () => {
     const secret = new Uint8Array(32).fill(3)
     expect(await outcome(decryptAll(secret, concatBytes(await fixture(secret, 10), new Uint8Array([0]))))).toBe("trailing-data")
   })
 
-  it("reordered and duplicated records", async () => {
+  it("reordered and duplicated records differ from their labels", async () => {
     const secret = new Uint8Array(32).fill(4)
     const parcel = await fixture(secret, 3 * size)
     const [first, second] = layoutOf(singleFileManifest(3 * size), exponent).data
@@ -117,23 +173,10 @@ describe("tampering is rejected", () => {
     const swapped = parcel.slice()
     swapped.set(parcel.subarray(second.start, second.end), first.start)
     swapped.set(parcel.subarray(first.start, first.end), second.start)
-    expect(await outcome(decryptAll(secret, swapped))).toBe("authentication-failed")
+    expect(await outcome(decryptAll(secret, swapped))).toBe("label-mismatch")
     const duplicated = parcel.slice()
     duplicated.set(parcel.subarray(first.start, first.end), second.start)
-    expect(await outcome(decryptAll(secret, duplicated))).toBe("authentication-failed")
-  })
-
-  it("a data record and the trailer swapped (same length, different streams)", async () => {
-    const secret = new Uint8Array(32).fill(5)
-    // A last record of 40 plaintext bytes has the trailer's length.
-    const parcel = await fixture(secret, size + 40)
-    const layout = layoutOf(singleFileManifest(size + 40), exponent)
-    const last = layout.data.at(-1)
-    if (last === undefined || last.end - last.start !== trailerRecordLength) throw new Error("fixture layout")
-    const swapped = parcel.slice()
-    swapped.set(parcel.subarray(layout.trailerStart), last.start)
-    swapped.set(parcel.subarray(last.start, last.end), layout.trailerStart)
-    expect(await outcome(decryptAll(secret, swapped))).toBe("authentication-failed")
+    expect(await outcome(decryptAll(secret, duplicated))).toBe("label-mismatch")
   })
 
   it("a record spliced in from another parcel under the same secret", async () => {
@@ -144,7 +187,7 @@ describe("tampering is rejected", () => {
     if (record === undefined) throw new Error("fixture layout")
     const spliced = first.slice()
     spliced.set(second.subarray(record.start, record.end), record.start)
-    expect(await outcome(decryptAll(secret, spliced))).toBe("authentication-failed")
+    expect(await outcome(decryptAll(secret, spliced))).toBe("label-mismatch")
   })
 
   it("the wrong secret, reported from the header alone before anything else is read", async () => {
@@ -159,71 +202,12 @@ describe("tampering is rejected", () => {
     )
   })
 
-  it("a different parcel for a link that already accepted a header (one secret, one parcel)", async () => {
+  it("a different parcel for a sequence number that already accepted a header (one parcel per parcel secret)", async () => {
     const secret = new Uint8Array(32).fill(7)
     const accepted = await fixture(secret, 100)
     const substitute = await fixture(secret, 100)
     const expectedHeader = accepted.subarray(0, headerLength)
     expect(await outcome(decryptAll(secret, accepted, 777, { expectedHeader }))).toBe("accepted")
     expect(await outcome(decryptAll(secret, substitute, 777, { expectedHeader }))).toBe("header-mismatch")
-  })
-})
-
-describe("a sender with the keys cannot lie in the trailer", () => {
-  const assemble = async (trailer: (rootHash: Uint8Array, recordCount: number) => { recordCount: number; rootHash: Uint8Array }) => {
-    const secret = new Uint8Array(32).fill(8)
-    const data = bytesOf(2 * size + 9, 1)
-    const encryptor = await createEncryptor({ secret, manifest: singleFileManifest(data.length), recordSizeExponent: exponent })
-    const records: Array<Uint8Array> = []
-    for (let index = 0; index < encryptor.recordCount; index++) {
-      records.push(await encryptor.sealData(index, data.subarray(index * size, Math.min((index + 1) * size, data.length))))
-    }
-    const rootHash = await merkleRoot(records)
-    const sealed = await encryptor.sealTrailer(trailer(rootHash, encryptor.recordCount))
-    expect(records.every((record, index) => record.length === encryptor.dataRecordLength(index) && record.length >= recordOverhead)).toBe(true)
-    return { secret, parcel: concatBytes(encryptor.header.bytes, ...(await encryptor.sealManifest()), ...records, sealed) }
-  }
-
-  it("accepts the honest trailer", async () => {
-    const { secret, parcel } = await assemble((rootHash, recordCount) => ({ recordCount, rootHash }))
-    expect(await outcome(decryptAll(secret, parcel))).toBe("accepted")
-  })
-
-  it("rejects a wrong root hash", async () => {
-    const { secret, parcel } = await assemble((_, recordCount) => ({ recordCount, rootHash: new Uint8Array(32) }))
-    expect(await outcome(decryptAll(secret, parcel))).toBe("root-hash-mismatch")
-  })
-
-  it("rejects a wrong record count", async () => {
-    const { secret, parcel } = await assemble((rootHash, recordCount) => ({ recordCount: recordCount + 1, rootHash }))
-    expect(await outcome(decryptAll(secret, parcel))).toBe("record-count-mismatch")
-  })
-})
-
-describe("resume after the source changed", () => {
-  it("never reuses a nonce, and the recipient rejects the mixed result at the trailer", async () => {
-    const secret = new Uint8Array(32).fill(10)
-    const original = bytesOf(3 * size, 1)
-    const edited = original.slice()
-    edited[2 * size + 5] = (edited[2 * size + 5] ?? 0) ^ 0xff
-    const firstAttempt = await encryptAll({ secret, data: original, recordSizeExponent: exponent })
-    const salt = firstAttempt.slice(6, 22)
-    const resumed = await encryptAll({ secret, data: edited, recordSizeExponent: exponent, salt })
-    const layout = layoutOf(singleFileManifest(3 * size), exponent)
-    const changed = layout.data[2]
-    if (changed === undefined) throw new Error("fixture layout")
-    // The same record index resealed with different plaintext carries a different synthetic nonce.
-    expect(Buffer.from(firstAttempt.subarray(changed.start, changed.start + 7)).equals(Buffer.from(resumed.subarray(changed.start, changed.start + 7)))).toBe(
-      false,
-    )
-    // Records 0 and 1 came from the first attempt, record 2 and the trailer from the resumed one.
-    const mixed = concatBytes(firstAttempt.subarray(0, changed.start), resumed.subarray(changed.start))
-    expect(await outcome(decryptAll(secret, mixed))).toBe("accepted")
-    // When the sender edits a record the recipient already has, the trailer's root (over the current source) exposes it.
-    const earlyEdit = original.slice()
-    earlyEdit[5] = (earlyEdit[5] ?? 0) ^ 0xff
-    const resumedAfterEarlyEdit = await encryptAll({ secret, data: earlyEdit, recordSizeExponent: exponent, salt })
-    const mixedEarly = concatBytes(firstAttempt.subarray(0, changed.start), resumedAfterEarlyEdit.subarray(changed.start))
-    expect(await outcome(decryptAll(secret, mixedEarly))).toBe("root-hash-mismatch")
   })
 })

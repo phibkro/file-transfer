@@ -8,7 +8,8 @@ export const parcelVersion = 1
 /** Magic bytes at the start of every header. */
 export const headerMagic = new Uint8Array([0x45, 0x32, 0x45, 0x01])
 
-export const headerLength = 54
+export const headerLength = 58
+export const sequenceLength = 4
 export const saltLength = 16
 export const keyCommitmentLength = 32
 export const secretLength = 32
@@ -26,14 +27,17 @@ export const maximumRecordSizeExponent = 22
 
 /** Plaintext bytes of every manifest record. */
 export const manifestRecordSize = 4096
-/** The manifest stream plaintext starts with the JSON length as a 4-byte big-endian integer. */
-export const manifestLengthPrefix = 4
+/** The manifest stream plaintext starts with the contract: u64 record count, 32-byte root, u32 JSON length. */
+export const manifestLengthPrefix = 8 + 32 + 4
 /** The longest canonical manifest JSON, so the manifest stream is at most 4096 records (16 MiB). */
 export const maximumManifestJsonLength = 2 ** 24 - manifestLengthPrefix
 
-/** Trailer plaintext: 8-byte record count and 32-byte Merkle root. */
-export const trailerPlaintextLength = 40
-export const trailerRecordLength = trailerPlaintextLength + recordOverhead
+/** Labels are 32-byte leaf hashes; a label page covers this many records. */
+export const labelLength = 32
+export const labelsPerPage = 1024
+
+/** Sequence numbers are u32. */
+export const sequenceLimit = 2 ** 32
 
 /** Every record counter is below this (it fills 5 nonce bytes). */
 export const counterLimit = 2 ** 40
@@ -44,6 +48,7 @@ export const totalSizeLimit = 2 ** 40
 export const derivationSalt = "parcel/v1"
 export const derivationInfo = {
   roomToken: "parcel/v1/room-token",
+  parcelSecret: "parcel/v1/parcel-secret",
   contentKey: "parcel/v1/content-key",
   contentSyntheticKey: "parcel/v1/content-synthetic-key",
   manifestKey: "parcel/v1/manifest-key",
