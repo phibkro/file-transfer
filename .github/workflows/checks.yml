@@ -46,6 +46,31 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  browsers:
+    needs: [check]
+    if: github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+    # WebKit on Linux is not Safari, and its storage support lags (docs/spikes/0002-transfer-measurements.md); its
+    # result is informational until a real iPhone confirms the save path.
+    continue-on-error: ${{ matrix.browser == 'webkit' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bunx playwright install --with-deps ${{ matrix.browser }}
+        working-directory: apps/web
+      - run: bun run build
+        working-directory: apps/web
+      # The standard suite against wrangler dev (Worker, Durable Object and assets), both sides in this browser.
+      - run: bun run e2e
+        working-directory: apps/web
+        env:
+          E2E_BROWSER: ${{ matrix.browser }}
+
   preview:
     needs: [check, secrets]
     if: vars.DEPLOYMENTS == 'enabled' && github.event_name == 'pull_request' && github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository
