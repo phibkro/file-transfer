@@ -385,6 +385,41 @@ const payloadSizes: PayloadPlan = {
   latency: [["india-recording.bin", 128 * 1024 * 1024]],
 }
 
+/**
+ * How received files differ from what was sent: size, and the offset of the first differing byte with a few bytes on
+ * each side. For diagnosing a browser whose storage returns other bytes than were written (WebKit, 2026-10-28).
+ */
+const describeDifferences = async (page: Page, files: readonly PayloadFile[]): Promise<string> => {
+  const sizes = await page.evaluate(() => window.fileTransferTest?.fileSizes() ?? [])
+  const reports: string[] = []
+
+  for (const [index, file] of files.entries()) {
+    const size = sizes[index] ?? -1
+    const length = Math.min(size, file.buffer.length, 4 * 1024 * 1024)
+
+    const received = Buffer.from(
+      await page.evaluate(async ([fileIndex, end]) => (await window.fileTransferTest?.fileSlice(fileIndex, 0, end)) ?? "", [index, length] as const),
+      "hex",
+    )
+
+    let first = -1
+
+    for (let offset = 0; offset < length; offset++) {
+      if (received[offset] !== file.buffer[offset]) {
+        first = offset
+        break
+      }
+    }
+
+    const around = (buffer: Buffer) => buffer.subarray(Math.max(0, first - 4), first + 12).toString("hex")
+    reports.push(
+      `file ${index}: sent ${file.buffer.length} bytes, received ${size}${first === -1 ? `, first ${length} bytes equal` : `, first difference at ${first} (sent ${around(file.buffer)}, received ${around(received)})`}`,
+    )
+  }
+
+  return reports.join("; ")
+}
+
 /** Megabytes per second of the last completed transfer, for the latency suite's table. */
 let lastMegabytesPerSecond = 0
 
@@ -433,7 +468,13 @@ const transfer = async (browser: Browser, base: string, scenario: TransferScenar
       recipient: await recipient.page.evaluate(() => window.fileTransferTest?.failure()),
     })
     const hashes = await recipient.page.evaluate(async () => await window.fileTransferTest?.fileHashes())
-    check(JSON.stringify(hashes) === JSON.stringify(files.map((file) => sha256(file.buffer))), `${scenario}: every file arrives byte-identical`, hashes)
+    const identical = JSON.stringify(hashes) === JSON.stringify(files.map((file) => sha256(file.buffer)))
+
+    if (!identical) {
+      console.log(`   ${scenario}: ${await describeDifferences(recipient.page, files)}`)
+    }
+
+    check(identical, `${scenario}: every file arrives byte-identical`, hashes)
 
     const summaries = [
       await sender.page.locator(".summary").textContent({ timeout: 10_000 }),
