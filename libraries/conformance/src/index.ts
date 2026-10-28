@@ -50,8 +50,8 @@ export interface ConformanceSuite<Service, Identifier extends string> {
  * A check that crashes (a TypeError from a typo, say) has not shown that the variant breaks the guarantee, so it does
  * not count as a rejection. Walks the cause chain, since property-test runners wrap the original error.
  */
-const isProgrammingError = (error: unknown): boolean => {
-  for (let current = error, depth = 0; current instanceof Error && depth < 8; current = current.cause, depth++) {
+const isProgrammingError = (cause: unknown): boolean => {
+  for (let current = cause, depth = 0; current instanceof Error && depth < 8; current = current.cause, depth++) {
     if (current instanceof TypeError || current instanceof ReferenceError || current instanceof SyntaxError) {
       return true
     }
@@ -68,7 +68,9 @@ export const conformanceSuite = <Service, Identifier extends string>(definition:
   run: (layerName, layer) => {
     describe(`${definition.service} conformance: ${layerName}`, () => {
       for (const guarantee of definition.guarantees) {
-        it(`${guarantee.identifier}: ${guarantee.property}`, async () => await definition.checks[guarantee.identifier](layer))
+        it(`${guarantee.identifier}: ${guarantee.property}`, async () => {
+          await definition.checks[guarantee.identifier](layer)
+        })
       }
     })
   },

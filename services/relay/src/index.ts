@@ -91,8 +91,11 @@ const toHex = (bytes: Uint8Array): string => Array.from(bytes, (byte) => byte.to
  * The in-memory reference layer: the executable model every platform must match. `faults` builds the deliberately
  * broken variants that the negative controls need; production code always uses `RelayReference`, which has none.
  */
-export const makeRelayReference = (faults: ReadonlySet<RelayGuarantee> = new Set()) =>
-  Layer.effect(
+export const makeRelayReference = (faults: ReadonlySet<RelayGuarantee> = new Set()) => {
+  const isAllowed = (command: (typeof relaySessionMachine.commands)[number], state: RelaySessionState) =>
+    faults.has("relay/close-stops-writes") || Machine.can(relaySessionMachine, command, state, undefined)
+
+  return Layer.effect(
     Relay,
     Effect.gen(function* () {
       const sessions = yield* Ref.make<ReadonlyMap<RelaySessionIdentifier, SessionRecord>>(new Map())
@@ -125,9 +128,6 @@ export const makeRelayReference = (faults: ReadonlySet<RelayGuarantee> = new Set
           return result
         })
 
-      const isAllowed = (command: (typeof relaySessionMachine.commands)[number], state: RelaySessionState) =>
-        faults.has("relay/close-stops-writes") || Machine.can(relaySessionMachine, command, state, undefined)
-
       return {
         open: ({ initialCredits }) =>
           Effect.gen(function* () {
@@ -139,7 +139,7 @@ export const makeRelayReference = (faults: ReadonlySet<RelayGuarantee> = new Set
           }),
 
         push: ({ sessionIdentifier, frame }) =>
-          withSession<void, NoCreditAvailable | RelaySessionClosed>(sessionIdentifier, (record) => {
+          withSession<undefined, NoCreditAvailable | RelaySessionClosed>(sessionIdentifier, (record) => {
             if (!isAllowed("pushFrame", record.state)) {
               return Effect.fail(new RelaySessionClosed({ sessionIdentifier }))
             }
@@ -170,7 +170,7 @@ export const makeRelayReference = (faults: ReadonlySet<RelayGuarantee> = new Set
           }),
 
         grant: ({ sessionIdentifier, credits }) =>
-          withSession<void, RelaySessionClosed>(sessionIdentifier, (record) => {
+          withSession(sessionIdentifier, (record) => {
             if (!isAllowed("grantCredits", record.state)) {
               return Effect.fail(new RelaySessionClosed({ sessionIdentifier }))
             }
@@ -200,5 +200,6 @@ export const makeRelayReference = (faults: ReadonlySet<RelayGuarantee> = new Set
       }
     }),
   )
+}
 
 export const RelayReference = makeRelayReference()

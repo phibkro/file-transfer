@@ -59,7 +59,11 @@ export const openStorage = async (roomIdentifier: string, fileCount: number): Pr
       return await Promise.all(handles.map(async (handle) => await handle.getFile()))
     },
     discard: async () => {
-      await Promise.allSettled(writables.map(async (writable) => await writable.abort()))
+      await Promise.allSettled(
+        writables.map(async (writable) => {
+          await writable.abort()
+        }),
+      )
       await removeQuietly(transfers, roomIdentifier)
     },
   }

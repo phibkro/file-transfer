@@ -42,7 +42,7 @@ class TransferError extends Error {
   }
 }
 
-const reasonOf = (error: unknown): string => (isParcelError(error) || error instanceof TransferError ? error.reason : "recipient-error")
+const reasonOf = (cause: unknown): string => (isParcelError(cause) || cause instanceof TransferError ? cause.reason : "recipient-error")
 
 /** Names with folders download as one flat name; the browser sanitises the rest. */
 const downloadName = (name: string): string => name.split("/").join("_")
@@ -92,13 +92,13 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
 
   const send = (message: ControlMessage) => connection?.sendControl(message)
 
-  const fail = async (error: unknown, fromSender = false) => {
+  /** Stops the transfer for `reason`; `fromSender` when the sender's abort carried it. */
+  const stop = async (reason: string, fromSender: boolean) => {
     if (finished) {
       return
     }
 
     finished = true
-    const reason = fromSender && typeof error === "string" ? error : reasonOf(error)
 
     if (!fromSender) {
       send({ type: "abort", reason })
@@ -108,6 +108,10 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
     setStatus("failed", reason)
     say(fromSender ? `The sender stopped the transfer. ${describeFailure(reason)}` : describeFailure(reason))
     await storage?.discard()
+  }
+
+  const fail = async (cause: unknown) => {
+    await stop(reasonOf(cause), false)
   }
 
   const topUp = () => {
@@ -145,7 +149,7 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
     }
 
     finished = true
-    const manifest = receiver.manifest
+    const { manifest } = receiver
     const files = await storage.commit()
     send({ type: "complete", sequence })
     connection?.close()
@@ -359,36 +363,50 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
     }
   }
 
+  const handleUnit = async (unit: Unit, epoch: number) => {
+    if (finished) {
+      return
+    }
+
+    if (unit.sequence !== sequence) {
+      throw new TransferError("unsupported-sequence")
+    }
+
+    switch (unit.kind) {
+      case "header": {
+        await onHeader(unit.bytes)
+        break
+      }
+
+      case "manifestRecord": {
+        await onManifestRecord(unit.index, unit.bytes)
+        break
+      }
+
+      case "labelPage": {
+        await onLabelPage(unit.index, unit.bytes)
+        break
+      }
+
+      case "dataRecord": {
+        await onDataRecord(unit.index, unit.bytes, epoch === connection?.epoch())
+        break
+      }
+    }
+  }
+
+  /** Units are handled strictly in arrival order; the chain never rejects, since every failure goes to fail. */
   const onUnit = (unit: Unit, epoch: number) => {
-    chain = chain
-      .then(async () => {
-        if (finished) {
-          return
-        }
+    const previous = chain
+    chain = (async () => {
+      await previous
 
-        if (unit.sequence !== sequence) {
-          throw new TransferError("unsupported-sequence")
-        }
-
-        switch (unit.kind) {
-          case "header": {
-            return await onHeader(unit.bytes)
-          }
-
-          case "manifestRecord": {
-            return await onManifestRecord(unit.index, unit.bytes)
-          }
-
-          case "labelPage": {
-            return await onLabelPage(unit.index, unit.bytes)
-          }
-
-          case "dataRecord": {
-            return await onDataRecord(unit.index, unit.bytes, epoch === connection?.epoch())
-          }
-        }
-      })
-      .catch(async (error: unknown) => await fail(error))
+      try {
+        await handleUnit(unit, epoch)
+      } catch (error) {
+        await fail(error)
+      }
+    })()
   }
 
   const onControl = (message: ControlMessage) => {
@@ -425,7 +443,7 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
       }
 
       case "abort": {
-        void fail(message.reason, true)
+        void stop(message.reason, true)
 
         return
       }
@@ -433,11 +451,17 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
       case "error": {
         void fail(new TransferError(message.reason))
 
-        return
+        break
       }
 
-      default: {
-        return
+      // Messages a recipient never receives.
+      case "accept":
+      case "complete":
+      case "credit":
+      case "decline":
+      case "join":
+      case "want": {
+        break
       }
     }
   }
@@ -450,7 +474,7 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
       return
     }
 
-    if (decision !== "accepted" || received === undefined || !senderPresent || !connection?.isJoined()) {
+    if (decision !== "accepted" || received === undefined || !senderPresent || connection?.isJoined() !== true) {
       return
     }
 

@@ -6,6 +6,9 @@ import { decodeControlMessage, decodeUnit, encodeControlMessage, encodeUnit } fr
 import type { ControlMessage, Role, Unit } from "@file-transfer/transport"
 import { Result } from "effect"
 
+/** Text frames carry control messages; binary frames carry parcel units. */
+const isTextFrame = (data: unknown): data is string => typeof data === "string"
+
 export type ConnectionState = "connecting" | "joined" | "reconnecting" | "closed"
 
 export interface ConnectionHandlers {
@@ -62,7 +65,7 @@ export const openConnection = (options: ConnectionOptions): Connection => {
         return
       }
 
-      if (typeof event.data === "string") {
+      if (isTextFrame(event.data)) {
         const decoded = decodeControlMessage(event.data)
 
         if (Result.isFailure(decoded)) {

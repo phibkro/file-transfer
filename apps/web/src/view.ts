@@ -54,19 +54,19 @@ export const progressBar = (label: string) => {
 
 /** Human text for a failure reason code. */
 export const describeFailure = (reason: string): string => {
-  const known: Readonly<Record<string, string>> = {
-    "invalid-secret": "This link is incomplete or damaged. Ask the sender for the full link.",
-    "key-commitment-mismatch": "This link does not match the files on offer.",
-    "contract-mismatch": "The files on offer changed after they were accepted.",
-    "label-mismatch": "A piece of a file did not match what was promised, so the transfer stopped.",
-    "label-page-mismatch": "The transfer's checksums did not match what was promised, so it stopped.",
-    "authentication-failed": "A piece of the transfer was damaged or tampered with.",
-    "source-changed": "A file changed on the sender's side while it was being sent.",
-    "invalid-manifest": "The list of files is not valid.",
-    "storage-unavailable": "This browser could not store the incoming files.",
-    "room-not-found": "This link has expired or never existed.",
-    declined: "The recipient declined the files.",
-  }
+  const known = new Map<string, string>([
+    ["invalid-secret", "This link is incomplete or damaged. Ask the sender for the full link."],
+    ["key-commitment-mismatch", "This link does not match the files on offer."],
+    ["contract-mismatch", "The files on offer changed after they were accepted."],
+    ["label-mismatch", "A piece of a file did not match what was promised, so the transfer stopped."],
+    ["label-page-mismatch", "The transfer's checksums did not match what was promised, so it stopped."],
+    ["authentication-failed", "A piece of the transfer was damaged or tampered with."],
+    ["source-changed", "A file changed on the sender's side while it was being sent."],
+    ["invalid-manifest", "The list of files is not valid."],
+    ["storage-unavailable", "This browser could not store the incoming files."],
+    ["room-not-found", "This link has expired or never existed."],
+    ["declined", "The recipient declined the files."],
+  ])
 
-  return known[reason] ?? `The transfer stopped (${reason}).`
+  return known.get(reason) ?? `The transfer stopped (${reason}).`
 }

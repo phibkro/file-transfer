@@ -12,6 +12,7 @@ interface Manifest {
   readonly fileTransfer?: { readonly testSupportFiles?: readonly string[] }
 }
 
+// SAFETY: every package.json in this repository is a manifest; the checks below read only the fields Manifest declares.
 const readManifest = (path: string): Manifest => JSON.parse(readFileSync(path, "utf8")) as Manifest
 
 const sourceFiles = (directory: string): string[] =>
@@ -53,10 +54,17 @@ const importSpecifiers = (path: string, source: string): string[] => {
 /** Files that never ship: tests, development scripts (integration and end-to-end checks) and deployment declarations. */
 const isDevelopmentOnly = (file: string) => file.startsWith("test/") || file.startsWith("scripts/") || file.endsWith(".test.ts") || file === "alchemy.run.ts"
 
-export const loadWorkspace = (root: string): { readonly packages: PackageFacts[]; readonly rootDevelopmentDependencies: string[] } => {
+/** Every package's facts, and the development dependencies the root provides to tests. */
+export interface Workspace {
+  readonly packages: PackageFacts[]
+  readonly rootDevelopmentDependencies: string[]
+}
+
+export const loadWorkspace = (root: string): Workspace => {
   const rootManifest = readManifest(join(root, "package.json"))
   const packages: PackageFacts[] = []
 
+  // SAFETY: kindRules has exactly one entry per Kind, so its entries are Kind keys with their rules.
   for (const [kind, rule] of Object.entries(kindRules) as [Kind, (typeof kindRules)[Kind]][]) {
     const kindDirectory = join(root, rule.directory)
     let entries: string[]

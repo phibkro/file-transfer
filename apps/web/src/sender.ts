@@ -58,13 +58,17 @@ class TransferError extends Error {
   }
 }
 
-const reasonOf = (error: unknown): string => {
-  if (isParcelError(error) || error instanceof TransferError) {
-    return error.reason
+/** The body of `201` from `POST /api/rooms`. */
+const isCreatedRoom = (body: unknown): body is { readonly roomIdentifier: string } =>
+  typeof body === "object" && body !== null && "roomIdentifier" in body && typeof body.roomIdentifier === "string"
+
+const reasonOf = (cause: unknown): string => {
+  if (isParcelError(cause) || cause instanceof TransferError) {
+    return cause.reason
   }
 
   // A File whose bytes changed on disk after it was picked can no longer be read.
-  if (error instanceof DOMException && error.name === "NotReadableError") {
+  if (cause instanceof DOMException && cause.name === "NotReadableError") {
     return "source-changed"
   }
 
@@ -102,13 +106,12 @@ const createRoom = async (roomTokenHash: string): Promise<string> => {
   }
 
   const body: unknown = await response.json()
-  const roomIdentifier = typeof body === "object" && body !== null && "roomIdentifier" in body ? body.roomIdentifier : undefined
 
-  if (typeof roomIdentifier !== "string" || !/^[A-Za-z0-9_-]{22}$/u.test(roomIdentifier)) {
+  if (!isCreatedRoom(body) || !/^[A-Za-z0-9_-]{22}$/u.test(body.roomIdentifier)) {
     throw new TransferError("room-not-created")
   }
 
-  return roomIdentifier
+  return body.roomIdentifier
 }
 
 interface SenderView {
@@ -147,8 +150,8 @@ const serve = (prepared: Prepared, roomIdentifier: string, roomToken: string, vi
     }
   }
 
-  const fail = (error: unknown) => {
-    const reason = reasonOf(error)
+  const fail = (cause: unknown) => {
+    const reason = reasonOf(cause)
     connection.sendControl({ type: "abort", reason })
     finish("failed", reason)
   }
@@ -160,7 +163,11 @@ const serve = (prepared: Prepared, roomIdentifier: string, roomToken: string, vi
     balance.available = 0
     pagesSent.clear()
     connection.sendUnit({ kind: "header", sequence, index: 0, bytes: contract.header.bytes })
-    contract.manifestRecords.forEach((bytes, index) => connection.sendUnit({ kind: "manifestRecord", sequence, index, bytes }))
+
+    for (const [index, bytes] of contract.manifestRecords.entries()) {
+      connection.sendUnit({ kind: "manifestRecord", sequence, index, bytes })
+    }
+
     setStatus("offering")
     view.update("The recipient is looking at the files.")
   }
@@ -332,11 +339,12 @@ const serve = (prepared: Prepared, roomIdentifier: string, roomToken: string, vi
       case "error": {
         finish("failed", message.reason)
 
-        return
+        break
       }
 
-      default: {
-        return
+      // The one message a sender never receives.
+      case "join": {
+        break
       }
     }
   }
@@ -347,7 +355,9 @@ const serve = (prepared: Prepared, roomIdentifier: string, roomToken: string, vi
     roomToken,
     handlers: {
       onControl,
-      onUnit: () => {},
+      onUnit: () => {
+        // The sender receives no parcel units.
+      },
       onState: (state) => {
         if (finished) {
           return
@@ -411,19 +421,32 @@ export const startSender = (root: HTMLElement) => {
       const link = `${location.origin}/r/${roomIdentifier}#${encodeLinkSecret(prepared.linkSecret)}`
       const linkField = element("input", { type: "text", readonly: "", id: "link", value: link, "aria-label": "Share link" })
       const copy = element("button", { type: "button" }, ["Copy link"])
+
+      const copyLink = async () => {
+        // Undefined outside secure contexts, although the DOM types say otherwise.
+        const clipboard: Clipboard | undefined = navigator.clipboard
+
+        if (clipboard === undefined) {
+          return
+        }
+
+        await clipboard.writeText(link)
+        copy.textContent = "Copied"
+      }
+
       copy.addEventListener("click", () => {
         linkField.select()
-        void navigator.clipboard?.writeText(link).then(() => {
-          copy.textContent = "Copied"
-        })
+        void copyLink()
       })
       progress.update(0, prepared.contract.recordCount, () => "")
-      section.insertBefore(element("div", { class: "share" }, [element("label", { for: "link" }, ["Share this link"]), linkField, copy]), status)
+      status.before(element("div", { class: "share" }, [element("label", { for: "link" }, ["Share this link"]), linkField, copy]))
       serve(prepared, roomIdentifier, toHex(roomToken), {
         update: (text) => {
           status.textContent = text
         },
-        progress: (done, count) => progress.update(done, count, () => `Sent ${Math.round((done / count) * 100)}% of ${formatSize(total)}`),
+        progress: (done, count) => {
+          progress.update(done, count, () => `Sent ${Math.round((done / count) * 100)}% of ${formatSize(total)}`)
+        },
       })
       setProgress(0, prepared.contract.recordCount)
     } catch (error) {
@@ -433,12 +456,16 @@ export const startSender = (root: HTMLElement) => {
     }
   }
 
-  input.addEventListener("change", () => void begin([...(input.files ?? [])]))
+  input.addEventListener("change", () => {
+    void begin([...(input.files ?? [])])
+  })
   label.addEventListener("dragover", (event) => {
     event.preventDefault()
     label.classList.add("active")
   })
-  label.addEventListener("dragleave", () => label.classList.remove("active"))
+  label.addEventListener("dragleave", () => {
+    label.classList.remove("active")
+  })
   label.addEventListener("drop", (event) => {
     event.preventDefault()
     label.classList.remove("active")

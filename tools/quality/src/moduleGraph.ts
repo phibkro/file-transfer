@@ -18,8 +18,11 @@ interface KindRule {
   readonly runtimeModules: boolean
 }
 
+/** One rule per package kind. */
+export type KindRules = { readonly [K in Kind]: KindRule }
+
 /** The package-kind table of CLAUDE.md, as data. */
-export const kindRules: { readonly [K in Kind]: KindRule } = {
+export const kindRules: KindRules = {
   library: { directory: "libraries", mayDependOn: ["library"], externals: ["effect"], runtimeModules: false },
   service: { directory: "services", mayDependOn: ["library"], externals: ["effect"], runtimeModules: false },
   platform: { directory: "platforms", mayDependOn: ["service", "library", "integration"], externals: "any", runtimeModules: true },

@@ -8,6 +8,7 @@ import type { EffectConfigInput } from "@phibkro/oxlint-effect-plugin"
 import { defineConfig } from "oxlint"
 import effxConfig from "./effx.config.json" with { type: "json" }
 
+// SAFETY: effx.config.json is validated by effx itself (effx check fails on an invalid configuration).
 export default defineConfig({
   ...effect(effxConfig.effect as EffectConfigInput),
   ignorePatterns: ["**/node_modules/**", "spikes/**", ".claude/**"],

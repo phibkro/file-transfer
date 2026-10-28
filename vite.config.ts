@@ -67,6 +67,12 @@ export default defineConfig({
       "typescript/no-unsafe-type-assertion": "off",
       // TypeScript already rejects use before declaration (TS2448); what remains are closures that run later.
       "eslint/no-use-before-define": "off",
+      // Destructuring into existing variables needs a parenthesised statement; keep it for declarations only.
+      "eslint/prefer-destructuring": ["error", { VariableDeclarator: { array: false, object: true }, AssignmentExpression: { array: false, object: false } }],
+      // Loops in async code wait on state that event handlers change during the awaits inside them.
+      "eslint/no-unmodified-loop-condition": "off",
+      // `void promise;` as a statement marks a deliberate fire-and-forget, which no-floating-promises then accepts.
+      "eslint/no-void": ["error", { allowAsStatement: true }],
     },
     overrides: [
       {
