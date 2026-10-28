@@ -1,10 +1,18 @@
 # 0004 Self-hosting on workerd or celld, Bun as fallback
 
-Status: proposed, confirmed by M0 (2026-10-28)
+Status: accepted for workerd (spike 0001, 2026-10-28); celld pending its own spike. Corrected 2026-10-28: celld is a Rust daemon, not Deno.
 
 ## Context
 
-Self-hosting must not require rewriting the Durable Object-based platform. workerd (Apache-2.0) runs Workers and Durable Objects on a single node; its README says it is not a hardened sandbox. celld (Deno, Apache-2.0, v0.1.0) runs them across machines with SQLite replicated to an S3-compatible bucket.
+Self-hosting must not require rewriting the Durable Object-based platform.
+
+- workerd (Apache-2.0) runs Workers and Durable Objects on a single node; its README says it is not a hardened sandbox. Spike 0001 ran the same bundle, hibernation included, on workerd and wrangler dev unchanged.
+- celld (denoland/celld, Rust, Apache-2.0) runs Workers applications as "self-hosted, distributed Durable Objects" across machines, with each object's SQLite replicated to a bucket the operator owns. The house research (`/srv/share/projects/kwyne/docs/research/celld-and-prior-art.md`, 2026-10-03) records v0.6.1 beta and these constraints, citing celld's docs:
+  - an output gate holds each response and each streamed chunk until a durability proof covers the writes it can reveal (confirmed on https://celld.dev/docs/guarantees);
+  - Durable Object migrations accept only `new_sqlite_classes`; no rename, delete or jurisdiction;
+  - only a fixed list of wrangler keys is accepted (no `routes`);
+  - deploys move resident objects and close WebSockets with 1012; hibernated sockets close when a cell moves;
+  - not safe for hostile multi-tenant use; one fleet runs one application.
 
 ## Decision
 
@@ -12,6 +20,7 @@ Self-hosting must not require rewriting the Durable Object-based platform. worke
 
 ## Consequences
 
-- M0 must confirm our code, including WebSocket hibernation and Effect, runs on workerd unchanged.
+- The relay must not write storage per forwarded frame: on celld every write delays the frames that follow it until it is durable. Session state changes (credits, meters) are batched or kept in socket attachments, and whether attachments count as gated writes on celld is a question for the celld spike.
+- Clients must treat close code 1012 as "reconnect and resume", which resume already requires.
 - Location hints and jurisdictions are Cloudflare-only; self-hosted placement is the operator's choice of machines.
-- celld becomes a production option only once two-host durability is proven.
+- celld becomes a production option only once a spike measures relay throughput under the output gate and two-host durability holds.

@@ -8,9 +8,12 @@ const [baseUrl = "ws://127.0.0.1:8787", mode = "direct", ...idleArguments] = pro
 const idleSeconds = idleArguments.length > 0 ? idleArguments.map(Number) : [2, 15, 75]
 const session = `hibernation-${mode}-${Date.now()}`
 
+/** Deployed stages require the token from alchemy.run.ts; local runs leave SPIKE_ACCESS_TOKEN unset. */
+const accessToken = process.env.SPIKE_ACCESS_TOKEN ? `&token=${encodeURIComponent(process.env.SPIKE_ACCESS_TOKEN)}` : ""
+
 const open = (role: string) =>
   new Promise<WebSocket>((resolve, reject) => {
-    const socket = new WebSocket(`${baseUrl}/relay/${session}/${role}?mode=${mode}`)
+    const socket = new WebSocket(`${baseUrl}/relay/${session}/${role}?mode=${mode}${accessToken}`)
     socket.binaryType = "arraybuffer"
     socket.addEventListener("open", () => resolve(socket), { once: true })
     socket.addEventListener("error", (event) => reject(new Error(`socket error for ${role}: ${String(event)}`)), { once: true })

@@ -22,6 +22,8 @@ import { Relay, RelayReference, type RelaySessionIdentifier } from "../../../ser
 
 interface Environment {
   readonly RELAY_SESSIONS: DurableObjectNamespace<RelaySession>
+  /** Required on deployed stages (alchemy.run.ts binds it); absent only on local workerd and wrangler dev. */
+  readonly SPIKE_ACCESS_TOKEN?: string
 }
 
 type Role = "sender" | "recipient"
@@ -265,9 +267,25 @@ const relayInWorker = (session: string, role: Role): Response => {
   return new Response(null, { status: 101, webSocket: client })
 }
 
+const textEncoder = new TextEncoder()
+
+/** Compares digests rather than the strings, so the comparison time does not depend on where they differ. */
+const tokenMatches = async (presented: string, expected: string): Promise<boolean> => {
+  const [left, right] = await Promise.all([presented, expected].map((value) => crypto.subtle.digest("SHA-256", textEncoder.encode(value))))
+  const leftBytes = new Uint8Array(left!)
+  const rightBytes = new Uint8Array(right!)
+  let difference = 0
+  for (let index = 0; index < leftBytes.length; index++) difference |= leftBytes[index]! ^ rightBytes[index]!
+  return difference === 0
+}
+
 export default {
   async fetch(request: Request, environment: Environment): Promise<Response> {
     const url = new URL(request.url)
+    // A deployed spike is a public relay; only holders of the token may use it.
+    if (environment.SPIKE_ACCESS_TOKEN !== undefined && !(await tokenMatches(url.searchParams.get("token") ?? "", environment.SPIKE_ACCESS_TOKEN))) {
+      return new Response("forbidden", { status: 403 })
+    }
     if (url.searchParams.get("mode") === "worker-only") {
       const workerOnly = /^\/relay\/([A-Za-z0-9-]{1,64})\/(sender|recipient)$/.exec(url.pathname)
       if (workerOnly !== null) return relayInWorker(workerOnly[1]!, workerOnly[2] as Role)

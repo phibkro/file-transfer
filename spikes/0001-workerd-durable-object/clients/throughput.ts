@@ -21,9 +21,12 @@ const pool = Array.from({ length: 8 }, () => {
   return buffer
 })
 
+/** Deployed stages require the token from alchemy.run.ts; local runs leave SPIKE_ACCESS_TOKEN unset. */
+const accessToken = process.env.SPIKE_ACCESS_TOKEN ? `&token=${encodeURIComponent(process.env.SPIKE_ACCESS_TOKEN)}` : ""
+
 const open = (role: string) =>
   new Promise<WebSocket>((resolve, reject) => {
-    const socket = new WebSocket(`${baseUrl}/relay/${session}/${role}?mode=${mode}`)
+    const socket = new WebSocket(`${baseUrl}/relay/${session}/${role}?mode=${mode}${accessToken}`)
     socket.binaryType = "arraybuffer"
     socket.addEventListener("open", () => resolve(socket), { once: true })
     socket.addEventListener("error", () => reject(new Error(`socket error for ${role}`)), { once: true })

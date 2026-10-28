@@ -18,3 +18,16 @@ bun clients/bunRelay.ts 8790                                # control: same prot
 ```
 
 Modes are chosen per connection with `?mode=direct|attached|effect|standard`. `worker-only` is a diagnostic that fails by design (cross-request I/O).
+
+## Deploying to Cloudflare (real-network measurements)
+
+Runs on your machine with your Alchemy profile (`alchemy profile edit --add Cloudflare` once, if you have not); credentials never leave it. The deployed relay is public, so it requires a token.
+
+```sh
+export SPIKE_ACCESS_TOKEN=$(openssl rand -hex 32)    # the clients send it too
+bun install && bun run deploy                         # stage "spike"; prints the Worker URL
+SPIKE_ACCESS_TOKEN=$SPIKE_ACCESS_TOKEN bun clients/throughput.ts wss://<worker-host> direct 64 1024 32
+bun run destroy                                       # when done
+```
+
+The stack (`alchemy.run.ts`) uploads the same prebuilt `dist/worker.js` with `bundle: false`, so compatibility flags (`no_web_socket_compression`) are used exactly as declared.
