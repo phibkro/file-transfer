@@ -23,9 +23,11 @@ const productionStage = "production"
 
 /**
  * Production's own hostname: a subdomain rather than a path on phibkro.org, so the app has an origin of its own
- * (no other page can reach its storage or script) and sits outside the Cloudflare Access login on the apex. The zone
- * must be in the deploying account. Previews keep their workers.dev URLs: a second-level name such as
- * `staging.send.phibkro.org` is not covered by the zone's universal certificate.
+ * (no other page can reach its storage or script) and sits outside the Cloudflare Access login on the apex. Previews
+ * are served on it too, at `<stage>.send.phibkro.org` (Cloudflare's custom-domain Previews, a beta option, with a
+ * wildcard record and certificate). The domain was attached once in the dashboard; declaring it exactly as attached,
+ * previews included, makes deploys only read it, so the CI token needs no write access on the zone
+ * (platforms/cloudflare/README.md). A mismatch here would make Alchemy detach and re-attach it.
  */
 const productionDomain = "send.phibkro.org"
 
@@ -93,7 +95,12 @@ export default Alchemy.Stack(
     }
 
     if (stage === productionStage) {
-      const production = yield* Cloudflare.Worker("Site", { ...worker, name: wrangler.name, domain: productionDomain, workersDev: true })
+      const production = yield* Cloudflare.Worker("Site", {
+        ...worker,
+        name: wrangler.name,
+        domain: { name: productionDomain, previews: true },
+        workersDev: true,
+      })
 
       return { stage, url: production.url }
     }

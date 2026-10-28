@@ -95,7 +95,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           bun run preview "pr-${{ github.event.pull_request.number }}" --yes 2>&1 | tee "$RUNNER_TEMP/deploy.log"
-          url="$(grep -oE 'https://[a-z0-9.-]+\.workers\.dev' "$RUNNER_TEMP/deploy.log" | tail -n 1)"
+          url="$(grep -oE 'https://[a-z0-9.-]+\.(send\.phibkro\.org|workers\.dev)' "$RUNNER_TEMP/deploy.log" | tail -n 1)"
           test -n "$url"
           echo "url=$url" >> "$GITHUB_OUTPUT"
       - name: Comment the preview URL

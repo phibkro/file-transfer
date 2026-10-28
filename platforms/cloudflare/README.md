@@ -28,14 +28,15 @@ Run from this directory after `bun install` at the repository root.
 
 ## Deploying from GitHub Actions
 
-`.github/workflows/checks.yml` deploys after the checks pass: each pull request from a branch of this repository gets a Worker Preview `pr-<number>` (URL commented on the pull request, verified by `apps/web`'s end-to-end check, destroyed when the pull request closes), and each push to main deploys production and verifies https://send.phibkro.org. Forks are only checked. Alchemy reads `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` from the environment and keeps its state in the account's state-store Worker, so CI and local deploys share state.
+`.github/workflows/checks.yml` deploys after the checks pass: each pull request from a branch of this repository gets a Worker Preview at `https://pr-<number>.send.phibkro.org` (URL commented on the pull request, verified by `apps/web`'s end-to-end check, destroyed when the pull request closes), and each push to main deploys production and verifies https://send.phibkro.org. Forks are only checked. Alchemy reads `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` from the environment and keeps its state in the account's state-store Worker, so CI and local deploys share state.
 
 One-time setup:
 
-1. Create an API token in the Cloudflare dashboard (My Profile, API Tokens) from the "Edit Cloudflare Workers" template, scoped to the deploying account and the `phibkro.org` zone, and add Zone DNS Edit for that zone (the custom domain) and Account Secrets Store Read (alchemy's state-store token lives there). The first run names any missing permission.
-2. `gh secret set CLOUDFLARE_API_TOKEN` (paste the token) and `gh secret set CLOUDFLARE_ACCOUNT_ID --body <account id>`.
-3. Optionally require a reviewer on the `production` environment (repository Settings, Environments).
-4. `gh variable set DEPLOYMENTS --body enabled` turns the deploy jobs on; delete the variable to turn them off.
+1. Attach `send.phibkro.org` to the `file-transfer` Worker once, with Previews enabled (dashboard: Worker, Domains, Add Domain; done 2026-10-28). Cloudflare creates the DNS records and certificates for it and `*.send.phibkro.org`. `alchemy.run.ts` declares it exactly that way, so deploys only read the attachment and the CI token needs no DNS or route write access.
+1. Create a CI token, either with `alchemy provider cloudflare token` (Alchemy 2.0.0-beta.84 run outside this repository; beta.83's command crashes) or in the dashboard, with: Account > Workers Scripts > Edit (the Worker, its Durable Object, assets and Previews), Account > Account Settings > Read, Account > Secrets Store > Read (Alchemy's state store keeps its token there), and Zone > Workers Routes > Read on `phibkro.org` only (so a deploy can see the domain is already attached). No DNS Edit and no Workers Routes Write: if the domain ever has to change, CI fails on permissions and the change is deployed from your machine. The first run names any other missing permission.
+1. `gh secret set CLOUDFLARE_API_TOKEN` (paste the token) and `gh secret set CLOUDFLARE_ACCOUNT_ID --body <account id>`.
+1. Optionally require a reviewer on the `production` environment (repository Settings, Environments).
+1. `gh variable set DEPLOYMENTS --body enabled` turns the deploy jobs on; delete the variable to turn them off.
 
 ## Not yet here
 
