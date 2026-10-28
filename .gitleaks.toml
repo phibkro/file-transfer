@@ -1,0 +1,6 @@
+# Secret scanning (docs/decisions/0009). Runs in CI on every push and pull request, and locally with
+# `bun run check:secrets`. The default rules apply; additions belong here with a reason.
+title = "file-transfer"
+
+[extend]
+useDefault = true

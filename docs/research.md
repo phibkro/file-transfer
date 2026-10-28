@@ -24,6 +24,14 @@ This file keeps the numbers and findings that drove decisions, as read on 2026-1
 | Send (timvisee) | MPL-2.0 | `ece.js` reference |
 | wormhole-crypto | MIT | `decryptStreamRange` idea for ranged resume |
 
+### Lifted so far
+
+| Origin | Licence | Into | What |
+| --- | --- | --- | --- |
+| phibkro/vektorprogrammet-reimagined, machine module (its ADR 0007) | same author | `libraries/machine` | Transition tables, `problems`, Mermaid output; simplified |
+| phibkro/vektorprogrammet-reimagined, store-capability contract suites (its ADR 0014) | same author | `libraries/conformance` | Named guarantees, broken variants as negative controls |
+| phibkro/vektorprogrammet-reimagined, module-layer check (its ADR 0015) | same author | `tools/quality` | Module graph rules as data, with a check |
+
 ## Platform numbers
 
 - Durable Objects: outgoing WebSocket messages free, incoming billed 20:1 ($0.15 per million requests), duration $12.50 per million GB-s on a fixed 128 MB; 32 MiB max received message; 1,000 requests/s soft limit per object. Relay estimate $0.3 to $2 per TB (arithmetic, not load-tested).

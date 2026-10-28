@@ -29,6 +29,7 @@ Startup phase: prove that people want this and that some will pay, before stabil
 
 ## M2 Transfer (weeks 3 and 4)
 
+- [x] Guarantees with negative controls in every service suite (ADR 0007), life cycles as machines (ADR 0008), module graph, Effect lint and secret scanning in `bun run check` and CI (ADR 0009)
 - [ ] `services/room` and `services/relay`: reference layers and conformance suites, then Cloudflare layers, credit-based flow control
 - [ ] `libraries/transport`: direct and relayed paths, relay-first switching, resume
 - [ ] `libraries/sink`: save tiers and OPFS resume bitmap

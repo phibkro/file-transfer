@@ -7,19 +7,27 @@
     "services/*",
     "platforms/*",
     "integrations/*",
-    "apps/*"
+    "apps/*",
+    "tools/*"
   ],
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "bun test",
-    "check": "bun run typecheck && bun test"
+    "check:graph": "bun tools/quality/src/checkModuleGraph.ts",
+    "lint": "effx check",
+    "check:effect": "effect-tsgo diagnostics --project tsconfig.json --strict --format text",
+    "check:secrets": "gitleaks git --redact --config .gitleaks.toml",
+    "check": "bun run typecheck && bun run check:graph && bun run lint && bun test"
   },
   "dependencies": {
     "effect": "^4.0.7"
   },
   "devDependencies": {
+    "@effect/tsgo": "0.48.0",
+    "@phibkro/oxlint-effect-plugin": "0.2.0",
     "@types/bun": "latest",
     "fast-check": "^4.0.0",
-    "typescript": "^5.9.0"
+    "oxlint": "1.86.0",
+    "typescript": "7.0.2"
   }
 }

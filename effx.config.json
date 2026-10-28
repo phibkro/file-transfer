@@ -1,0 +1,27 @@
+{
+  "effect": {
+    "strictness": "strict",
+    "trustedPureDependencies": [
+      { "specifier": "bun:test", "reason": "test runner; tools/quality rejects it in shipped files, so only the test role reaches it" },
+      { "specifier": "fast-check", "reason": "pure property-testing library; tools/quality rejects it in shipped files" },
+      { "specifier": "@file-transfer/conformance", "reason": "workspace test-support package; Bun links it through node_modules, so the gate sees a package; tools/quality checks the edge" },
+      { "specifier": "@file-transfer/conformance/guarantee", "reason": "workspace package of plain guarantee declarations, governed by its own group below; tools/quality checks the edge" },
+      { "specifier": "@file-transfer/format", "reason": "workspace package governed by its own group below; tools/quality checks the edge" },
+      { "specifier": "@file-transfer/machine", "reason": "workspace package governed by its own group below; tools/quality checks the edge" }
+    ],
+    "groups": [
+      {
+        "files": ["libraries/client/src/**", "libraries/machine/src/**", "libraries/sink/src/**", "libraries/transport/src/**", "libraries/conformance/src/guarantee.ts"],
+        "role": "effect-library",
+        "platform": "portable"
+      },
+      { "files": ["libraries/format/src/**", "tools/quality/src/moduleGraph.ts"], "role": "pure-library", "platform": "portable" },
+      { "files": ["services/*/src/**"], "role": "service", "platform": "portable" },
+      { "files": ["tools/quality/src/workspace.ts"], "role": "runtime-adapter", "platform": "node", "adapterDependencies": ["node:fs", "node:path", "oxc-parser"] },
+      { "files": ["tools/quality/src/checkModuleGraph.ts"], "role": "composition-root", "platform": "node" },
+      { "files": ["libraries/conformance/src/index.ts", "**/test/**"], "role": "test", "platform": "bun" }
+    ]
+  },
+  "oxlintConfig": "oxlint.config.ts",
+  "tsconfig": "tsconfig.json"
+}
