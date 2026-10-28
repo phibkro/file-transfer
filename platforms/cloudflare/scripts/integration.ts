@@ -8,8 +8,9 @@
  */
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
-import { encodeControlMessage, encodeUnit } from "@file-transfer/transport"
+import nodePath from "node:path"
+import { decodeControlMessage, encodeControlMessage, encodeUnit } from "@file-transfer/transport"
+import { Result } from "effect"
 import type { ControlMessage, Unit } from "@file-transfer/transport"
 
 const roomToken = "c123f8631c7587e150411d4221c44c682b288fdeb07bc3e0224b312b8d71ff35"
@@ -20,9 +21,9 @@ const stubMarker = "integration-stub-app"
 const port = 20_000 + Math.floor(Math.random() * 20_000)
 const origin = `http://127.0.0.1:${port}`
 const packageDirectory = new URL("..", import.meta.url).pathname
-const scratch = mkdtempSync(join(tmpdir(), "file-transfer-integration-"))
+const scratch = mkdtempSync(nodePath.join(tmpdir(), "file-transfer-integration-"))
 
-writeFileSync(join(scratch, "index.html"), `<!doctype html><title>stub</title><p>${stubMarker}</p>`)
+writeFileSync(nodePath.join(scratch, "index.html"), `<!doctype html><title>stub</title><p>${stubMarker}</p>`)
 
 const environment = { ...process.env, NO_PROXY: "127.0.0.1,localhost", no_proxy: "127.0.0.1,localhost", WRANGLER_SEND_METRICS: "false" }
 
@@ -40,7 +41,7 @@ const wrangler = Bun.spawn(
     "--assets",
     scratch,
     "--persist-to",
-    join(scratch, "state"),
+    nodePath.join(scratch, "state"),
     "--show-interactive-dev-session=false",
     "--log-level",
     "warn",
@@ -50,7 +51,10 @@ const wrangler = Bun.spawn(
 
 let passed = 0
 
-const check = (condition: boolean, description: string, detail?: unknown) => {
+/** What a failed check prints: a message, a few fields, or a value. */
+type Detail = ControlMessage | string | number | Readonly<Record<string, ControlMessage | string | number | boolean>>
+
+const check = (condition: boolean, description: string, detail?: Detail) => {
   if (!condition) {
     throw new Error(`FAILED: ${description}${detail === undefined ? "" : `\n  got: ${JSON.stringify(detail)}`}`)
   }
@@ -103,24 +107,37 @@ const connect = (roomIdentifier: string): Client => {
   })
 
   const opened = new Promise<boolean>((resolve) => {
-    socket.addEventListener("open", () => resolve(true))
-    socket.addEventListener("error", () => resolve(false))
-    socket.addEventListener("close", () => resolve(false))
+    socket.addEventListener("open", () => {
+      resolve(true)
+    })
+    socket.addEventListener("error", () => {
+      resolve(false)
+    })
+    socket.addEventListener("close", () => {
+      resolve(false)
+    })
   })
 
-  const closed = new Promise<{ code: number; reason: string }>((resolve) =>
-    socket.addEventListener("close", (event: CloseEvent) => resolve({ code: event.code, reason: event.reason })),
-  )
+  const closed = new Promise<{ code: number; reason: string }>((resolve) => {
+    socket.addEventListener("close", (event: CloseEvent) => {
+      resolve({ code: event.code, reason: event.reason })
+    })
+  })
 
   const next = async (timeoutMilliseconds = 5000) =>
     await new Promise<string | ArrayBuffer>((resolve, reject) => {
       const queued = queue.shift()
 
       if (queued !== undefined) {
-        return resolve(queued)
+        resolve(queued)
+
+        return
       }
 
-      const timer = setTimeout(() => reject(new Error("no message within the timeout")), timeoutMilliseconds)
+      const timer = setTimeout(() => {
+        reject(new Error("no message within the timeout"))
+      }, timeoutMilliseconds)
+
       waiters.push((message) => {
         clearTimeout(timer)
         resolve(message)
@@ -133,24 +150,35 @@ const connect = (roomIdentifier: string): Client => {
     return queue.length === 0
   }
 
-  return { socket, opened, closed, next, nothingWithin, sendControl: (message) => socket.send(encodeControlMessage(message)) }
-}
-
-const nextControl = async (client: Client): Promise<unknown> => {
-  const message = await client.next()
-
-  if (typeof message !== "string") {
-    throw new Error("expected a text frame, got a binary frame")
+  const sendControl = (message: ControlMessage) => {
+    socket.send(encodeControlMessage(message))
   }
 
-  return JSON.parse(message)
+  return { socket, opened, closed, next, nothingWithin, sendControl }
+}
+
+/** The next message, which must be a text frame holding a valid control message. */
+const nextControl = async (client: Client): Promise<ControlMessage> => {
+  const message = await client.next()
+
+  if (message instanceof ArrayBuffer) {
+    throw new TypeError("expected a text frame, got a binary frame")
+  }
+
+  const decoded = decodeControlMessage(message)
+
+  if (Result.isFailure(decoded)) {
+    throw new TypeError(`expected a control message, got ${message}`)
+  }
+
+  return decoded.success
 }
 
 const nextFrame = async (client: Client): Promise<Uint8Array> => {
   const message = await client.next()
 
-  if (typeof message === "string") {
-    throw new Error(`expected a binary frame, got ${message}`)
+  if (!(message instanceof ArrayBuffer)) {
+    throw new TypeError(`expected a binary frame, got ${message}`)
   }
 
   return new Uint8Array(message)
@@ -158,16 +186,21 @@ const nextFrame = async (client: Client): Promise<Uint8Array> => {
 
 const equalBytes = (left: Uint8Array, right: Uint8Array) => left.length === right.length && left.every((byte, index) => byte === right[index])
 
+/** The body of `201` from `POST /api/rooms`. */
+const isCreatedRoom = (body: unknown): body is { readonly roomIdentifier: string } =>
+  typeof body === "object" && body !== null && "roomIdentifier" in body && typeof body.roomIdentifier === "string"
+
 const createRoom = async (maximumRecipients: number): Promise<string> => {
   const response = await fetch(`${origin}/api/rooms`, { method: "POST", body: JSON.stringify({ roomTokenHash, maximumRecipients }) })
-  const body = (await response.json()) as { roomIdentifier?: string }
+  const body: unknown = await response.json()
+  const roomIdentifier = isCreatedRoom(body) ? body.roomIdentifier : ""
   check(
-    response.status === 201 && /^[A-Za-z0-9_-]{22}$/u.test(body.roomIdentifier ?? ""),
+    response.status === 201 && /^[A-Za-z0-9_-]{22}$/u.test(roomIdentifier),
     `POST /api/rooms (maximumRecipients ${maximumRecipients}) answers 201 with a room identifier`,
-    body,
+    { status: response.status, roomIdentifier },
   )
 
-  return body.roomIdentifier ?? ""
+  return roomIdentifier
 }
 
 /** Joins and returns the joined message. */
@@ -192,7 +225,8 @@ const run = async () => {
 
   // Routing and static assets.
   const app = await fetch(`${origin}/r/AAAAAAAAAAAAAAAAAAAAAA`)
-  check(app.status === 200 && (await app.text()).includes(stubMarker), "GET /r/<id> serves the single-page app")
+  const appText = await app.text()
+  check(app.status === 200 && appText.includes(stubMarker), "GET /r/<id> serves the single-page app")
   const unknownApi = await fetch(`${origin}/api/unknown`)
   check(unknownApi.status === 404 && (await unknownApi.json()) !== null, "an unknown /api path answers 404 from the Worker, not the app")
   const getRooms = await fetch(`${origin}/api/rooms`)
@@ -219,7 +253,8 @@ const run = async () => {
     JSON.stringify(await joinRoom(impostor, "sender", wrongToken)) === JSON.stringify({ type: "error", reason: "wrong room token" }),
     "a wrong token is refused",
   )
-  check((await impostor.closed).code === 1008, "and the socket is closed with 1008")
+  const impostorClosed = await impostor.closed
+  check(impostorClosed.code === 1008, "and the socket is closed with 1008")
 
   const early = connect(roomIdentifier)
   check(await early.opened, "a socket opens before joining")
@@ -228,13 +263,13 @@ const run = async () => {
 
   // The sender and a recipient.
   const firstSender = connect(roomIdentifier)
-  const senderJoined = (await joinRoom(firstSender, "sender")) as Record<string, unknown>
-  check(senderJoined.type === "joined" && senderJoined.senderPresent === true && senderJoined.recipientCount === 0, "the sender is admitted", senderJoined)
+  const senderJoined = await joinRoom(firstSender, "sender")
+  check(senderJoined.type === "joined" && senderJoined.senderPresent && senderJoined.recipientCount === 0, "the sender is admitted", senderJoined)
 
   // A reconnecting sender replaces the one the room still holds; the old socket is told why and closed with 4000.
   const sender = connect(roomIdentifier)
-  const replacingSender = (await joinRoom(sender, "sender")) as Record<string, unknown>
-  check(replacingSender.type === "joined" && replacingSender.senderPresent === true, "a newer sender join is admitted", replacingSender)
+  const replacingSender = await joinRoom(sender, "sender")
+  check(replacingSender.type === "joined" && replacingSender.senderPresent, "a newer sender join is admitted", replacingSender)
   const replacedSender = await nextControl(firstSender)
   const { code: replacedSenderCode } = await firstSender.closed
   check(
@@ -244,9 +279,9 @@ const run = async () => {
   )
 
   const firstRecipient = connect(roomIdentifier)
-  const recipientJoined = (await joinRoom(firstRecipient, "recipient")) as Record<string, unknown>
+  const recipientJoined = await joinRoom(firstRecipient, "recipient")
   check(
-    recipientJoined.type === "joined" && recipientJoined.senderPresent === true && recipientJoined.recipientCount === 1,
+    recipientJoined.type === "joined" && recipientJoined.senderPresent && recipientJoined.recipientCount === 1,
     "the recipient is admitted",
     recipientJoined,
   )
@@ -257,7 +292,7 @@ const run = async () => {
 
   // The room was created for one recipient, so a second recipient join is a reconnect that replaces the first.
   const recipient = connect(roomIdentifier)
-  const replacingRecipient = (await joinRoom(recipient, "recipient")) as Record<string, unknown>
+  const replacingRecipient = await joinRoom(recipient, "recipient")
   check(replacingRecipient.type === "joined" && replacingRecipient.recipientCount === 1, "a newer recipient join is admitted at the limit", replacingRecipient)
   const replacedRecipient = await nextControl(firstRecipient)
   const { code: replacedRecipientCode } = await firstRecipient.closed
@@ -320,7 +355,7 @@ const run = async () => {
   )
 
   const returningSender = connect(roomIdentifier)
-  const rejoined = (await joinRoom(returningSender, "sender")) as Record<string, unknown>
+  const rejoined = await joinRoom(returningSender, "sender")
   check(rejoined.type === "joined" && rejoined.recipientCount === 1, "the sender can rejoin after leaving", rejoined)
   check(
     JSON.stringify(await nextControl(recipient)) === JSON.stringify({ type: "peer", event: "joined", role: "sender" }),

@@ -41,12 +41,15 @@ const WranglerConfiguration = Schema.Struct({
 // A computed specifier, so TypeScript does not try to resolve a .jsonc module; Bun loads it and Schema checks it.
 const wranglerPath = "./wrangler.jsonc"
 
+const WranglerModule = Schema.Struct({ default: WranglerConfiguration })
+
 const loadWrangler = Effect.promise(async () => {
-  const module: { readonly default: unknown } = await import(wranglerPath)
+  const module: unknown = await import(wranglerPath)
 
   return module
 }).pipe(
-  Effect.flatMap((module) => Schema.decodeUnknownEffect(WranglerConfiguration)(module.default)),
+  Effect.flatMap((module) => Schema.decodeUnknownEffect(WranglerModule)(module)),
+  Effect.map((module) => module.default),
   Effect.orDie,
 )
 

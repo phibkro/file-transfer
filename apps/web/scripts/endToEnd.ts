@@ -19,9 +19,16 @@
 import { createHash, randomBytes } from "node:crypto"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import nodePath from "node:path"
 import { chromium } from "playwright"
 import type { Browser, Page, WebSocketRoute } from "playwright"
+
+declare global {
+  interface Window {
+    /** Set by the init script below: the extensions each socket negotiated. */
+    negotiatedSocketExtensions?: string[]
+  }
+}
 
 interface PayloadFile {
   readonly name: string
@@ -41,9 +48,12 @@ const configuredBase = process.env.BASE_URL
 const timeoutMilliseconds = Number(process.env.E2E_TIMEOUT_MS ?? 180_000)
 
 let passed = 0
-const payloadDirectory = mkdtempSync(join(tmpdir(), "file-transfer-e2e-files-"))
+const payloadDirectory = mkdtempSync(nodePath.join(tmpdir(), "file-transfer-e2e-files-"))
 
-const check = (condition: boolean, description: string, detail?: unknown) => {
+/** What a failed check prints. */
+type Detail = string | readonly string[] | Readonly<Record<string, string | number | undefined>>
+
+const check = (condition: boolean, description: string, detail?: Detail) => {
   if (!condition) {
     throw new Error(`FAILED: ${description}${detail === undefined ? "" : `\n  got: ${JSON.stringify(detail)}`}`)
   }
@@ -59,7 +69,7 @@ const payload = (sizes: readonly (readonly [string, number])[]): PayloadFile[] =
 
 const startLocalServer = async () => {
   const port = 20_000 + Math.floor(Math.random() * 20_000)
-  const scratch = mkdtempSync(join(tmpdir(), "file-transfer-e2e-"))
+  const scratch = mkdtempSync(nodePath.join(tmpdir(), "file-transfer-e2e-"))
   const environment = { ...process.env, NO_PROXY: "127.0.0.1,localhost", no_proxy: "127.0.0.1,localhost", WRANGLER_SEND_METRICS: "false" }
   const build = Bun.spawnSync(["bun", "run", "build"], { cwd: platformDirectory, env: environment, stdout: "ignore", stderr: "pipe" })
 
@@ -79,9 +89,9 @@ const startLocalServer = async () => {
       "--inspector-port",
       String(port + 1),
       "--assets",
-      join(appDirectory, "dist"),
+      nodePath.join(appDirectory, "dist"),
       "--persist-to",
-      join(scratch, "state"),
+      nodePath.join(scratch, "state"),
       "--show-interactive-dev-session=false",
       "--log-level",
       "warn",
@@ -93,7 +103,9 @@ const startLocalServer = async () => {
 
   for (let attempt = 0; attempt < 120; attempt++) {
     try {
-      if ((await fetch(`${origin}/`)).ok) {
+      const response = await fetch(`${origin}/`)
+
+      if (response.ok) {
         return {
           origin,
           stop: async () => {
@@ -115,17 +127,39 @@ const startLocalServer = async () => {
 }
 
 /** A fresh browser profile whose page records every request URL and every socket frame it sends. */
+interface CloseOptions {
+  code?: number
+  reason?: string
+}
+
+/** Close options with only the fields a close actually carried. */
+const closeOptions = (code: number | undefined, reason: string | undefined) => {
+  const options: CloseOptions = {}
+
+  if (code !== undefined) {
+    options.code = code
+  }
+
+  if (reason !== undefined) {
+    options.reason = reason
+  }
+
+  return options
+}
+
 const openPage = async (browser: Browser, routed = true) => {
   const context = await browser.newContext()
   // Records the extensions each socket negotiated, to report whether the relay path compresses.
   await context.addInitScript(() => {
     const negotiated: string[] = []
     const Native = window.WebSocket
-    Object.assign(window, { negotiatedSocketExtensions: negotiated })
+    window.negotiatedSocketExtensions = negotiated
     window.WebSocket = class extends Native {
       constructor(url: string | URL, protocols?: string | string[]) {
         super(url, protocols)
-        this.addEventListener("open", () => negotiated.push(this.extensions))
+        this.addEventListener("open", () => {
+          negotiated.push(this.extensions)
+        })
       }
     }
   })
@@ -141,22 +175,27 @@ const openPage = async (browser: Browser, routed = true) => {
       const server = socket.connectToServer()
       observed.sockets.push({ page: socket, server })
       socket.onMessage((message) => {
-        observed.frames.push(typeof message === "string" ? Buffer.from(message) : message)
+        observed.frames.push(Buffer.isBuffer(message) ? message : Buffer.from(message))
         server.send(message)
       })
-      server.onMessage((message) => socket.send(message))
-
-      const closeOptions = (code: number | undefined, reason: string | undefined) => ({
-        ...(code === undefined ? {} : { code }),
-        ...(reason === undefined ? {} : { reason }),
+      server.onMessage((message) => {
+        socket.send(message)
       })
 
-      socket.onClose(async (code, reason) => await server.close(closeOptions(code, reason)))
-      server.onClose(async (code, reason) => await socket.close(closeOptions(code, reason)))
+      socket.onClose(async (code, reason) => {
+        await server.close(closeOptions(code, reason))
+      })
+      server.onClose(async (code, reason) => {
+        await socket.close(closeOptions(code, reason))
+      })
     })
   }
 
-  return { page, observed, errors, close: async () => await context.close() }
+  const close = async () => {
+    await context.close()
+  }
+
+  return { page, observed, errors, close }
 }
 
 const status = async (page: Page) => await page.evaluate(() => window.fileTransferTest?.status())
@@ -206,12 +245,12 @@ const offer = async (sender: Page, base: string, files: readonly PayloadFile[]) 
   } else {
     // The browser reads files lazily, so they stay until the run ends; deleting them early is a source change.
     for (const file of files) {
-      writeFileSync(join(payloadDirectory, file.name), file.buffer)
+      writeFileSync(nodePath.join(payloadDirectory, file.name), file.buffer)
     }
 
     await sender.setInputFiles(
       "#files",
-      files.map((file) => join(payloadDirectory, file.name)),
+      files.map((file) => nodePath.join(payloadDirectory, file.name)),
     )
   }
 
@@ -253,21 +292,31 @@ const checkNothingLeaks = (link: string, files: readonly PayloadFile[], observed
   check(leaks.length === 0, "no request URL or socket frame carries the secret or a file name", leaks.slice(0, 5))
 }
 
-const transfer = async (browser: Browser, base: string, scenario: "basic" | "resume" | "half-open" | "throughput") => {
-  const files =
-    scenario === "throughput"
-      ? payload([["hotel-video.bin", 256 * 1024 * 1024]])
-      : scenario === "basic"
-        ? payload([
-            ["alpha-report.bin", 1_500_000],
-            ["empty-notes.dat", 0],
-            ["bravo-letter.txt", 300_001],
-            ["charlie-image.bin", 65_536],
-          ])
-        : payload([
-            ["delta-archive.bin", 16 * 1024 * 1024 + 123],
-            ["echo-readme.txt", 5000],
-          ])
+type TransferScenario = "basic" | "resume" | "half-open" | "throughput"
+
+/** File names and sizes per scenario. */
+type PayloadPlan = { readonly [Scenario in TransferScenario]: readonly (readonly [string, number])[] }
+
+const payloadSizes: PayloadPlan = {
+  basic: [
+    ["alpha-report.bin", 1_500_000],
+    ["empty-notes.dat", 0],
+    ["bravo-letter.txt", 300_001],
+    ["charlie-image.bin", 65_536],
+  ],
+  resume: [
+    ["delta-archive.bin", 16 * 1024 * 1024 + 123],
+    ["echo-readme.txt", 5000],
+  ],
+  "half-open": [
+    ["delta-archive.bin", 16 * 1024 * 1024 + 123],
+    ["echo-readme.txt", 5000],
+  ],
+  throughput: [["hotel-video.bin", 256 * 1024 * 1024]],
+}
+
+const transfer = async (browser: Browser, base: string, scenario: TransferScenario) => {
+  const files = payload(payloadSizes[scenario])
 
   const total = files.reduce((sum, file) => sum + file.buffer.length, 0)
   // Playwright copies every routed frame through its own protocol, so throughput runs without routing.
@@ -280,7 +329,8 @@ const transfer = async (browser: Browser, base: string, scenario: "basic" | "res
     await recipient.page.goto(link)
     await waitForStatus(recipient.page, ["reviewing", "failed"])
     check((await status(recipient.page)) === "reviewing", `${scenario}: the recipient reviews the contract before any content`)
-    const listed = (await recipient.page.locator(".file-list li").allTextContents()).join("\n")
+    const listedItems = await recipient.page.locator(".file-list li").allTextContents()
+    const listed = listedItems.join("\n")
     check(
       files.every((file) => listed.includes(file.name)),
       `${scenario}: the recipient sees every file name`,
@@ -309,7 +359,7 @@ const transfer = async (browser: Browser, base: string, scenario: "basic" | "res
     check((await status(recipient.page)) === "complete" && (await status(sender.page)) === "complete", `${scenario}: both sides complete`, {
       recipient: await recipient.page.evaluate(() => window.fileTransferTest?.failure()),
     })
-    const hashes = await recipient.page.evaluate(() => window.fileTransferTest?.fileHashes())
+    const hashes = await recipient.page.evaluate(async () => await window.fileTransferTest?.fileHashes())
     check(JSON.stringify(hashes) === JSON.stringify(files.map((file) => sha256(file.buffer))), `${scenario}: every file arrives byte-identical`, hashes)
 
     if (scenario === "resume" || scenario === "half-open") {
@@ -326,8 +376,8 @@ const transfer = async (browser: Browser, base: string, scenario: "basic" | "res
     } else {
       // Unrouted sockets negotiate with the real server, so this is the relay's own answer to the browser's offer.
       const extensions = [
-        ...(await sender.page.evaluate(() => Reflect.get(window, "negotiatedSocketExtensions") as string[])),
-        ...(await recipient.page.evaluate(() => Reflect.get(window, "negotiatedSocketExtensions") as string[])),
+        ...(await sender.page.evaluate(() => window.negotiatedSocketExtensions ?? [])),
+        ...(await recipient.page.evaluate(() => window.negotiatedSocketExtensions ?? [])),
       ]
 
       // Reported, not checked: the layer in front of the Worker (Cloudflare's edge, Miniflare locally) answers the
