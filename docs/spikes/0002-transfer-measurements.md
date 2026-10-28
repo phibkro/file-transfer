@@ -14,6 +14,16 @@ Unless stated otherwise, both browsers and the server ran on one 2-core cloud co
 | Which browsers receive correctly?      | Chromium and Firefox pass the standard suite in CI (GitHub's runners, Playwright 1.63). WebKit on Linux completes the transfer, with every record matching its label in memory, but three of four files read back with the wrong SHA-256 (the empty file matches). Under investigation; see below.                                               |
 | Production, over the internet          | Before these changes: 268 MB in 44 to 45 s (6.0 to 6.1 MB/s) with both browsers in one container, all checks passing (spike 0001 follow-up).                                                                                                                                                                                                     |
 
+## Real networks (completion reports from production, send.phibkro.org)
+
+Reports come from the completion summary's Copy report: size, time, speed, reconnects, Cloudflare location and browser, never names or links. Transfers of a few megabytes measure mostly labelling and connection setup, so they show that a path works, not what it can carry; throughput needs 100 MB or more.
+
+| Date       | Sender's network                   | Recipient's network | Size   | Time  | Speed    | Reconnects | Location | Sender's browser |
+| ---------- | ---------------------------------- | ------------------- | ------ | ----- | -------- | ---------- | -------- | ---------------- |
+| 2026-10-29 | Home (not stated further)          | not reported        | 1.1 MB | 0.2 s | 5.6 MB/s | 0          | OSL      | Firefox 157      |
+| 2026-10-29 | Wi-Fi off, Tailscale on            | not reported        | 1.5 MB | 0.8 s | 1.8 MB/s | 0          | OSL      | Firefox 157      |
+| 2026-10-29 | Cellular (Wi-Fi and Tailscale off) | not reported        | 2.6 MB | 0.7 s | 4.0 MB/s | 0          | OSL      | Firefox 157      |
+
 ## Method notes
 
 - **Latency** comes from `latencyProxy.ts`, a TCP proxy between the browsers and `wrangler dev` that holds every chunk for half the round trip in each direction and keeps order; bandwidth is not limited, so it isolates the effect of distance.
