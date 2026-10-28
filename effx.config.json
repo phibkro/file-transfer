@@ -29,6 +29,10 @@
       {
         "specifier": "@file-transfer/machine",
         "reason": "workspace package governed by its own group below; tools/quality checks the edge"
+      },
+      {
+        "specifier": "@file-transfer/transport",
+        "reason": "workspace package governed by its own group below; tools/quality checks the edge"
       }
     ],
     "groups": [
@@ -64,6 +68,28 @@
         "files": ["tools/quality/src/checkModuleGraph.ts"],
         "role": "composition-root",
         "platform": "node"
+      },
+      {
+        "files": ["apps/web/src/files.ts", "apps/web/src/ranges.ts", "apps/web/src/credits.ts"],
+        "role": "pure-library",
+        "platform": "portable"
+      },
+      {
+        "files": [
+          "apps/web/src/connection.ts",
+          "apps/web/src/storage.ts",
+          "apps/web/src/report.ts",
+          "apps/web/src/view.ts",
+          "apps/web/src/sender.ts",
+          "apps/web/src/recipient.ts"
+        ],
+        "role": "runtime-adapter",
+        "platform": "browser"
+      },
+      {
+        "files": ["apps/web/src/main.ts"],
+        "role": "composition-root",
+        "platform": "browser"
       },
       {
         "files": [

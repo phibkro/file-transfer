@@ -46,5 +46,9 @@ Each binary frame carries one unit: a 9-byte prefix, then the unit's bytes as `p
 2. Both join. The sender sends the header and manifest records (the contract) as soon as a recipient is present.
 3. The recipient checks the key commitment, opens the contract, shows names and sizes, and answers `accept` with the digest, followed by `credit`.
 4. The sender sends each label page before the records it covers, and one data record per credit. Units may arrive in any order; the recipient drops a record whose page it has not verified and asks for it again with `want`.
-5. On a dropped connection the recipient rejoins and sends `accept` (same digest) and `want` with the ranges it still lacks.
+5. On a dropped connection (either side) the dropped endpoint rejoins; the sender offers the contract again as in step 2, and the recipient answers the same header with `accept` (same digest), then `want` with the ranges it still lacks, then `credit`.
 6. When every record matched, the recipient sends `complete` and commits its files.
+
+### Sender debt
+
+Every `accept` starts a session in which the sender owes every record, in order, and holds no credit. A `want` that arrives after an `accept` and before that session's first `credit` replaces the debt with its ranges (resume: the recipient lists exactly what it lacks). A `want` that arrives later puts its ranges ahead of the rest of the debt (a dropped record). The sender resends the label pages covering any wanted range before the records. There is no "all sent" message: a recipient that sees no record arrive for a while, with records still missing and the sender present, sends `want` with what it lacks (`apps/web` waits 5 seconds).

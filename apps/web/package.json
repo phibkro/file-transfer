@@ -4,7 +4,15 @@
   "private": true,
   "license": "AGPL-3.0-only",
   "type": "module",
+  "scripts": {
+    "dev": "vp dev",
+    "build": "vp build",
+    "preview": "vp preview"
+  },
   "dependencies": {
-    "@file-transfer/client": "workspace:*"
+    "@file-transfer/parcel": "workspace:*",
+    "@file-transfer/transport": "workspace:*",
+    "effect": "^4.0.7",
+    "vite-plus": "1.4.0"
   }
 }
