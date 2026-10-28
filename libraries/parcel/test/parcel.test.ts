@@ -53,7 +53,7 @@ describe("constants", () => {
   })
 
   it("record sizes are powers of two from 2^12 to 2^22", () => {
-    expect(recordSize(16)).toBe(65536)
+    expect(recordSize(16)).toBe(65_536)
     expect(() => recordSize(11)).toThrow()
     expect(() => recordSize(23)).toThrow()
   })
@@ -108,23 +108,26 @@ describe("room token", () => {
 })
 
 describe("header", () => {
-  const fields = { recordSizeExponent: 16, sequence: 0x01020304, salt: new Uint8Array(16).fill(1), keyCommitment: new Uint8Array(32).fill(2) }
+  const fields = { recordSizeExponent: 16, sequence: 0x01_02_03_04, salt: new Uint8Array(16).fill(1), keyCommitment: new Uint8Array(32).fill(2) }
 
   it("round trips", () => {
     const header = encodeHeader(fields)
     expect(header.bytes.length).toBe(58)
     expect(toHex(header.bytes.subarray(6, 10))).toBe("01020304")
-    expect(decodeHeader(header.bytes).sequence).toBe(0x01020304)
+    expect(decodeHeader(header.bytes).sequence).toBe(0x01_02_03_04)
     expect(toHex(decodeHeader(header.bytes).salt)).toBe(toHex(fields.salt))
   })
 
   it("rejects bad magic, versions and exponents", async () => {
     const bytes = encodeHeader(fields).bytes
+
     const changed = (offset: number, value: number) => {
       const copy = bytes.slice()
       copy[offset] = value
+
       return copy
     }
+
     expect(await outcomeOf(() => decodeHeader(changed(0, 0)))).toBe("invalid-header")
     expect(await outcomeOf(() => decodeHeader(changed(4, 2)))).toBe("unsupported-version")
     expect(await outcomeOf(() => decodeHeader(changed(5, 11)))).toBe("invalid-record-size")
@@ -163,10 +166,10 @@ describe("name profile", () => {
       "zero​width",
       "byte﻿order",
       "line separator",
-      "lone\ud800",
+      "lone\uD800",
       "unassigned\u0897",
-      "noncharacter\ufdd0",
-      "plane\u{10ffff}",
+      "noncharacter\uFDD0",
+      "plane\u{10FFFF}",
       "café",
       "trailing.",
       "trailing ",
@@ -180,7 +183,10 @@ describe("name profile", () => {
       `${"é".repeat(128)}`,
       `${"a/".repeat(2049)}b`,
     ]
-    for (const name of rejected) expect([name, nameProblem(name)]).not.toEqual([name, undefined])
+
+    for (const name of rejected) {
+      expect([name, nameProblem(name)]).not.toEqual([name, undefined])
+    }
   })
 
   it("rejects code points unassigned in Unicode 15.1, so every normalizer at 15.1 or later agrees", () => {
@@ -213,7 +219,10 @@ describe("name profile", () => {
 
 describe("media types", () => {
   it("accepts empty or lowercase type/subtype and rejects the rest", () => {
-    for (const valid of ["", "text/plain", "image/svg+xml", "application/vnd.ms-excel", "text/html"]) expect(isValidMediaType(valid)).toBe(true)
+    for (const valid of ["", "text/plain", "image/svg+xml", "application/vnd.ms-excel", "text/html"]) {
+      expect(isValidMediaType(valid)).toBe(true)
+    }
+
     for (const invalid of ["Text/Plain", "text", "text/plain; charset=utf-8", "a\r\nX-Injected: 1/b", "/plain", "text/", `a/${"b".repeat(126)}`]) {
       expect([invalid, isValidMediaType(invalid)]).toEqual([invalid, false])
     }
@@ -235,6 +244,7 @@ describe("canonical manifest", () => {
 
   it("rejects every other spelling of the same content and every rule violation", async () => {
     const file = '{"name":"a","size":1,"mediaType":""}'
+
     const spellings = [
       `﻿{"version":1,"files":[${file}],"totalSize":1}`,
       `{"version":1, "files":[${file}],"totalSize":1}`,
@@ -250,7 +260,10 @@ describe("canonical manifest", () => {
       `{"version":1,"files":[{"name":"a","size":${2 ** 40},"mediaType":""}],"totalSize":${2 ** 40}}`,
       `{"version":1,"files":[${file}],"totalSize":2}`,
     ]
-    for (const text of spellings) expect([text, await outcomeOf(() => decodeManifestJson(textEncoder.encode(text)))]).toEqual([text, "invalid-manifest"])
+
+    for (const text of spellings) {
+      expect([text, await outcomeOf(() => decodeManifestJson(textEncoder.encode(text)))]).toEqual([text, "invalid-manifest"])
+    }
   })
 
   it("round trips any valid manifest, and validation equals decoding its canonical form", () => {
@@ -284,9 +297,11 @@ describe("manifest stream", () => {
     expect(plaintext.length).toBe(manifestRecordSize)
     expect(toHex(plaintext.subarray(0, 8))).toBe("0000000000000003")
     expect(decodeManifestStream(plaintext)).toEqual({ manifest: small, recordCount: 3, rootHash: terms.rootHash })
+
     const large = createManifest(
       Array.from({ length: 200 }, (_, index) => ({ name: `folder/file-${index}.bin`, size: index, mediaType: "application/octet-stream" })),
     )
+
     const stream = encodeManifestStream(large, terms)
     expect(stream.length).toBe(manifestRecordCount(encodeManifestJson(large).length) * manifestRecordSize)
     expect(stream.length / manifestRecordSize).toBeGreaterThan(1)
@@ -317,6 +332,7 @@ describe("records", () => {
   const setup = async () => {
     const keys = await deriveParcelKeys(new Uint8Array(32).fill(3), createSalt())
     const header = encodeHeader({ recordSizeExponent: 16, sequence: 0, salt: new Uint8Array(16), keyCommitment: keys.keyCommitment })
+
     return { keys, header: header.bytes }
   }
 
@@ -353,6 +369,7 @@ describe("records", () => {
     const position = new Uint8Array(9)
     new DataView(position.buffer).setBigUint64(0, 5n)
     const prefix = new Uint8Array(7).fill(0x42)
+
     const sealed = new Uint8Array(
       await crypto.subtle.encrypt(
         { name: "AES-GCM", iv: recordNonce(5, prefix), additionalData: concatBytes(header, position), tagLength: 128 },
@@ -360,6 +377,7 @@ describe("records", () => {
         plaintext,
       ),
     )
+
     expect(await outcome(openRecord(keys.content, header, { counter: 5, isFinal: false }, concatBytes(prefix, sealed), "r"))).toBe("authentication-failed")
   })
 })
@@ -367,6 +385,7 @@ describe("records", () => {
 describe("Merkle tree (RFC 6962)", () => {
   // Leaf inputs and roots from transparency-dev/merkle, testonly/constants.go.
   const leaves = ["", "00", "10", "2021", "3031", "40414243", "5051525354555657", "606162636465666768696a6b6c6d6e6f"].map(fromHex)
+
   const roots = [
     "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
     "fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125",
@@ -396,14 +415,18 @@ describe("Merkle tree (RFC 6962)", () => {
           const labels = await Promise.all(input.map(leafHash))
           const root = await merkleRoot(input)
           const pageCount = Math.ceil(labels.length / pageSize)
+
           const pageRoots = await Promise.all(
             Array.from({ length: pageCount }, (_, page) => treeHash(labels, page * pageSize, Math.min(labels.length, (page + 1) * pageSize))),
           )
+
           expect(toHex(await treeHash(pageRoots))).toBe(toHex(root))
+
           for (let page = 0; page < pageCount; page++) {
             const path = auditPath(pageCount, page)
             const siblings = await Promise.all(path.map((sibling) => treeHash(pageRoots, sibling.start, sibling.end)))
             expect(toHex(await foldAuditPath(pageRoots[page] ?? new Uint8Array(32), path, siblings))).toBe(toHex(root))
+
             if (siblings.length > 0) {
               const wrong = siblings.map((hash, index) => (index === 0 ? new Uint8Array(32) : hash))
               expect(toHex(await foldAuditPath(pageRoots[page] ?? new Uint8Array(32), path, wrong))).not.toBe(toHex(root))

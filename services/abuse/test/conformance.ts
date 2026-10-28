@@ -1,9 +1,11 @@
 /** The Abuse service's conformance suite: one check per guarantee in `abuseGuarantees`. */
 import { conformanceSuite } from "@file-transfer/conformance"
 import { expect } from "vite-plus/test"
-import { Effect, type Layer } from "effect"
+import { Effect } from "effect"
+import type { Layer } from "effect"
 import fc from "fast-check"
-import { Abuse, abuseGuarantees, type AbuseGuarantee, type Notice } from "../src/index.ts"
+import { Abuse, abuseGuarantees } from "../src/index.ts"
+import type { AbuseGuarantee, Notice } from "../src/index.ts"
 
 const runner =
   (layer: Layer.Layer<Abuse>) =>
@@ -32,6 +34,7 @@ export const abuseSuite = conformanceSuite<Abuse, AbuseGuarantee>({
               return yield* (yield* Abuse).submitNotice(completeNotice(`${url}#${fragment}`))
             }),
           )
+
           expect(receipt.storedLocation).toBe(url)
         }),
         { numRuns: 50 },
@@ -42,13 +45,18 @@ export const abuseSuite = conformanceSuite<Abuse, AbuseGuarantee>({
       await fc.assert(
         fc.asyncProperty(fc.subarray([...requiredFields], { minLength: 1 }), fc.constantFrom("", " ", "\t\n"), async (blanked, blank) => {
           const notice = { ...completeNotice("https://host/r/room"), ...Object.fromEntries(blanked.map((field) => [field, blank])) }
+
           const result = await runner(layer)(
             Effect.gen(function* () {
               return yield* Effect.result((yield* Abuse).submitNotice(notice))
             }),
           )
+
           expect(result._tag).toBe("Failure")
-          if (result._tag === "Failure") expect([...result.failure.missing].sort()).toEqual([...blanked].sort())
+
+          if (result._tag === "Failure") {
+            expect([...result.failure.missing].sort()).toEqual([...blanked].sort())
+          }
         }),
         { numRuns: 30 },
       )
@@ -62,9 +70,11 @@ export const abuseSuite = conformanceSuite<Abuse, AbuseGuarantee>({
           const second = yield* abuse.submitNotice(completeNotice("https://host/r/room-2#secret"))
           yield* abuse.decide({ noticeIdentifier: first.noticeIdentifier, decision: { kind: "revoke", roomIdentifier: "room-1", reason: "malware" } })
           yield* abuse.decide({ noticeIdentifier: second.noticeIdentifier, decision: { kind: "reject", reason: "not illegal" } })
+
           return { room1: yield* abuse.isRevoked("room-1"), room2: yield* abuse.isRevoked("room-2"), room3: yield* abuse.isRevoked("room-3") }
         }),
       )
+
       expect(outcome).toEqual({ room1: true, room2: false, room3: false })
     },
 
@@ -73,9 +83,11 @@ export const abuseSuite = conformanceSuite<Abuse, AbuseGuarantee>({
         Effect.gen(function* () {
           const abuse = yield* Abuse
           const result = yield* Effect.result(abuse.decide({ noticeIdentifier: "no-such-notice", decision: { kind: "reject", reason: "x" } }))
+
           return result._tag === "Failure" ? result.failure._tag : "decided"
         }),
       )
+
       expect(tag).toBe("NoticeNotFound")
     },
   },

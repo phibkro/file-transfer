@@ -20,13 +20,22 @@ export interface TelemetrySnapshot {
 }
 
 export const sizeBucketFor = (bytes: number): SizeBucket => {
-  if (bytes < 10 * 1000 ** 2) return "under-10-megabytes"
-  if (bytes < 1000 ** 3) return "under-1-gigabyte"
-  if (bytes < 10 * 1000 ** 3) return "under-10-gigabytes"
+  if (bytes < 10 * 1000 ** 2) {
+    return "under-10-megabytes"
+  }
+
+  if (bytes < 1000 ** 3) {
+    return "under-1-gigabyte"
+  }
+
+  if (bytes < 10 * 1000 ** 3) {
+    return "under-10-gigabytes"
+  }
+
   return "10-gigabytes-or-more"
 }
 
-export const eventKinds: ReadonlyArray<TelemetryEventKind> = [
+export const eventKinds: readonly TelemetryEventKind[] = [
   "room-created",
   "recipient-joined",
   "transfer-completed",
@@ -35,7 +44,7 @@ export const eventKinds: ReadonlyArray<TelemetryEventKind> = [
   "path-relayed",
 ]
 
-export const sizeBuckets: ReadonlyArray<SizeBucket> = ["under-10-megabytes", "under-1-gigabyte", "under-10-gigabytes", "10-gigabytes-or-more"]
+export const sizeBuckets: readonly SizeBucket[] = ["under-10-megabytes", "under-1-gigabyte", "under-10-gigabytes", "10-gigabytes-or-more"]
 
 export class Telemetry extends Context.Service<
   Telemetry,
@@ -70,8 +79,9 @@ export const makeTelemetryReference = (faults: ReadonlySet<TelemetryGuarantee> =
     Telemetry,
     Effect.gen(function* () {
       const counters = yield* Ref.make(emptySnapshot())
-      const recent = yield* Ref.make<ReadonlyArray<TelemetryEvent>>([])
+      const recent = yield* Ref.make<readonly TelemetryEvent[]>([])
       const increment = faults.has("telemetry/exact-counts") ? 2 : 1
+
       return {
         record: (event) =>
           Effect.andThen(
@@ -87,6 +97,7 @@ export const makeTelemetryReference = (faults: ReadonlySet<TelemetryGuarantee> =
         snapshot: faults.has("telemetry/aggregate-only")
           ? Effect.map(Effect.all([Ref.get(counters), Ref.get(recent)]), ([snapshot, events]): TelemetrySnapshot => {
               const leaky = { ...snapshot, recentEvents: events }
+
               return leaky
             })
           : Ref.get(counters),

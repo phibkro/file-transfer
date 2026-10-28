@@ -2,24 +2,21 @@
  * The room's decisions, one describe per rule of docs/protocol.md, each with the case it must allow and the case it
  * must refuse. Token hashes come from the parcel test vectors (libraries/parcel/test/vectors/vectors.json).
  */
-import { decodeControlMessage, encodeControlMessage, type ControlMessage } from "@file-transfer/transport"
+import { decodeControlMessage, encodeControlMessage } from "@file-transfer/transport"
+import type { ControlMessage } from "@file-transfer/transport"
 import { Result } from "effect"
 import { describe, expect, it } from "vite-plus/test"
 import {
-  type Admission,
-  type Attachment,
   decide,
   decodeCreateRoom,
   encodeRoomIdentifier,
   errorReasons,
-  type Instruction,
   joinTokenOf,
   maximumTextLength,
-  type Participant,
-  type RoomRecord,
   roomIdentifierPattern,
   violationCloseCode,
 } from "../src/room.ts"
+import type { Admission, Attachment, Instruction, Participant, RoomRecord } from "../src/room.ts"
 
 const roomToken = "c123f8631c7587e150411d4221c44c682b288fdeb07bc3e0224b312b8d71ff35"
 const roomTokenHash = "73319e970435543e1c8bffbfc146f114897920579cc850fb0393eda79d89c085"
@@ -32,30 +29,35 @@ const recipient = (index: number): Participant => ({ role: "recipient", particip
 const as = (participant: Participant): Attachment => ({ admitted: true, ...participant })
 
 const joinText = (role: "sender" | "recipient") => encodeControlMessage({ type: "join", role, roomToken })
+
 const admission = (presentedTokenHash = roomTokenHash, maximumRecipients = 2): Admission => ({
   record: record(maximumRecipients),
   presentedTokenHash,
   participantIdentifier: "new-participant",
 })
 
-const joinAs = (role: "sender" | "recipient", participants: ReadonlyArray<Participant>, presented = roomTokenHash, maximumRecipients = 2) =>
+const joinAs = (role: "sender" | "recipient", participants: readonly Participant[], presented = roomTokenHash, maximumRecipients = 2) =>
   decide(fresh, participants, { type: "text", text: joinText(role), admission: admission(presented, maximumRecipients) })
 
 const decoded = (text: string): ControlMessage => {
   const result = decodeControlMessage(text)
-  if (Result.isFailure(result)) throw new Error(`not a control message: ${text}`)
+
+  if (Result.isFailure(result)) {
+    throw new Error(`not a control message: ${text}`)
+  }
+
   return result.success
 }
 
 /** Asserts the room answered with an error naming `reason` and then closed the socket as a violation. */
-const expectViolation = (instructions: ReadonlyArray<Instruction>, reason: string) => {
+const expectViolation = (instructions: readonly Instruction[], reason: string) => {
   expect(instructions).toHaveLength(2)
   const [reply, close] = instructions
   expect(reply?.type === "reply" && decoded(reply.text)).toEqual({ type: "error", reason })
   expect(close).toEqual({ type: "close", code: violationCloseCode, reason })
 }
 
-const admitted = (instructions: ReadonlyArray<Instruction>) => instructions.find((instruction) => instruction.type === "admit")
+const admitted = (instructions: readonly Instruction[]) => instructions.find((instruction) => instruction.type === "admit")
 
 describe("room creation", () => {
   it("accepts a token hash and a recipient limit of 1 to 16", () => {
@@ -77,8 +79,9 @@ describe("room creation", () => {
       { roomTokenHash },
       null,
       "text",
-    ])
+    ]) {
       expect(decodeCreateRoom(body)).toBeUndefined()
+    }
   })
 
   it("encodes 16 bytes as a 22-character base64url identifier", () => {
@@ -214,7 +217,7 @@ describe("binary frames flow only from the sender to every admitted recipient", 
 })
 
 describe("recipient control messages go to the sender", () => {
-  const relayed: ReadonlyArray<ControlMessage> = [
+  const relayed: readonly ControlMessage[] = [
     { type: "accept", sequence: 1, digest: "a".repeat(64) },
     { type: "decline", sequence: 1 },
     { type: "credit", records: 64 },
@@ -245,13 +248,15 @@ describe("recipient control messages go to the sender", () => {
       { type: "peer", event: "joined", role: "sender" },
       { type: "error", reason: "spoofed" },
       { type: "unknown" },
-    ])
+    ]) {
       expectViolation(decide(as(recipient(1)), [sender], { type: "text", text: JSON.stringify(message) }), errorReasons.notAllowedForRecipient)
+    }
   })
 
   it("refuses text that is not a control message", () => {
-    for (const text of ["not json", "[]", "null", `{"records":1}`, `{"type":7}`])
+    for (const text of ["not json", "[]", "null", `{"records":1}`, `{"type":7}`]) {
       expectViolation(decide(as(recipient(1)), [sender], { type: "text", text }), errorReasons.notAControlMessage)
+    }
   })
 
   it("refuses text longer than the limit", () => {
@@ -273,13 +278,14 @@ describe("sender abort goes to the recipients", () => {
       { type: "credit", records: 1 },
       { type: "accept", sequence: 1, digest: "a".repeat(64) },
       { type: "complete", sequence: 1 },
-    ])
+    ]) {
       expectViolation(decide(as(sender), [sender, recipient(1)], { type: "text", text: JSON.stringify(message) }), errorReasons.notAllowedForSender)
+    }
   })
 })
 
 describe("peer presence events", () => {
-  const peerTexts = (instructions: ReadonlyArray<Instruction>) =>
+  const peerTexts = (instructions: readonly Instruction[]) =>
     instructions.flatMap((instruction) => (instruction.type === "relay" ? [{ to: instruction.to, message: decoded(instruction.text) }] : []))
 
   it("tells the sender when a recipient joins, and not the other recipients", () => {

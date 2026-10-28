@@ -20,7 +20,8 @@ import { createHash, randomBytes } from "node:crypto"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { chromium, type Browser, type Page, type WebSocketRoute } from "playwright"
+import { chromium } from "playwright"
+import type { Browser, Page, WebSocketRoute } from "playwright"
 
 interface PayloadFile {
   readonly name: string
@@ -29,34 +30,43 @@ interface PayloadFile {
 }
 
 interface Observed {
-  readonly urls: Array<string>
-  readonly frames: Array<Buffer>
-  readonly sockets: Array<{ readonly page: WebSocketRoute; readonly server: WebSocketRoute }>
+  readonly urls: string[]
+  readonly frames: Buffer[]
+  readonly sockets: { readonly page: WebSocketRoute; readonly server: WebSocketRoute }[]
 }
 
 const appDirectory = new URL("..", import.meta.url).pathname
 const platformDirectory = new URL("../../../platforms/cloudflare/", import.meta.url).pathname
-const configuredBase = process.env["BASE_URL"]
-const timeoutMilliseconds = Number(process.env["E2E_TIMEOUT_MS"] ?? 180_000)
+const configuredBase = process.env.BASE_URL
+const timeoutMilliseconds = Number(process.env.E2E_TIMEOUT_MS ?? 180_000)
 
 let passed = 0
 const payloadDirectory = mkdtempSync(join(tmpdir(), "file-transfer-e2e-files-"))
+
 const check = (condition: boolean, description: string, detail?: unknown) => {
-  if (!condition) throw new Error(`FAILED: ${description}${detail === undefined ? "" : `\n  got: ${JSON.stringify(detail)}`}`)
+  if (!condition) {
+    throw new Error(`FAILED: ${description}${detail === undefined ? "" : `\n  got: ${JSON.stringify(detail)}`}`)
+  }
+
   passed++
   console.log(`ok ${passed} ${description}`)
 }
 
 const sha256 = (buffer: Buffer) => createHash("sha256").update(buffer).digest("hex")
-const payload = (sizes: ReadonlyArray<readonly [string, number]>): Array<PayloadFile> =>
+
+const payload = (sizes: readonly (readonly [string, number])[]): PayloadFile[] =>
   sizes.map(([name, size]) => ({ name, mimeType: "application/octet-stream", buffer: randomBytes(size) }))
 
 const startLocalServer = async () => {
-  const port = 20000 + Math.floor(Math.random() * 20000)
+  const port = 20_000 + Math.floor(Math.random() * 20_000)
   const scratch = mkdtempSync(join(tmpdir(), "file-transfer-e2e-"))
   const environment = { ...process.env, NO_PROXY: "127.0.0.1,localhost", no_proxy: "127.0.0.1,localhost", WRANGLER_SEND_METRICS: "false" }
   const build = Bun.spawnSync(["bun", "run", "build"], { cwd: platformDirectory, env: environment, stdout: "ignore", stderr: "pipe" })
-  if (build.exitCode !== 0) throw new Error(`platform build failed:\n${build.stderr.toString()}`)
+
+  if (build.exitCode !== 0) {
+    throw new Error(`platform build failed:\n${build.stderr.toString()}`)
+  }
+
   const wrangler = Bun.spawn(
     [
       "bunx",
@@ -78,7 +88,9 @@ const startLocalServer = async () => {
     ],
     { cwd: platformDirectory, env: environment, stdout: "ignore", stderr: "pipe" },
   )
+
   const origin = `http://127.0.0.1:${port}`
+
   for (let attempt = 0; attempt < 120; attempt++) {
     try {
       if ((await fetch(`${origin}/`)).ok) {
@@ -94,8 +106,10 @@ const startLocalServer = async () => {
     } catch {
       // not listening yet
     }
+
     await Bun.sleep(500)
   }
+
   wrangler.kill()
   throw new Error("wrangler dev did not start within 60 s")
 }
@@ -105,11 +119,11 @@ const openPage = async (browser: Browser, routed = true) => {
   const context = await browser.newContext()
   // Records the extensions each socket negotiated, to report whether the relay path compresses.
   await context.addInitScript(() => {
-    const negotiated: Array<string> = []
+    const negotiated: string[] = []
     const Native = window.WebSocket
     Object.assign(window, { negotiatedSocketExtensions: negotiated })
     window.WebSocket = class extends Native {
-      constructor(url: string | URL, protocols?: string | Array<string>) {
+      constructor(url: string | URL, protocols?: string | string[]) {
         super(url, protocols)
         this.addEventListener("open", () => negotiated.push(this.extensions))
       }
@@ -117,10 +131,11 @@ const openPage = async (browser: Browser, routed = true) => {
   })
   const page = await context.newPage()
   const observed: Observed = { urls: [], frames: [], sockets: [] }
-  const errors: Array<string> = []
+  const errors: string[] = []
   page.on("request", (request) => observed.urls.push(request.url()))
   page.on("pageerror", (error) => errors.push(error.message))
-  if (routed)
+
+  if (routed) {
     await page.routeWebSocket(/\/api\/rooms\/.+\/socket/, (socket) => {
       observed.urls.push(socket.url())
       const server = socket.connectToServer()
@@ -130,23 +145,30 @@ const openPage = async (browser: Browser, routed = true) => {
         server.send(message)
       })
       server.onMessage((message) => socket.send(message))
+
       const closeOptions = (code: number | undefined, reason: string | undefined) => ({
         ...(code === undefined ? {} : { code }),
         ...(reason === undefined ? {} : { reason }),
       })
+
       socket.onClose((code, reason) => server.close(closeOptions(code, reason)))
       server.onClose((code, reason) => socket.close(closeOptions(code, reason)))
     })
+  }
+
   return { page, observed, errors, close: () => context.close() }
 }
 
 const status = (page: Page) => page.evaluate(() => window.fileTransferTest?.status())
-const waitForStatus = (page: Page, wanted: ReadonlyArray<string>, timeout = timeoutMilliseconds) =>
+
+const waitForStatus = (page: Page, wanted: readonly string[], timeout = timeoutMilliseconds) =>
   page.waitForFunction((statuses) => statuses.includes(window.fileTransferTest?.status() ?? ""), wanted, { timeout })
+
 const waitForProgress = (page: Page, fraction: number) =>
   page.waitForFunction(
     (wanted) => {
       const progress = window.fileTransferTest?.progress()
+
       return progress !== undefined && progress.total > 0 && progress.done / progress.total >= wanted
     },
     fraction,
@@ -159,48 +181,71 @@ const waitForProgress = (page: Page, fraction: number) =>
  */
 const cutSocket = async (observed: Observed, mode: "clean" | "half-open") => {
   const socket = observed.sockets.at(-1)
-  if (socket === undefined) throw new Error("no socket to cut")
+
+  if (socket === undefined) {
+    throw new Error("no socket to cut")
+  }
+
   await socket.page.close({ code: 1012, reason: "e2e cut" })
-  if (mode === "clean") await socket.server.close({ code: 1001, reason: "e2e cut" })
+
+  if (mode === "clean") {
+    await socket.server.close({ code: 1001, reason: "e2e cut" })
+  }
 }
 
 const describe = async (label: string, page: Page, observed: Observed) =>
   `${label}: status ${await status(page)}, progress ${JSON.stringify(await page.evaluate(() => window.fileTransferTest?.progress()))}, failure ${await page.evaluate(() => window.fileTransferTest?.failure())}, sockets ${observed.sockets.length}`
 
-const offer = async (sender: Page, base: string, files: ReadonlyArray<PayloadFile>) => {
+const offer = async (sender: Page, base: string, files: readonly PayloadFile[]) => {
   await sender.goto(`${base}/`)
   // Playwright takes in-memory files only up to 50 MB in total, so larger payloads go through a temporary directory.
   const total = files.reduce((sum, file) => sum + file.buffer.length, 0)
-  if (total < 40 * 1024 * 1024) await sender.setInputFiles("#files", [...files])
-  else {
+
+  if (total < 40 * 1024 * 1024) {
+    await sender.setInputFiles("#files", [...files])
+  } else {
     // The browser reads files lazily, so they stay until the run ends; deleting them early is a source change.
-    for (const file of files) writeFileSync(join(payloadDirectory, file.name), file.buffer)
+    for (const file of files) {
+      writeFileSync(join(payloadDirectory, file.name), file.buffer)
+    }
+
     await sender.setInputFiles(
       "#files",
       files.map((file) => join(payloadDirectory, file.name)),
     )
   }
+
   await waitForStatus(sender, ["waiting-for-recipient", "failed"])
   check(
     (await status(sender)) === "waiting-for-recipient",
     "the sender creates a room and waits",
     await sender.evaluate(() => window.fileTransferTest?.failure()),
   )
+
   return sender.inputValue("#link")
 }
 
 /** The invariant from CLAUDE.md, as seen from the browsers: nothing they send carries the secret or a file name. */
-const checkNothingLeaks = (link: string, files: ReadonlyArray<PayloadFile>, observedList: ReadonlyArray<Observed>) => {
+const checkNothingLeaks = (link: string, files: readonly PayloadFile[], observedList: readonly Observed[]) => {
   const secret = new URL(link).hash.slice(1)
   check(secret.length >= 32, "the link carries its secret in the fragment")
   const needles = [secret, ...files.map((file) => file.name)]
-  const leaks: Array<string> = []
+  const leaks: string[] = []
+
   for (const observed of observedList) {
-    for (const url of observed.urls)
-      for (const needle of needles) if (url.includes(needle)) leaks.push(`url contains ${needle === secret ? "the secret" : needle}`)
-    for (const frame of observed.frames)
-      for (const needle of needles) if (frame.includes(Buffer.from(needle))) leaks.push(`frame contains ${needle === secret ? "the secret" : needle}`)
+    for (const url of observed.urls) {
+      for (const needle of needles) {
+        if (url.includes(needle)) leaks.push(`url contains ${needle === secret ? "the secret" : needle}`)
+      }
+    }
+
+    for (const frame of observed.frames) {
+      for (const needle of needles) {
+        if (frame.includes(Buffer.from(needle))) leaks.push(`frame contains ${needle === secret ? "the secret" : needle}`)
+      }
+    }
   }
+
   check(leaks.length === 0, "no request URL or socket frame carries the secret or a file name", leaks.slice(0, 5))
 }
 
@@ -217,13 +262,15 @@ const transfer = async (browser: Browser, base: string, scenario: "basic" | "res
           ])
         : payload([
             ["delta-archive.bin", 16 * 1024 * 1024 + 123],
-            ["echo-readme.txt", 5_000],
+            ["echo-readme.txt", 5000],
           ])
+
   const total = files.reduce((sum, file) => sum + file.buffer.length, 0)
   // Playwright copies every routed frame through its own protocol, so throughput runs without routing.
   const routed = scenario !== "throughput"
   const sender = await openPage(browser, routed)
   const recipient = await openPage(browser, routed)
+
   try {
     const link = await offer(sender.page, base, files)
     await recipient.page.goto(link)
@@ -237,6 +284,7 @@ const transfer = async (browser: Browser, base: string, scenario: "basic" | "res
     )
     await recipient.page.getByRole("button", { name: "Accept" }).click()
     const started = performance.now()
+
     try {
       if (scenario === "resume" || scenario === "half-open") {
         const mode = scenario === "resume" ? "clean" : "half-open"
@@ -245,36 +293,44 @@ const transfer = async (browser: Browser, base: string, scenario: "basic" | "res
         await waitForProgress(recipient.page, 0.6)
         await cutSocket(sender.observed, mode)
       }
+
       await waitForStatus(recipient.page, ["complete", "failed"])
       await waitForStatus(sender.page, ["complete", "failed"])
     } catch (error) {
       console.log(`   ${await describe("sender", sender.page, sender.observed)}\n   ${await describe("recipient", recipient.page, recipient.observed)}`)
       throw error
     }
+
     const seconds = (performance.now() - started) / 1000
     check((await status(recipient.page)) === "complete" && (await status(sender.page)) === "complete", `${scenario}: both sides complete`, {
       recipient: await recipient.page.evaluate(() => window.fileTransferTest?.failure()),
     })
     const hashes = await recipient.page.evaluate(() => window.fileTransferTest?.fileHashes())
     check(JSON.stringify(hashes) === JSON.stringify(files.map((file) => sha256(file.buffer))), `${scenario}: every file arrives byte-identical`, hashes)
+
     if (scenario === "resume" || scenario === "half-open") {
       check(recipient.observed.sockets.length >= 2 && sender.observed.sockets.length >= 2, `${scenario}: both sides reconnected after their socket was cut`, {
         recipient: recipient.observed.sockets.length,
         sender: sender.observed.sockets.length,
       })
     }
+
     console.log(`   ${scenario}: ${(total / 1e6).toFixed(1)} MB in ${seconds.toFixed(1)} s (${(total / 1e6 / seconds).toFixed(1)} MB/s)`)
-    if (routed) checkNothingLeaks(link, files, [sender.observed, recipient.observed])
-    else {
+
+    if (routed) {
+      checkNothingLeaks(link, files, [sender.observed, recipient.observed])
+    } else {
       // Unrouted sockets negotiate with the real server, so this is the relay's own answer to the browser's offer.
       const extensions = [
-        ...(await sender.page.evaluate(() => Reflect.get(window, "negotiatedSocketExtensions") as Array<string>)),
-        ...(await recipient.page.evaluate(() => Reflect.get(window, "negotiatedSocketExtensions") as Array<string>)),
+        ...(await sender.page.evaluate(() => Reflect.get(window, "negotiatedSocketExtensions") as string[])),
+        ...(await recipient.page.evaluate(() => Reflect.get(window, "negotiatedSocketExtensions") as string[])),
       ]
+
       // Reported, not checked: the layer in front of the Worker (Cloudflare's edge, Miniflare locally) answers the
       // browser's permessage-deflate offer before the Worker runs, so neither the Worker nor the page can refuse it.
       console.log(`   ${scenario}: negotiated socket extensions ${JSON.stringify([...new Set(extensions)])}`)
     }
+
     check(sender.errors.length === 0 && recipient.errors.length === 0, `${scenario}: no uncaught page errors`, [...sender.errors, ...recipient.errors])
   } finally {
     await sender.close()
@@ -285,6 +341,7 @@ const transfer = async (browser: Browser, base: string, scenario: "basic" | "res
 const decline = async (browser: Browser, base: string) => {
   const sender = await openPage(browser)
   const recipient = await openPage(browser)
+
   try {
     const link = await offer(sender.page, base, payload([["foxtrot-decline.bin", 10_000]]))
     await recipient.page.goto(link)
@@ -302,6 +359,7 @@ const wrongKey = async (browser: Browser, base: string) => {
   const sender = await openPage(browser)
   const damaged = await openPage(browser)
   const wrong = await openPage(browser)
+
   try {
     const link = await offer(sender.page, base, payload([["golf-secret.bin", 10_000]]))
     await damaged.page.goto(link.replace(/#.*/, "#AAAA"))
@@ -321,8 +379,11 @@ const wrongKey = async (browser: Browser, base: string) => {
 
 const local = configuredBase === undefined ? await startLocalServer() : undefined
 const base = configuredBase ?? local?.origin ?? ""
+
 console.log(`end to end against ${base}`)
+
 const browser = await chromium.launch()
+
 try {
   const page = await browser.newPage()
   const response = await page.goto(`${base}/r/some-room`)
@@ -330,7 +391,11 @@ try {
   await page.close()
   await transfer(browser, base, "basic")
   await transfer(browser, base, "resume")
-  if (process.env["E2E_HALF_OPEN"] !== "0") await transfer(browser, base, "half-open")
+
+  if (process.env.E2E_HALF_OPEN !== "0") {
+    await transfer(browser, base, "half-open")
+  }
+
   await transfer(browser, base, "throughput")
   await decline(browser, base)
   await wrongKey(browser, base)

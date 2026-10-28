@@ -29,7 +29,8 @@ export type Decision =
   | { readonly kind: "reject"; readonly reason: string }
 
 export class NoticeNotFound extends Data.TaggedError("NoticeNotFound")<{ readonly noticeIdentifier: NoticeIdentifier }> {}
-export class NoticeIncomplete extends Data.TaggedError("NoticeIncomplete")<{ readonly missing: ReadonlyArray<string> }> {}
+
+export class NoticeIncomplete extends Data.TaggedError("NoticeIncomplete")<{ readonly missing: readonly string[] }> {}
 
 export const abuseGuarantees = declareGuarantees([
   {
@@ -64,6 +65,7 @@ export class Abuse extends Context.Service<
 /** Removes everything from the first `#`, which in a share link is the decryption key. */
 export const stripFragment = (location: string): string => {
   const index = location.indexOf("#")
+
   return index === -1 ? location : location.slice(0, index)
 }
 
@@ -82,28 +84,41 @@ export const makeAbuseReference = (faults: ReadonlySet<AbuseGuarantee> = new Set
       const random = yield* Crypto.Crypto
       /** Secure randomness failing is a defect of the runtime, not an outcome a caller can handle. */
       const randomIdentifier = Effect.map(Effect.orDie(random.randomBytes(16)), toHex)
+
       return {
         submitNotice: (notice) =>
           Effect.gen(function* () {
             const missing = (["location", "explanation", "submitterName", "submitterEmail"] as const).filter((field) => notice[field].trim() === "")
-            if (missing.length > 0 && !faults.has("abuse/complete-notices-only")) return yield* new NoticeIncomplete({ missing })
+
+            if (missing.length > 0 && !faults.has("abuse/complete-notices-only")) {
+              return yield* new NoticeIncomplete({ missing })
+            }
+
             const receipt: NoticeReceipt = {
               noticeIdentifier: yield* randomIdentifier,
               receivedAtMilliseconds: yield* Clock.currentTimeMillis,
               storedLocation: faults.has("abuse/fragment-never-stored") ? notice.location : stripFragment(notice.location),
             }
+
             yield* Ref.update(notices, (all) => new Map(all).set(receipt.noticeIdentifier, receipt))
+
             return receipt
           }),
         decide: ({ noticeIdentifier, decision }) =>
           Effect.gen(function* () {
             const all = yield* Ref.get(notices)
             const notice = all.get(noticeIdentifier)
+
             if (notice === undefined) {
-              if (faults.has("abuse/unknown-notice-not-found")) return
+              if (faults.has("abuse/unknown-notice-not-found")) {
+                return
+              }
+
               return yield* new NoticeNotFound({ noticeIdentifier })
             }
+
             yield* Ref.set(notices, new Map(all).set(noticeIdentifier, { ...notice, decision }))
+
             if (decision.kind === "revoke" && !faults.has("abuse/revocation-applies")) {
               yield* Ref.update(revoked, (set) => new Set(set).add(decision.roomIdentifier))
             }

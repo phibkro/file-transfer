@@ -4,6 +4,7 @@ import { makeTelemetryReference, sizeBucketFor, sizeBuckets, TelemetryReference,
 import { telemetrySuite } from "./conformance.ts"
 
 telemetrySuite.run("reference", TelemetryReference)
+
 telemetrySuite.negativeControls(
   "reference",
   telemetryGuarantees.map((guarantee) => ({ violates: guarantee.identifier, layer: makeTelemetryReference(new Set([guarantee.identifier])) })),
@@ -14,7 +15,10 @@ describe("size buckets", () => {
     fc.assert(
       fc.property(fc.nat(), fc.nat(), (left, right) => {
         const order = (bytes: number) => sizeBuckets.indexOf(sizeBucketFor(bytes))
-        if (left <= right) expect(order(left)).toBeLessThanOrEqual(order(right))
+
+        if (left <= right) {
+          expect(order(left)).toBeLessThanOrEqual(order(right))
+        }
       }),
     )
   })

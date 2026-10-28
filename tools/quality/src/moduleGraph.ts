@@ -11,9 +11,9 @@ export type Kind = "library" | "service" | "platform" | "integration" | "app" | 
 interface KindRule {
   readonly directory: string
   /** Kinds this kind may take workspace dependencies on. */
-  readonly mayDependOn: ReadonlyArray<Kind>
+  readonly mayDependOn: readonly Kind[]
   /** Outside packages allowed in shipped source, or "any" for kinds that exist to wrap runtimes and vendors. */
-  readonly externals: ReadonlyArray<string> | "any"
+  readonly externals: readonly string[] | "any"
   /** Whether shipped source may import runtime modules (`node:*`, `bun:*`, `cloudflare:*`). */
   readonly runtimeModules: boolean
 }
@@ -29,7 +29,7 @@ export const kindRules: { readonly [K in Kind]: KindRule } = {
 }
 
 /** Specifiers that only test code (and files a package marks as test support) may import. */
-export const testOnlySpecifiers: ReadonlyArray<string> = ["vite-plus/test", "bun:test", "fast-check", "effect/testing", "@file-transfer/conformance"]
+export const testOnlySpecifiers: readonly string[] = ["vite-plus/test", "bun:test", "fast-check", "effect/testing", "@file-transfer/conformance"]
 
 export const workspaceScope = "@file-transfer/"
 
@@ -46,13 +46,13 @@ export interface PackageFacts {
   readonly kind: Kind
   /** Path relative to the repository root, such as `services/room`. */
   readonly directory: string
-  readonly dependencies: ReadonlyArray<string>
+  readonly dependencies: readonly string[]
   /** The package's `devDependencies`, importable only from development-only files. */
-  readonly developmentDependencies: ReadonlyArray<string>
+  readonly developmentDependencies: readonly string[]
   /** Shipped files allowed to import test-only specifiers, from `fileTransfer.testSupportFiles` in package.json. */
-  readonly testSupportFiles: ReadonlyArray<string>
+  readonly testSupportFiles: readonly string[]
   readonly sourceFileCount: number
-  readonly imports: ReadonlyArray<ImportFact>
+  readonly imports: readonly ImportFact[]
 }
 
 export type Violation =
@@ -64,7 +64,7 @@ export type Violation =
   | { readonly rule: "test-only-in-source"; readonly packageName: string; readonly file: string; readonly specifier: string }
   | { readonly rule: "escaping-relative-import"; readonly packageName: string; readonly file: string; readonly specifier: string }
   | { readonly rule: "unused-dependency"; readonly packageName: string; readonly dependency: string }
-  | { readonly rule: "dependency-cycle"; readonly packages: ReadonlyArray<string> }
+  | { readonly rule: "dependency-cycle"; readonly packages: readonly string[] }
 
 /** Modules the runtime provides rather than a package: Node and Bun built-ins, and the Workers runtime's `cloudflare:*`. */
 const runtimeModulePrefixes = ["node:", "bun:", "cloudflare:"]
@@ -74,25 +74,33 @@ const isRelative = (specifier: string) => specifier.startsWith("./") || specifie
 /** `@scope/name/sub` becomes `@scope/name`; `name/sub` becomes `name`. */
 export const packageOf = (specifier: string): string => {
   const parts = specifier.split("/")
+
   return specifier.startsWith("@") ? parts.slice(0, 2).join("/") : (parts[0] ?? specifier)
 }
 
 /** Whether a relative import from `file` stays inside the package directory. */
 const staysInside = (file: string, specifier: string): boolean => {
   const segments = file.split("/").slice(0, -1)
+
   for (const part of specifier.split("/")) {
     if (part === "..") {
-      if (segments.length === 0) return false
+      if (segments.length === 0) {
+        return false
+      }
+
       segments.pop()
-    } else if (part !== ".") segments.push(part)
+    } else if (part !== ".") {
+      segments.push(part)
+    }
   }
+
   return true
 }
 
 const isTestOnly = (specifier: string) => testOnlySpecifiers.includes(specifier)
 
-export const checkModuleGraph = (packages: ReadonlyArray<PackageFacts>, rootDevelopmentDependencies: ReadonlyArray<string>): Array<Violation> => {
-  const violations: Array<Violation> = []
+export const checkModuleGraph = (packages: readonly PackageFacts[], rootDevelopmentDependencies: readonly string[]): Violation[] => {
+  const violations: Violation[] = []
   const byName = new Map(packages.map((facts) => [facts.name, facts]))
 
   for (const facts of packages) {
@@ -102,9 +110,11 @@ export const checkModuleGraph = (packages: ReadonlyArray<PackageFacts>, rootDeve
 
     for (const dependency of facts.dependencies) {
       const target = byName.get(dependency)
+
       if (target !== undefined) {
-        if (!rule.mayDependOn.includes(target.kind))
+        if (!rule.mayDependOn.includes(target.kind)) {
           violations.push({ rule: "forbidden-kind-edge", packageName: facts.name, dependency, from: facts.kind, to: target.kind })
+        }
       } else if (dependency.startsWith(workspaceScope)) {
         violations.push({ rule: "unknown-workspace-package", packageName: facts.name, file: "package.json", specifier: dependency })
       } else if (rule.externals !== "any" && !rule.externals.includes(dependency)) {
@@ -115,76 +125,131 @@ export const checkModuleGraph = (packages: ReadonlyArray<PackageFacts>, rootDeve
     for (const fact of facts.imports) {
       const { file, specifier, developmentOnly } = fact
       const shipped = !developmentOnly && !facts.testSupportFiles.includes(file)
+
       if (isRelative(specifier)) {
-        if (!staysInside(file, specifier)) violations.push({ rule: "escaping-relative-import", packageName: facts.name, file, specifier })
+        if (!staysInside(file, specifier)) {
+          violations.push({ rule: "escaping-relative-import", packageName: facts.name, file, specifier })
+        }
+
         continue
       }
-      if (shipped && isTestOnly(specifier)) violations.push({ rule: "test-only-in-source", packageName: facts.name, file, specifier })
+
+      if (shipped && isTestOnly(specifier)) {
+        violations.push({ rule: "test-only-in-source", packageName: facts.name, file, specifier })
+      }
+
       if (isRuntimeModule(specifier)) {
-        if (shipped && !rule.runtimeModules) violations.push({ rule: "runtime-module-in-source", packageName: facts.name, file, specifier })
+        if (shipped && !rule.runtimeModules) {
+          violations.push({ rule: "runtime-module-in-source", packageName: facts.name, file, specifier })
+        }
+
         continue
       }
+
       const dependency = packageOf(specifier)
-      if (dependency === facts.name) continue
+
+      if (dependency === facts.name) {
+        continue
+      }
+
       if (dependency.startsWith(workspaceScope) && !byName.has(dependency)) {
         violations.push({ rule: "unknown-workspace-package", packageName: facts.name, file, specifier })
         continue
       }
+
       used.add(dependency)
       const providedForTests = !shipped && (rootDevelopmentDependencies.includes(dependency) || facts.developmentDependencies.includes(dependency))
-      if (!declared.has(dependency) && !providedForTests) violations.push({ rule: "undeclared-dependency", packageName: facts.name, file, dependency })
+
+      if (!declared.has(dependency) && !providedForTests) {
+        violations.push({ rule: "undeclared-dependency", packageName: facts.name, file, dependency })
+      }
     }
 
     // A package with no source yet may declare the edges it will need; the kind rules above still apply to them.
     if (facts.sourceFileCount > 0) {
       for (const dependency of facts.dependencies) {
         const unknown = dependency.startsWith(workspaceScope) && !byName.has(dependency)
-        if (!used.has(dependency) && !unknown) violations.push({ rule: "unused-dependency", packageName: facts.name, dependency })
+
+        if (!used.has(dependency) && !unknown) {
+          violations.push({ rule: "unused-dependency", packageName: facts.name, dependency })
+        }
       }
     }
   }
 
   violations.push(...findCycles(packages))
+
   return violations
 }
 
-const findCycles = (packages: ReadonlyArray<PackageFacts>): Array<Violation> => {
+const findCycles = (packages: readonly PackageFacts[]): Violation[] => {
   const edges = new Map(packages.map((facts) => [facts.name, facts.dependencies.filter((dependency) => packages.some((other) => other.name === dependency))]))
   const state = new Map<string, "visiting" | "done">()
-  const cycles: Array<Violation> = []
-  const visit = (name: string, path: ReadonlyArray<string>) => {
-    if (state.get(name) === "done") return
-    if (state.get(name) === "visiting") {
-      cycles.push({ rule: "dependency-cycle", packages: [...path.slice(path.indexOf(name)), name] })
+  const cycles: Violation[] = []
+
+  const visit = (name: string, path: readonly string[]) => {
+    if (state.get(name) === "done") {
       return
     }
+
+    if (state.get(name) === "visiting") {
+      cycles.push({ rule: "dependency-cycle", packages: [...path.slice(path.indexOf(name)), name] })
+
+      return
+    }
+
     state.set(name, "visiting")
-    for (const next of edges.get(name) ?? []) visit(next, [...path, name])
+
+    for (const next of edges.get(name) ?? []) {
+      visit(next, [...path, name])
+    }
+
     state.set(name, "done")
   }
-  for (const name of [...edges.keys()].sort()) visit(name, [])
+
+  for (const name of [...edges.keys()].sort()) {
+    visit(name, [])
+  }
+
   return cycles
 }
 
 export const describeViolation = (violation: Violation): string => {
   switch (violation.rule) {
-    case "unknown-workspace-package":
+    case "unknown-workspace-package": {
       return `${violation.packageName} (${violation.file}): ${violation.specifier} is not a workspace package`
-    case "undeclared-dependency":
+    }
+
+    case "undeclared-dependency": {
       return `${violation.packageName} (${violation.file}): imports ${violation.dependency}, which package.json does not declare`
-    case "forbidden-kind-edge":
+    }
+
+    case "forbidden-kind-edge": {
       return `${violation.packageName}: a ${violation.from} may not depend on ${violation.dependency}, a ${violation.to}`
-    case "forbidden-external":
+    }
+
+    case "forbidden-external": {
       return `${violation.packageName}: depends on ${violation.dependency}, which its kind does not allow`
-    case "runtime-module-in-source":
+    }
+
+    case "runtime-module-in-source": {
       return `${violation.packageName} (${violation.file}): imports the runtime module ${violation.specifier}, which its kind does not allow`
-    case "test-only-in-source":
+    }
+
+    case "test-only-in-source": {
       return `${violation.packageName} (${violation.file}): shipped code imports the test-only ${violation.specifier}`
-    case "escaping-relative-import":
+    }
+
+    case "escaping-relative-import": {
       return `${violation.packageName} (${violation.file}): ${violation.specifier} reaches outside the package`
-    case "unused-dependency":
+    }
+
+    case "unused-dependency": {
       return `${violation.packageName}: declares ${violation.dependency} but never imports it`
-    case "dependency-cycle":
+    }
+
+    case "dependency-cycle": {
       return `dependency cycle: ${violation.packages.join(" -> ")}`
+    }
   }
 }

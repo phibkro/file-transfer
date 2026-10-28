@@ -7,7 +7,8 @@ import { expect } from "vite-plus/test"
 import { Effect, Layer } from "effect"
 import { TestClock } from "effect/testing"
 import fc from "fast-check"
-import { type AdmissionPolicy, Quota, quotaGuarantees, type QuotaGuarantee } from "../src/index.ts"
+import { Quota, quotaGuarantees } from "../src/index.ts"
+import type { AdmissionPolicy, QuotaGuarantee } from "../src/index.ts"
 
 const runner =
   (layer: Layer.Layer<Quota>) =>
@@ -18,10 +19,15 @@ const runner =
 const admitted = (quota: Quota["Service"], clientKey: string, count: number) =>
   Effect.gen(function* () {
     let admissions = 0
+
     for (let index = 0; index < count; index++) {
       const result = yield* Effect.result(quota.admitRoomCreation(clientKey))
-      if (result._tag === "Success") admissions++
+
+      if (result._tag === "Success") {
+        admissions++
+      }
     }
+
     return admissions
   })
 
@@ -38,6 +44,7 @@ export const quotaSuite = (policy: AdmissionPolicy) =>
                 return yield* admitted(yield* Quota, "client", requests)
               }),
             )
+
             expect(admissions).toBe(Math.min(requests, policy.maximumRoomsPerWindow))
           }),
           { numRuns: 30 },
@@ -51,10 +58,15 @@ export const quotaSuite = (policy: AdmissionPolicy) =>
               Effect.gen(function* () {
                 const quota = yield* Quota
                 const counts = new Map<string, number>()
-                for (const clientKey of requests) counts.set(clientKey, (counts.get(clientKey) ?? 0) + (yield* admitted(quota, clientKey, 1)))
+
+                for (const clientKey of requests) {
+                  counts.set(clientKey, (counts.get(clientKey) ?? 0) + (yield* admitted(quota, clientKey, 1)))
+                }
+
                 return counts
               }),
             )
+
             for (const clientKey of new Set(requests)) {
               const requested = requests.filter((key) => key === clientKey).length
               expect(admittedByKey.get(clientKey) ?? 0).toBe(Math.min(requested, policy.maximumRoomsPerWindow))
@@ -70,14 +82,17 @@ export const quotaSuite = (policy: AdmissionPolicy) =>
             const perWindow = await runner(layer)(
               Effect.gen(function* () {
                 const quota = yield* Quota
-                const counts: Array<number> = []
+                const counts: number[] = []
+
                 for (let index = 0; index < windowCount; index++) {
                   counts.push(yield* admitted(quota, "client", policy.maximumRoomsPerWindow + 1))
                   yield* TestClock.adjust(policy.windowMilliseconds)
                 }
+
                 return counts
               }),
             )
+
             expect(perWindow).toEqual(Array.from({ length: windowCount }, () => policy.maximumRoomsPerWindow))
           }),
           { numRuns: 10 },
@@ -93,15 +108,19 @@ export const quotaSuite = (policy: AdmissionPolicy) =>
                 yield* admitted(quota, "client", policy.maximumRoomsPerWindow)
                 yield* TestClock.adjust(elapsed)
                 const rejection = yield* Effect.flip(quota.admitRoomCreation("client"))
+
                 const waitedTooLittle =
                   rejection.retryAfterMilliseconds > 0
                     ? yield* Effect.result(Effect.andThen(TestClock.adjust(rejection.retryAfterMilliseconds - 1), quota.admitRoomCreation("client")))
                     : undefined
+
                 yield* TestClock.adjust(1)
                 const afterWaiting = yield* Effect.result(quota.admitRoomCreation("client"))
+
                 return { retryAfter: rejection.retryAfterMilliseconds, tooEarly: waitedTooLittle?._tag, afterWaiting: afterWaiting._tag }
               }),
             )
+
             expect(outcome).toEqual({ retryAfter: policy.windowMilliseconds - elapsed, tooEarly: "Failure", afterWaiting: "Success" })
           }),
           { numRuns: 30 },

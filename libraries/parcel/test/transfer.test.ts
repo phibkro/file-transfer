@@ -49,6 +49,7 @@ describe("round trip", () => {
       { name: "empty.txt", size: 0, mediaType: "text/plain" },
       ...Array.from({ length: 150 }, (_, index) => ({ name: `日本語/ファイル-${index}.md`, size: 1, mediaType: "" })),
     ]
+
     const manifest = createManifest(files)
     expect(layoutOf(manifest, exponent).manifestRecordStarts.length).toBeGreaterThan(1)
     const secret = new Uint8Array(32).fill(9)
@@ -79,18 +80,23 @@ describe("round trip", () => {
     const layout = layoutOf(singleFileManifest(length), exponent)
     expect(layout.pages.length).toBe(2)
     expect(parcel.length).toBe(layout.end)
-    expect(Buffer.from((await decryptAll(secret, parcel, 65536)).plaintext).equals(Buffer.from(data))).toBe(true)
+    expect(Buffer.from((await decryptAll(secret, parcel, 65_536)).plaintext).equals(Buffer.from(data))).toBe(true)
+
     for (const [page, position] of [
       [0, 0],
       [1, 0],
       [1, -1],
     ] as const) {
       const range = layout.pages[page]
-      if (range === undefined) throw new Error("layout")
+
+      if (range === undefined) {
+        throw new Error("layout")
+      }
+
       const tampered = parcel.slice()
       const at = position < 0 ? range.end + position : range.start + position
       tampered[at] = (tampered[at] ?? 0) ^ 1
-      expect(await outcome(decryptAll(secret, tampered, 65536))).toBe("label-page-mismatch")
+      expect(await outcome(decryptAll(secret, tampered, 65_536))).toBe("label-page-mismatch")
     }
   })
 })
@@ -120,8 +126,12 @@ describe("a breach is caught at the first changed record", () => {
     changed[2 * size + 1] = (changed[2 * size + 1] ?? 0) ^ 0xff
     const sealer = await createParcelSealer({ linkSecret: secret, manifest: singleFileManifest(data.length), recordSizeExponent: exponent })
     const contract = await sealer.sealContract(await labelRecords(sealer, recordReaderFromBytes(data, size)))
-    const records: Array<Uint8Array> = []
-    for (let index = 0; index < sealer.recordCount; index++) records.push(await sealer.sealData(index, changed.subarray(index * size, (index + 1) * size)))
+    const records: Uint8Array[] = []
+
+    for (let index = 0; index < sealer.recordCount; index++) {
+      records.push(await sealer.sealData(index, changed.subarray(index * size, (index + 1) * size)))
+    }
+
     const parcel = concatBytes(contract.header.bytes, ...contract.manifestRecords, await contract.labelPage(0), ...records)
     const { released, outcome: ending } = await receivePartially(secret, parcel)
     expect(ending).toBe("label-mismatch")
@@ -161,13 +171,17 @@ describe("tampering is rejected", () => {
       { numRuns: 60 },
     )
     const layout = layoutOf(singleFileManifest(2 * size + 100), exponent)
+
     const boundaries = [
       headerLength,
       ...layout.pages.map((page) => page.start),
       ...layout.pages.map((page) => page.end),
       ...layout.data.slice(0, -1).map((record) => record.end),
     ]
-    for (const boundary of boundaries) expect(await outcome(decryptAll(secret, parcel.subarray(0, boundary)))).toBe("truncated")
+
+    for (const boundary of boundaries) {
+      expect(await outcome(decryptAll(secret, parcel.subarray(0, boundary)))).toBe("truncated")
+    }
   })
 
   it("data after the last record", async () => {
@@ -179,7 +193,11 @@ describe("tampering is rejected", () => {
     const secret = new Uint8Array(32).fill(4)
     const parcel = await fixture(secret, 3 * size)
     const [first, second] = layoutOf(singleFileManifest(3 * size), exponent).data
-    if (first === undefined || second === undefined) throw new Error("fixture needs two records")
+
+    if (first === undefined || second === undefined) {
+      throw new Error("fixture needs two records")
+    }
+
     const swapped = parcel.slice()
     swapped.set(parcel.subarray(second.start, second.end), first.start)
     swapped.set(parcel.subarray(first.start, first.end), second.start)
@@ -194,7 +212,11 @@ describe("tampering is rejected", () => {
     const first = await fixture(secret, 2 * size)
     const second = await fixture(secret, 2 * size)
     const [record] = layoutOf(singleFileManifest(2 * size), exponent).data
-    if (record === undefined) throw new Error("fixture layout")
+
+    if (record === undefined) {
+      throw new Error("fixture layout")
+    }
+
     const spliced = first.slice()
     spliced.set(second.subarray(record.start, record.end), record.start)
     expect(await outcome(decryptAll(secret, spliced))).toBe("label-mismatch")
@@ -233,6 +255,7 @@ const sendWithContract = async (secret: Uint8Array, data: Uint8Array, salt?: Uin
     ...(salt === undefined ? {} : { salt }),
     ...(expectedDigest === undefined ? {} : { expectedDigest }),
   })
+
   return { contract: sender.contract, parcel: await collect(sender.stream) }
 }
 
@@ -277,7 +300,11 @@ describe("a record that arrives before its label page (receiver rule 6)", () => 
     const plaintexts = await Promise.all(contract.manifestRecords.map((record, counter) => opener.openManifestRecord(counter, record)))
     const receiver = await opener.acceptContract(plaintexts, contract.manifestRecords)
     const [first, second] = records
-    if (first === undefined || second === undefined) throw new Error("fixture")
+
+    if (first === undefined || second === undefined) {
+      throw new Error("fixture")
+    }
+
     expect(await outcome(receiver.openData(0, first))).toBe("label-page-missing")
     await receiver.verifyPage(0, await contract.labelPage(0))
     expect(Buffer.from(await receiver.openData(0, first)).equals(Buffer.from(data.subarray(0, size)))).toBe(true)

@@ -9,33 +9,45 @@ import {
   headerLength,
   labelLength,
   labelsPerPage,
-  type Manifest,
   manifestRecordCount,
   manifestRecordLength,
-  type OpenOptions,
-  type RecordReader,
   recordOverhead,
   recordReaderFromBytes,
 } from "../src/index.ts"
+import type { Manifest, OpenOptions, RecordReader } from "../src/index.ts"
 
-export const fromChunks = (chunks: ReadonlyArray<Uint8Array>): ReadableStream<Uint8Array> =>
+export const fromChunks = (chunks: readonly Uint8Array[]): ReadableStream<Uint8Array> =>
   new ReadableStream({
     start: (controller) => {
-      for (const chunk of chunks) controller.enqueue(chunk)
+      for (const chunk of chunks) {
+        controller.enqueue(chunk)
+      }
+
       controller.close()
     },
   })
 
-export const split = (bytes: Uint8Array, size: number): Array<Uint8Array> => {
-  if (bytes.length === 0) return []
-  const chunks: Array<Uint8Array> = []
-  for (let offset = 0; offset < bytes.length; offset += size) chunks.push(bytes.subarray(offset, offset + size))
+export const split = (bytes: Uint8Array, size: number): Uint8Array[] => {
+  if (bytes.length === 0) {
+    return []
+  }
+
+  const chunks: Uint8Array[] = []
+
+  for (let offset = 0; offset < bytes.length; offset += size) {
+    chunks.push(bytes.subarray(offset, offset + size))
+  }
+
   return chunks
 }
 
 export const collect = async (readable: ReadableStream<Uint8Array>): Promise<Uint8Array> => {
-  const chunks: Array<Uint8Array> = []
-  for await (const chunk of readable) chunks.push(chunk)
+  const chunks: Uint8Array[] = []
+
+  for await (const chunk of readable) {
+    chunks.push(chunk)
+  }
+
   return concatBytes(...chunks)
 }
 
@@ -57,10 +69,13 @@ export const encryptAll = async (input: SendInput): Promise<Uint8Array> => {
   const recordSize = 2 ** input.recordSizeExponent
   const labelling = recordReaderFromBytes(input.data, recordSize)
   let labelled = false
+
   const readRecord: RecordReader = async (index, length) => {
     const reader = labelled && input.readForSending !== undefined ? input.readForSending : labelling
+
     return reader(index, length)
   }
+
   const sender = await createParcelSender({
     linkSecret: input.secret,
     manifest: input.manifest ?? singleFileManifest(input.data.length),
@@ -69,7 +84,9 @@ export const encryptAll = async (input: SendInput): Promise<Uint8Array> => {
     ...(input.sequence === undefined ? {} : { sequence: input.sequence }),
     readRecord,
   })
+
   labelled = true
+
   return collect(sender.stream)
 }
 
@@ -81,6 +98,7 @@ export const decryptAll = async (
 ): Promise<{ manifest: Manifest; plaintext: Uint8Array }> => {
   const { stream, manifest } = createDecryptionStream(secret, options)
   const plaintext = await collect(fromChunks(split(parcel, chunkSize)).pipeThrough(stream))
+
   return { manifest: await manifest, plaintext }
 }
 
@@ -88,11 +106,16 @@ export const decryptAll = async (
 export const receivePartially = async (secret: Uint8Array, parcel: Uint8Array): Promise<{ released: Uint8Array; outcome: string }> => {
   const { stream } = createDecryptionStream(secret)
   const reader = fromChunks(split(parcel, 4096)).pipeThrough(stream).getReader()
-  const chunks: Array<Uint8Array> = []
+  const chunks: Uint8Array[] = []
+
   try {
     for (;;) {
       const next = await reader.read()
-      if (next.done) return { released: concatBytes(...chunks), outcome: "accepted" }
+
+      if (next.done) {
+        return { released: concatBytes(...chunks), outcome: "accepted" }
+      }
+
       chunks.push(next.value)
     }
   } catch (error) {
@@ -104,6 +127,7 @@ export const receivePartially = async (secret: Uint8Array, parcel: Uint8Array): 
 export const outcome = async (promise: Promise<unknown>): Promise<string> => {
   try {
     await promise
+
     return "accepted"
   } catch (error) {
     return error instanceof Error && "reason" in error ? String(error.reason) : `unexpected ${String(error)}`
@@ -120,20 +144,23 @@ export const layoutOf = (manifest: Manifest, recordSizeExponent: number) => {
   const manifestRecordStarts = Array.from({ length: manifestRecords }, (_, index) => headerLength + index * manifestRecordLength)
   const count = Math.max(1, Math.ceil(manifest.totalSize / size))
   const pageCount = Math.ceil(count / labelsPerPage)
-  const pages: Array<{ start: number; end: number }> = []
-  const data: Array<{ start: number; end: number }> = []
+  const pages: { start: number; end: number }[] = []
+  const data: { start: number; end: number }[] = []
   let offset = headerLength + manifestRecords * manifestRecordLength
+
   for (let page = 0; page < pageCount; page++) {
     const first = page * labelsPerPage
     const last = Math.min(count, first + labelsPerPage)
     const pageLength = labelLength * (last - first + auditPath(pageCount, page).length)
     pages.push({ start: offset, end: offset + pageLength })
     offset += pageLength
+
     for (let index = first; index < last; index++) {
       const length = (index < count - 1 ? size : manifest.totalSize - (count - 1) * size) + recordOverhead
       data.push({ start: offset, end: offset + length })
       offset += length
     }
   }
+
   return { manifestRecordStarts, pages, data, end: offset }
 }

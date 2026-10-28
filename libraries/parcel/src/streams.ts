@@ -19,18 +19,8 @@ import { ParcelError } from "./errors.ts"
 import type { Header } from "./header.ts"
 import type { Manifest } from "./manifest.ts"
 import { leafHash } from "./merkle.ts"
-import {
-  type Contract,
-  createParcelSealer,
-  labelRecords,
-  manifestRecordLength,
-  openHeader,
-  type OpenOptions,
-  type ParcelOpener,
-  type ParcelReceiver,
-  type RecordReader,
-  type SealerOptions,
-} from "./transfer.ts"
+import { createParcelSealer, labelRecords, manifestRecordLength, openHeader } from "./transfer.ts"
+import type { Contract, OpenOptions, ParcelOpener, ParcelReceiver, RecordReader, SealerOptions } from "./transfer.ts"
 
 /** Reads records from bytes in memory. */
 export const recordReaderFromBytes =
@@ -63,37 +53,51 @@ export interface SenderOptions extends SealerOptions {
 export const createParcelSender = async (options: SenderOptions): Promise<ParcelSender> => {
   const sealer = await createParcelSealer(options)
   const contract = await sealer.sealContract(await labelRecords(sealer, options.readRecord))
+
   if (options.expectedDigest !== undefined && !bytesEqual(options.expectedDigest, contract.digest)) {
     throw new ParcelError("source-changed", "relabelling gave a different contract than the one stored for this sequence number")
   }
 
   async function* units(): AsyncGenerator<Uint8Array> {
     yield contract.header.bytes.slice()
-    for (const record of contract.manifestRecords) yield record
+
+    for (const record of contract.manifestRecords) {
+      yield record
+    }
+
     for (let page = 0; page < contract.pageCount; page++) {
       yield await contract.labelPage(page)
       const { start, end } = contract.pageRecords(page)
+
       for (let index = start; index < end; index++) {
         const record = await sealer.sealData(index, await options.readRecord(index, sealer.dataPlaintextLength(index)))
+
         if (!bytesEqual(await leafHash(record), contract.labelOf(index))) {
           throw new ParcelError("source-changed", `data record ${index} changed since the contract was sealed`)
         }
+
         yield record
       }
     }
   }
 
   const iterator = units()
+
   const stream = new ReadableStream<Uint8Array>({
     pull: async (controller) => {
       const next = await iterator.next()
-      if (next.done) controller.close()
-      else controller.enqueue(next.value)
+
+      if (next.done) {
+        controller.close()
+      } else {
+        controller.enqueue(next.value)
+      }
     },
     cancel: async () => {
       await iterator.return(undefined)
     },
   })
+
   return { contract, stream }
 }
 
@@ -128,17 +132,19 @@ type Unit =
 export const createDecryptionStream = (linkSecret: Uint8Array, options: OpenOptions = {}): DecryptionStream => {
   let resolveContract: (contract: ReceivedContract) => void = () => {}
   let rejectContract: (error: unknown) => void = () => {}
+
   const contract = new Promise<ReceivedContract>((resolve, reject) => {
     resolveContract = resolve
     rejectContract = reject
   })
+
   contract.catch(() => {})
   const manifest = contract.then((opened) => opened.manifest)
   manifest.catch(() => {})
 
   let opener: ParcelOpener | undefined
-  let manifestPlaintexts: Array<Uint8Array> = []
-  let manifestRecords: Array<Uint8Array> = []
+  let manifestPlaintexts: Uint8Array[] = []
+  let manifestRecords: Uint8Array[] = []
   let manifestRecordTotal = 1
   let receiver: ParcelReceiver | undefined
   let pageLabelCount = 0
@@ -150,16 +156,25 @@ export const createDecryptionStream = (linkSecret: Uint8Array, options: OpenOpti
 
   const unitLength = (current: Unit): number => {
     switch (current.kind) {
-      case "header":
+      case "header": {
         return headerLength
-      case "manifest":
+      }
+
+      case "manifest": {
         return manifestRecordLength
-      case "page":
+      }
+
+      case "page": {
         return receiver?.pageLength(current.page) ?? 0
-      case "data":
+      }
+
+      case "data": {
         return receiver?.dataRecordLength(current.index) ?? 0
-      case "done":
+      }
+
+      case "done": {
         return 0
+      }
     }
   }
 
@@ -171,20 +186,33 @@ export const createDecryptionStream = (linkSecret: Uint8Array, options: OpenOpti
 
   const complete = async (controller: TransformStreamDefaultController<Uint8Array>) => {
     switch (unit.kind) {
-      case "header":
+      case "header": {
         opener = await openHeader(linkSecret, pending, options)
         advance({ kind: "manifest", counter: 0 })
+
         return
+      }
+
       case "manifest": {
-        if (opener === undefined) throw new ParcelError("invalid-argument", "manifest before the header")
+        if (opener === undefined) {
+          throw new ParcelError("invalid-argument", "manifest before the header")
+        }
+
         const plaintext = await opener.openManifestRecord(unit.counter, pending)
-        if (unit.counter === 0) manifestRecordTotal = opener.manifestRecordCountFrom(plaintext)
+
+        if (unit.counter === 0) {
+          manifestRecordTotal = opener.manifestRecordCountFrom(plaintext)
+        }
+
         manifestPlaintexts.push(plaintext)
         manifestRecords.push(pending)
+
         if (unit.counter + 1 < manifestRecordTotal) {
           advance({ kind: "manifest", counter: unit.counter + 1 })
+
           return
         }
+
         receiver = await opener.acceptContract(manifestPlaintexts, manifestRecords)
         manifestPlaintexts = []
         manifestRecords = []
@@ -196,28 +224,49 @@ export const createDecryptionStream = (linkSecret: Uint8Array, options: OpenOpti
           digest: receiver.digest,
         })
         advance({ kind: "page", page: 0 })
+
         return
       }
+
       case "page": {
-        if (receiver === undefined) throw new ParcelError("invalid-argument", "page before the contract")
+        if (receiver === undefined) {
+          throw new ParcelError("invalid-argument", "page before the contract")
+        }
+
         pageLabelCount = (await receiver.verifyPage(unit.page, pending)).length
         currentPage = unit.page
         pageStart = receiver.pageRecords(unit.page).start
         advance({ kind: "data", index: pageStart })
+
         return
       }
+
       case "data": {
-        if (receiver === undefined) throw new ParcelError("invalid-argument", "data before the contract")
+        if (receiver === undefined) {
+          throw new ParcelError("invalid-argument", "data before the contract")
+        }
+
         controller.enqueue(await receiver.openData(unit.index, pending))
         const next = unit.index + 1
-        if (next - pageStart >= pageLabelCount) receiver.releasePage(currentPage)
-        if (next >= receiver.recordCount) advance({ kind: "done" })
-        else if (next - pageStart >= pageLabelCount) advance({ kind: "page", page: next / labelsPerPage })
-        else advance({ kind: "data", index: next })
+
+        if (next - pageStart >= pageLabelCount) {
+          receiver.releasePage(currentPage)
+        }
+
+        if (next >= receiver.recordCount) {
+          advance({ kind: "done" })
+        } else if (next - pageStart >= pageLabelCount) {
+          advance({ kind: "page", page: next / labelsPerPage })
+        } else {
+          advance({ kind: "data", index: next })
+        }
+
         return
       }
-      case "done":
+
+      case "done": {
         return
+      }
     }
   }
 
@@ -230,21 +279,31 @@ export const createDecryptionStream = (linkSecret: Uint8Array, options: OpenOpti
     transform: async (chunk, controller) => {
       try {
         let offset = 0
+
         while (offset < chunk.length) {
-          if (unit.kind === "done") throw new ParcelError("trailing-data", "bytes after the last record")
+          if (unit.kind === "done") {
+            throw new ParcelError("trailing-data", "bytes after the last record")
+          }
+
           const taken = Math.min(pending.length - filled, chunk.length - offset)
           pending.set(chunk.subarray(offset, offset + taken), filled)
           filled += taken
           offset += taken
-          if (filled === pending.length) await complete(controller)
+
+          if (filled === pending.length) {
+            await complete(controller)
+          }
         }
       } catch (error) {
         fail(error)
       }
     },
     flush: () => {
-      if (unit.kind !== "done") fail(new ParcelError("truncated", "the parcel ended before its last record"))
+      if (unit.kind !== "done") {
+        fail(new ParcelError("truncated", "the parcel ended before its last record"))
+      }
     },
   })
+
   return { stream, contract, manifest }
 }

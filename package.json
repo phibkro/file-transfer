@@ -28,6 +28,7 @@
     "fast-check": "^4.0.0",
     "oxlint": "1.86.0",
     "typescript": "7.0.2",
+    "ultracite": "8.1.0",
     "vite-plus": "1.4.0"
   }
 }

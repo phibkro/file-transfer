@@ -6,7 +6,11 @@ describe("recipient credit window", () => {
   it("grants the whole window first, then tops up at half", () => {
     const credits = createCreditWindow(64)
     expect(grantDue(credits, 1000)).toBe(64)
-    for (let index = 0; index < 31; index++) consume(credits)
+
+    for (let index = 0; index < 31; index++) {
+      consume(credits)
+    }
+
     expect(grantDue(credits, 1000)).toBe(0)
     consume(credits)
     expect(grantDue(credits, 1000)).toBe(32)
@@ -16,7 +20,11 @@ describe("recipient credit window", () => {
   it("never grants more than the missing records need", () => {
     const credits = createCreditWindow(64)
     expect(grantDue(credits, 10)).toBe(10)
-    for (let index = 0; index < 10; index++) consume(credits)
+
+    for (let index = 0; index < 10; index++) {
+      consume(credits)
+    }
+
     expect(grantDue(credits, 0)).toBe(0)
   })
 
@@ -42,26 +50,40 @@ describe("recipient credit window", () => {
         const balance = { available: 0 }
         let remaining = missing
         let inFlight = 0
+
         const grant = () => {
           const due = grantDue(credits, remaining)
           expect(due).toBeLessThanOrEqual(maximumCreditsPerMessage)
           receiveCredit(balance, due)
         }
+
         grant()
+
         const step = (sendFirst: boolean) => {
-          if (sendFirst && spendCredit(balance)) inFlight++
-          else if (inFlight > 0) {
+          if (sendFirst && spendCredit(balance)) {
+            inFlight++
+          } else if (inFlight > 0) {
             inFlight--
             remaining--
             consume(credits)
             grant()
-          } else if (spendCredit(balance)) inFlight++
+          } else if (spendCredit(balance)) {
+            inFlight++
+          }
+
           expect(inFlight + balance.available).toBe(outstanding(credits))
           expect(outstanding(credits)).toBeLessThanOrEqual(window)
           expect(outstanding(credits)).toBeLessThanOrEqual(remaining)
         }
-        for (const sendFirst of steps) step(sendFirst)
-        while (remaining > 0) step(true)
+
+        for (const sendFirst of steps) {
+          step(sendFirst)
+        }
+
+        while (remaining > 0) {
+          step(true)
+        }
+
         expect(outstanding(credits)).toBe(0)
       }),
     )

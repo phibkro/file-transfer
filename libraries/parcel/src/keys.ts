@@ -24,7 +24,9 @@ export interface ParcelKeys {
 }
 
 const requireLength = (bytes: Uint8Array, length: number, reason: "invalid-secret" | "invalid-argument", name: string) => {
-  if (bytes.length !== length) throw new ParcelError(reason, `${name} must be ${length} bytes`)
+  if (bytes.length !== length) {
+    throw new ParcelError(reason, `${name} must be ${length} bytes`)
+  }
 }
 
 /** A fresh 32-byte link secret. */
@@ -36,22 +38,27 @@ export const createSalt = (): Uint8Array<ArrayBuffer> => crypto.getRandomValues(
 /** The URL fragment form of a secret: unpadded base64url. */
 export const encodeLinkSecret = (secret: Uint8Array): string => {
   requireLength(secret, secretLength, "invalid-secret", "secret")
+
   return encodeBase64Url(secret)
 }
 
 export const decodeLinkSecret = (fragment: string): Uint8Array<ArrayBuffer> => {
   let secret: Uint8Array<ArrayBuffer>
+
   try {
     secret = decodeBase64Url(fragment.startsWith("#") ? fragment.slice(1) : fragment)
   } catch {
     throw new ParcelError("invalid-secret", "the link fragment is not a valid secret")
   }
+
   requireLength(secret, secretLength, "invalid-secret", "secret")
+
   return secret
 }
 
 const importSecret = (secret: Uint8Array) => {
   requireLength(secret, secretLength, "invalid-secret", "secret")
+
   return crypto.subtle.importKey("raw", asBufferSource(secret), "HKDF", false, ["deriveBits", "deriveKey"])
 }
 
@@ -62,6 +69,7 @@ const infoFor = (label: string, salt?: Uint8Array) => (salt === undefined ? text
 /** Derives the room token from the link secret. */
 export const deriveRoomToken = async (secret: Uint8Array): Promise<Uint8Array<ArrayBuffer>> => {
   const material = await importSecret(secret)
+
   return new Uint8Array(await crypto.subtle.deriveBits(hkdf(infoFor(derivationInfo.roomToken)), material, 256))
 }
 
@@ -71,10 +79,14 @@ export const hashRoomToken = async (roomToken: Uint8Array): Promise<string> =>
 
 /** The secret parcel `sequence` of a room seals under: `expand(linkSecret, "parcel/v1/parcel-secret" || u32(sequence))`. */
 export const deriveParcelSecret = async (linkSecret: Uint8Array, sequence: number): Promise<Uint8Array<ArrayBuffer>> => {
-  if (!Number.isSafeInteger(sequence) || sequence < 0 || sequence >= sequenceLimit) throw new ParcelError("invalid-argument", "sequence must be a u32")
+  if (!Number.isSafeInteger(sequence) || sequence < 0 || sequence >= sequenceLimit) {
+    throw new ParcelError("invalid-argument", "sequence must be a u32")
+  }
+
   const material = await importSecret(linkSecret)
   const sequenceBytes = new Uint8Array(4)
   new DataView(sequenceBytes.buffer).setUint32(0, sequence)
+
   return new Uint8Array(await crypto.subtle.deriveBits(hkdf(infoFor(derivationInfo.parcelSecret, sequenceBytes)), material, 256))
 }
 
@@ -84,6 +96,7 @@ export const deriveParcelKeys = async (parcelSecret: Uint8Array, salt: Uint8Arra
   const material = await importSecret(parcelSecret)
   const aes = { name: "AES-GCM", length: 256 }
   const hmac = { name: "HMAC", hash: "SHA-256", length: 256 }
+
   const [contentKey, contentSyntheticKey, manifestKey, manifestSyntheticKey, keyCommitment] = await Promise.all([
     crypto.subtle.deriveKey(hkdf(infoFor(derivationInfo.contentKey, salt)), material, aes, false, ["encrypt", "decrypt"]),
     crypto.subtle.deriveKey(hkdf(infoFor(derivationInfo.contentSyntheticKey, salt)), material, hmac, false, ["sign"]),
@@ -91,6 +104,7 @@ export const deriveParcelKeys = async (parcelSecret: Uint8Array, salt: Uint8Arra
     crypto.subtle.deriveKey(hkdf(infoFor(derivationInfo.manifestSyntheticKey, salt)), material, hmac, false, ["sign"]),
     crypto.subtle.deriveBits(hkdf(infoFor(derivationInfo.keyCommitment, salt)), material, keyCommitmentLength * 8),
   ])
+
   return {
     content: { aeadKey: contentKey, syntheticKey: contentSyntheticKey },
     manifest: { aeadKey: manifestKey, syntheticKey: manifestSyntheticKey },

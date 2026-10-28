@@ -1,27 +1,35 @@
 import { Result } from "effect"
 import fc from "fast-check"
 import { describe, expect, it } from "vite-plus/test"
-import { type FileSpan, fileStarts, spansFor } from "../src/files.ts"
+import { fileStarts, spansFor } from "../src/files.ts"
+import type { FileSpan } from "../src/files.ts"
 
-const spans = (sizes: ReadonlyArray<number>, offset: number, length: number): ReadonlyArray<FileSpan> => {
+const spans = (sizes: readonly number[], offset: number, length: number): readonly FileSpan[] => {
   const result = spansFor(sizes, offset, length)
-  if (Result.isFailure(result)) throw new Error(`unexpected failure for ${offset} + ${length}`)
+
+  if (Result.isFailure(result)) {
+    throw new Error(`unexpected failure for ${offset} + ${length}`)
+  }
+
   return result.success
 }
 
 /** The concatenated stream, then each file read back from the spans of every record. */
-const reassemble = (sizes: ReadonlyArray<number>, recordSize: number) => {
+const reassemble = (sizes: readonly number[], recordSize: number) => {
   const total = sizes.reduce((sum, size) => sum + size, 0)
   const stream = Uint8Array.from({ length: total }, (_, index) => index % 251)
   const files = sizes.map((size) => new Uint8Array(size))
   const written = sizes.map(() => 0)
+
   for (let offset = 0; offset < total; offset += recordSize) {
     const length = Math.min(recordSize, total - offset)
+
     for (const span of spans(sizes, offset, length)) {
       files[span.fileIndex]?.set(stream.subarray(offset + span.spanOffset, offset + span.spanOffset + span.length), span.fileOffset)
       written[span.fileIndex] = (written[span.fileIndex] ?? 0) + span.length
     }
   }
+
   return { stream, files, written, starts: fileStarts(sizes) }
 }
 

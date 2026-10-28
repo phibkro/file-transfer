@@ -19,9 +19,11 @@ import {
   recordSize,
 } from "./constants.ts"
 import { ParcelError } from "./errors.ts"
-import { decodeHeader, encodeHeader, type Header } from "./header.ts"
+import { decodeHeader, encodeHeader } from "./header.ts"
+import type { Header } from "./header.ts"
 import { createSalt, deriveParcelKeys, deriveParcelSecret } from "./keys.ts"
-import { decodeManifestStream, encodeManifestStream, manifestJsonLength, type Manifest, validateManifest } from "./manifest.ts"
+import { decodeManifestStream, encodeManifestStream, manifestJsonLength, validateManifest } from "./manifest.ts"
+import type { Manifest } from "./manifest.ts"
 import { auditPath, foldAuditPath, leafHash, treeHash } from "./merkle.ts"
 import { openRecord, sealRecord } from "./records.ts"
 
@@ -50,10 +52,15 @@ const layoutFor = (header: Header, manifest: Manifest, manifestRecords: number):
   const size = recordSize(header.recordSizeExponent)
   const count = dataRecordCount(manifest.totalSize, size)
   const pageCount = Math.ceil(count / labelsPerPage)
+
   const pageRecords = (page: number) => {
-    if (!Number.isSafeInteger(page) || page < 0 || page >= pageCount) throw new ParcelError("invalid-argument", "page index out of range")
+    if (!Number.isSafeInteger(page) || page < 0 || page >= pageCount) {
+      throw new ParcelError("invalid-argument", "page index out of range")
+    }
+
     return { start: page * labelsPerPage, end: Math.min(count, (page + 1) * labelsPerPage) }
   }
+
   return {
     header,
     manifest,
@@ -65,6 +72,7 @@ const layoutFor = (header: Header, manifest: Manifest, manifestRecords: number):
     pageRecords,
     pageLength: (page) => {
       const { start, end } = pageRecords(page)
+
       return labelLength * (end - start + auditPath(pageCount, page).length)
     },
   }
@@ -76,7 +84,7 @@ const labelList = (labels: Uint8Array, start: number, end: number) => Array.from
 
 /** A sealed contract, ready to send: the header, the manifest records, and the label pages. */
 export interface Contract extends ParcelLayout {
-  readonly manifestRecords: ReadonlyArray<Uint8Array<ArrayBuffer>>
+  readonly manifestRecords: readonly Uint8Array<ArrayBuffer>[]
   readonly rootHash: Uint8Array<ArrayBuffer>
   /** `H(header || manifest records)`: what a recipient's acceptance names. */
   readonly digest: Uint8Array<ArrayBuffer>
@@ -111,14 +119,17 @@ export const createParcelSealer = async (options: SealerOptions): Promise<Parcel
   const sequence = options.sequence ?? 0
   const salt = options.salt ?? createSalt()
   const keys = await deriveParcelKeys(await deriveParcelSecret(options.linkSecret, sequence), salt)
+
   const header = encodeHeader({
     recordSizeExponent: options.recordSizeExponent ?? defaultRecordSizeExponent,
     sequence,
     salt,
     keyCommitment: keys.keyCommitment,
   })
+
   const size = recordSize(header.recordSizeExponent)
   const count = dataRecordCount(manifest.totalSize, size)
+
   return {
     header,
     manifest,
@@ -127,17 +138,27 @@ export const createParcelSealer = async (options: SealerOptions): Promise<Parcel
     dataPlaintextLength: (index) => dataPlaintextLength(index, manifest.totalSize, size),
     sealData: async (index, plaintext) => {
       const expected = dataPlaintextLength(index, manifest.totalSize, size)
-      if (plaintext.length !== expected) throw new ParcelError("size-mismatch", `data record ${index} must hold ${expected} bytes, got ${plaintext.length}`)
+
+      if (plaintext.length !== expected) {
+        throw new ParcelError("size-mismatch", `data record ${index} must hold ${expected} bytes, got ${plaintext.length}`)
+      }
+
       return sealRecord(keys.content, header.bytes, { counter: index, isFinal: index === count - 1 }, plaintext)
     },
     sealContract: async (labels) => {
-      if (labels.length !== count * labelLength) throw new ParcelError("invalid-argument", "one 32-byte label per data record")
+      if (labels.length !== count * labelLength) {
+        throw new ParcelError("invalid-argument", "one 32-byte label per data record")
+      }
+
       const pageCount = Math.ceil(count / labelsPerPage)
+
       const pageRoots = await Promise.all(
         Array.from({ length: pageCount }, (_, page) => treeHash(labelList(labels, page * labelsPerPage, Math.min(count, (page + 1) * labelsPerPage)))),
       )
+
       const rootHash = await treeHash(pageRoots)
       const plaintext = encodeManifestStream(manifest, { recordCount: count, rootHash })
+
       const manifestRecords = await Promise.all(
         Array.from({ length: plaintext.length / manifestRecordSize }, (_, counter) =>
           sealRecord(
@@ -148,7 +169,9 @@ export const createParcelSealer = async (options: SealerOptions): Promise<Parcel
           ),
         ),
       )
+
       const layout = layoutFor(header, manifest, manifestRecords.length)
+
       return {
         ...layout,
         manifestRecords,
@@ -158,6 +181,7 @@ export const createParcelSealer = async (options: SealerOptions): Promise<Parcel
         labelPage: async (page) => {
           const { start, end } = layout.pageRecords(page)
           const siblings = await Promise.all(auditPath(pageCount, page).map((sibling) => treeHash(pageRoots, sibling.start, sibling.end)))
+
           return concatBytes(labels.subarray(start * labelLength, end * labelLength), ...siblings)
         },
       }
@@ -171,9 +195,11 @@ export type RecordReader = (index: number, length: number) => Promise<Uint8Array
 /** The labelling pass: seals every record once and keeps only its label. */
 export const labelRecords = async (sealer: ParcelSealer, readRecord: RecordReader): Promise<Uint8Array<ArrayBuffer>> => {
   const labels = new Uint8Array(sealer.recordCount * labelLength)
+
   for (let index = 0; index < sealer.recordCount; index++) {
     labels.set(await leafHash(await sealer.sealData(index, await readRecord(index, sealer.dataPlaintextLength(index)))), index * labelLength)
   }
+
   return labels
 }
 
@@ -182,7 +208,7 @@ export interface ParcelReceiver extends ParcelLayout {
   readonly rootHash: Uint8Array<ArrayBuffer>
   readonly digest: Uint8Array<ArrayBuffer>
   /** Checks label page `page` against the root, keeps its labels for `openData`, and returns them. */
-  verifyPage(page: number, bytes: Uint8Array): Promise<ReadonlyArray<Uint8Array>>
+  verifyPage(page: number, bytes: Uint8Array): Promise<readonly Uint8Array[]>
   /**
    * Checks data record `index` against the label from its verified page, then opens it. Fails with
    * `label-page-missing` when that page has not verified yet: drop the record and request it again (receiver rule 6).
@@ -199,7 +225,7 @@ export interface ParcelOpener {
   /** The manifest record count the first record's plaintext announces. */
   manifestRecordCountFrom(firstRecordPlaintext: Uint8Array): number
   /** Decodes the contract from all opened manifest records (plaintexts and the records as received, in order). */
-  acceptContract(plaintexts: ReadonlyArray<Uint8Array>, records: ReadonlyArray<Uint8Array>): Promise<ParcelReceiver>
+  acceptContract(plaintexts: readonly Uint8Array[], records: readonly Uint8Array[]): Promise<ParcelReceiver>
 }
 
 export interface OpenOptions {
@@ -214,23 +240,37 @@ export interface OpenOptions {
 export const openHeader = async (linkSecret: Uint8Array, headerBytes: Uint8Array, options: OpenOptions = {}): Promise<ParcelOpener> => {
   const header = decodeHeader(headerBytes)
   const keys = await deriveParcelKeys(await deriveParcelSecret(linkSecret, header.sequence), header.salt)
-  if (!bytesEqual(keys.keyCommitment, header.keyCommitment)) throw new ParcelError("key-commitment-mismatch", "the secret does not match this parcel")
+
+  if (!bytesEqual(keys.keyCommitment, header.keyCommitment)) {
+    throw new ParcelError("key-commitment-mismatch", "the secret does not match this parcel")
+  }
+
   return {
     header,
     openManifestRecord: (counter, record) => {
-      if (record.length !== manifestRecordLength) throw new ParcelError("size-mismatch", "a manifest record has the wrong length")
+      if (record.length !== manifestRecordLength) {
+        throw new ParcelError("size-mismatch", "a manifest record has the wrong length")
+      }
+
       return openRecord(keys.manifest, header.bytes, { counter, isFinal: false }, record, `manifest record ${counter}`)
     },
     manifestRecordCountFrom: (firstRecordPlaintext) => manifestRecordCount(manifestJsonLength(firstRecordPlaintext)),
     acceptContract: async (plaintexts, records) => {
       const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", asBufferSource(concatBytes(header.bytes, ...records))))
+
       if (options.expectedDigest !== undefined && !bytesEqual(options.expectedDigest, digest)) {
         throw new ParcelError("contract-mismatch", `sequence number ${header.sequence} already has a different contract`)
       }
+
       const contract = decodeManifestStream(concatBytes(...plaintexts))
       const layout = layoutFor(header, contract.manifest, plaintexts.length)
-      if (contract.recordCount !== layout.recordCount) throw new ParcelError("record-count-mismatch", "the contract's record count does not match the manifest")
-      const verifiedPages = new Map<number, ReadonlyArray<Uint8Array>>()
+
+      if (contract.recordCount !== layout.recordCount) {
+        throw new ParcelError("record-count-mismatch", "the contract's record count does not match the manifest")
+      }
+
+      const verifiedPages = new Map<number, readonly Uint8Array[]>()
+
       return {
         ...layout,
         rootHash: contract.rootHash,
@@ -238,21 +278,38 @@ export const openHeader = async (linkSecret: Uint8Array, headerBytes: Uint8Array
         verifyPage: async (page, bytes) => {
           const { start, end } = layout.pageRecords(page)
           const path = auditPath(layout.pageCount, page)
-          if (bytes.length !== labelLength * (end - start + path.length)) throw new ParcelError("size-mismatch", `label page ${page} has the wrong length`)
+
+          if (bytes.length !== labelLength * (end - start + path.length)) {
+            throw new ParcelError("size-mismatch", `label page ${page} has the wrong length`)
+          }
+
           const labels = labelList(bytes, 0, end - start).map((label) => label.slice())
           const siblings = labelList(bytes, end - start, end - start + path.length)
+
           if (!bytesEqual(await foldAuditPath(await treeHash(labels), path, siblings), contract.rootHash)) {
             throw new ParcelError("label-page-mismatch", `label page ${page} does not belong to the contract's root`)
           }
+
           verifiedPages.set(page, labels)
+
           return labels
         },
         openData: async (index, record) => {
-          if (record.length !== layout.dataRecordLength(index)) throw new ParcelError("size-mismatch", `data record ${index} has the wrong length`)
+          if (record.length !== layout.dataRecordLength(index)) {
+            throw new ParcelError("size-mismatch", `data record ${index} has the wrong length`)
+          }
+
           const page = Math.floor(index / labelsPerPage)
           const label = verifiedPages.get(page)?.[index - page * labelsPerPage]
-          if (label === undefined) throw new ParcelError("label-page-missing", `data record ${index} arrived before label page ${page} verified`)
-          if (!bytesEqual(await leafHash(record), label)) throw new ParcelError("label-mismatch", `data record ${index} differs from the contract (breach)`)
+
+          if (label === undefined) {
+            throw new ParcelError("label-page-missing", `data record ${index} arrived before label page ${page} verified`)
+          }
+
+          if (!bytesEqual(await leafHash(record), label)) {
+            throw new ParcelError("label-mismatch", `data record ${index} differs from the contract (breach)`)
+          }
+
           return openRecord(keys.content, header.bytes, { counter: index, isFinal: index === layout.recordCount - 1 }, record, `data record ${index}`)
         },
         releasePage: (page) => {

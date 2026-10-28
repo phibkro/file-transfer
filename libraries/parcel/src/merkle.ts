@@ -22,23 +22,41 @@ export const nodeHash = (left: Uint8Array, right: Uint8Array) => sha256(concatBy
 /** The largest power of two strictly below `size` (size at least 2). */
 const splitOf = (size: number): number => {
   let split = 1
-  while (split * 2 < size) split *= 2
+
+  while (split * 2 < size) {
+    split *= 2
+  }
+
   return split
 }
 
 /** The tree hash of a list of leaves, computed directly from the RFC 6962 definition. For tests and small inputs. */
-export const merkleRoot = async (leaves: ReadonlyArray<Uint8Array>): Promise<Uint8Array<ArrayBuffer>> => {
-  if (leaves.length === 0) return sha256(new Uint8Array(0))
-  if (leaves.length === 1) return leafHash(leaves[0] ?? new Uint8Array(0))
+export const merkleRoot = async (leaves: readonly Uint8Array[]): Promise<Uint8Array<ArrayBuffer>> => {
+  if (leaves.length === 0) {
+    return sha256(new Uint8Array(0))
+  }
+
+  if (leaves.length === 1) {
+    return leafHash(leaves[0] ?? new Uint8Array(0))
+  }
+
   const split = splitOf(leaves.length)
+
   return nodeHash(await merkleRoot(leaves.slice(0, split)), await merkleRoot(leaves.slice(split)))
 }
 
 /** The tree hash over already-hashed nodes `start .. end - 1` (a single node is itself). */
-export const treeHash = async (nodes: ReadonlyArray<Uint8Array>, start = 0, end = nodes.length): Promise<Uint8Array<ArrayBuffer>> => {
-  if (end - start < 1) throw new ParcelError("invalid-argument", "a tree needs at least one node")
-  if (end - start === 1) return new Uint8Array(nodes[start] ?? new Uint8Array(32))
+export const treeHash = async (nodes: readonly Uint8Array[], start = 0, end = nodes.length): Promise<Uint8Array<ArrayBuffer>> => {
+  if (end - start < 1) {
+    throw new ParcelError("invalid-argument", "a tree needs at least one node")
+  }
+
+  if (end - start === 1) {
+    return new Uint8Array(nodes[start] ?? new Uint8Array(32))
+  }
+
   const split = splitOf(end - start)
+
   return nodeHash(await treeHash(nodes, start, start + split), await treeHash(nodes, start + split, end))
 }
 
@@ -49,12 +67,20 @@ export interface Sibling {
 }
 
 /** The audit path of node `index` among `count` nodes: sibling ranges, nearest first (docs/parcel.md, "Label pages"). */
-export const auditPath = (count: number, index: number): ReadonlyArray<Sibling> => {
-  if (!Number.isSafeInteger(index) || index < 0 || index >= count) throw new ParcelError("invalid-argument", "node index out of range")
-  const path: Array<Sibling> = []
+export const auditPath = (count: number, index: number): readonly Sibling[] => {
+  if (!Number.isSafeInteger(index) || index < 0 || index >= count) {
+    throw new ParcelError("invalid-argument", "node index out of range")
+  }
+
+  const path: Sibling[] = []
+
   const walk = (start: number, end: number) => {
-    if (end - start === 1) return
+    if (end - start === 1) {
+      return
+    }
+
     const split = start + splitOf(end - start)
+
     if (index < split) {
       walk(start, split)
       path.push({ side: "right", start: split, end })
@@ -63,21 +89,24 @@ export const auditPath = (count: number, index: number): ReadonlyArray<Sibling> 
       path.push({ side: "left", start, end: split })
     }
   }
+
   walk(0, count)
+
   return path
 }
 
 /** Folds a node with its audit path's sibling hashes into the root. */
-export const foldAuditPath = async (
-  node: Uint8Array,
-  path: ReadonlyArray<Sibling>,
-  siblingHashes: ReadonlyArray<Uint8Array>,
-): Promise<Uint8Array<ArrayBuffer>> => {
-  if (path.length !== siblingHashes.length) throw new ParcelError("invalid-argument", "one hash per sibling")
+export const foldAuditPath = async (node: Uint8Array, path: readonly Sibling[], siblingHashes: readonly Uint8Array[]): Promise<Uint8Array<ArrayBuffer>> => {
+  if (path.length !== siblingHashes.length) {
+    throw new ParcelError("invalid-argument", "one hash per sibling")
+  }
+
   let accumulated = new Uint8Array(node)
+
   for (const [index, sibling] of path.entries()) {
     const hash = siblingHashes[index] ?? new Uint8Array(32)
     accumulated = sibling.side === "right" ? await nodeHash(accumulated, hash) : await nodeHash(hash, accumulated)
   }
+
   return accumulated
 }

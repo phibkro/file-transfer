@@ -43,7 +43,7 @@ export interface ConformanceSuite<Service, Identifier extends string> {
   /** Registers one test per guarantee against `layer`. */
   readonly run: (layerName: string, layer: Layer.Layer<Service>) => void
   /** Registers one test per broken variant (its check must reject) and one that every guarantee has a variant. */
-  readonly negativeControls: (layerName: string, variants: ReadonlyArray<BrokenVariant<Service, Identifier>>) => void
+  readonly negativeControls: (layerName: string, variants: readonly BrokenVariant<Service, Identifier>[]) => void
 }
 
 /**
@@ -52,14 +52,17 @@ export interface ConformanceSuite<Service, Identifier extends string> {
  */
 const isProgrammingError = (error: unknown): boolean => {
   for (let current = error, depth = 0; current instanceof Error && depth < 8; current = current.cause, depth++) {
-    if (current instanceof TypeError || current instanceof ReferenceError || current instanceof SyntaxError) return true
+    if (current instanceof TypeError || current instanceof ReferenceError || current instanceof SyntaxError) {
+      return true
+    }
   }
+
   return false
 }
 
 export const conformanceSuite = <Service, Identifier extends string>(definition: {
   readonly service: string
-  readonly guarantees: ReadonlyArray<Guarantee<Identifier>>
+  readonly guarantees: readonly Guarantee<Identifier>[]
   readonly checks: { readonly [Key in Identifier]: Check<Service> }
 }): ConformanceSuite<Service, Identifier> => ({
   run: (layerName, layer) => {
@@ -74,14 +77,17 @@ export const conformanceSuite = <Service, Identifier extends string>(definition:
       for (const variant of variants) {
         it(`a variant that breaks ${variant.violates} fails its check`, async () => {
           let outcome: "passed" | "rejected" | "crashed" = "passed"
+
           try {
             await definition.checks[variant.violates](variant.layer)
           } catch (error) {
             outcome = isProgrammingError(error) ? "crashed" : "rejected"
           }
+
           expect(outcome).toBe("rejected")
         })
       }
+
       it("every guarantee has a negative control", () => {
         const controlled = new Set(variants.map((variant) => variant.violates))
         const missing = definition.guarantees.filter((guarantee) => !controlled.has(guarantee.identifier)).map((guarantee) => guarantee.identifier)

@@ -6,6 +6,7 @@ import { makeRoomReference, RoomReference, roomGuarantees, roomMachine } from ".
 import { roomSuite } from "./conformance.ts"
 
 roomSuite.run("reference", Layer.provide(RoomReference, secureCrypto))
+
 roomSuite.negativeControls(
   "reference",
   roomGuarantees.map((guarantee) => ({

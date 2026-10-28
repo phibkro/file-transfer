@@ -5,33 +5,29 @@
  * verify and store every record (docs/protocol.md, "Order of a transfer"; docs/parcel.md, "Receiver rules").
  * Output stays provisional until the last record verifies; any parcel error aborts and discards it.
  */
-import {
-  bytesEqual,
-  decodeLinkSecret,
-  deriveRoomToken,
-  isParcelError,
-  labelsPerPage,
-  type Manifest,
-  type ParcelOpener,
-  type ParcelReceiver,
-  openHeader,
-  toHex,
-} from "@file-transfer/parcel"
+import { bytesEqual, decodeLinkSecret, deriveRoomToken, isParcelError, labelsPerPage, openHeader, toHex } from "@file-transfer/parcel"
+import type { Manifest, ParcelOpener, ParcelReceiver } from "@file-transfer/parcel"
 import type { ControlMessage, Unit } from "@file-transfer/transport"
 import { Result } from "effect"
 import { consume, createCreditWindow, grantDue, resetCredits } from "./credits.ts"
-import { type Connection, openConnection } from "./connection.ts"
+import { openConnection } from "./connection.ts"
+import type { Connection } from "./connection.ts"
 import { spansFor } from "./files.ts"
-import { addRecord, containsRange, createRecordSet, hasRecord, isComplete, missingRanges, rangesOf, type RecordSet } from "./ranges.ts"
+import { addRecord, containsRange, createRecordSet, hasRecord, isComplete, missingRanges, rangesOf } from "./ranges.ts"
+import type { RecordSet } from "./ranges.ts"
 import { setFileHashes, setProgress, setStatus } from "./report.ts"
-import { openStorage, type ParcelStorage } from "./storage.ts"
+import { openStorage } from "./storage.ts"
+import type { ParcelStorage } from "./storage.ts"
 import { describeFailure, element, formatSize, progressBar, replaceChildren } from "./view.ts"
 
 const sequence = 0
+
 /** Records in flight at most: 64 records of 64 KiB is 4 MiB buffered per recipient. */
 const creditWindow = 64
+
 /** A dropped record is asked for again after this pause, so neighbours share one `want`. */
 const wantDelayMilliseconds = 50
+
 /** With records missing and none arriving for this long, ask for everything still missing. */
 const stallMilliseconds = 5000
 
@@ -57,29 +53,32 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
   const status = element("p", { class: "status", role: "status" })
   const section = element("section", { "aria-labelledby": "receive-heading" }, [element("h1", { id: "receive-heading" }, ["Receive files"]), status])
   replaceChildren(root, section)
+
   const say = (text: string) => {
     status.textContent = text
   }
 
   let linkSecret: Uint8Array
+
   try {
     linkSecret = decodeLinkSecret(location.hash)
   } catch (error) {
     const reason = reasonOf(error)
     setStatus("failed", reason)
     say(describeFailure(reason))
+
     return
   }
 
   let connection: Connection | undefined
   let opener: ParcelOpener | undefined
   let headerBytes: Uint8Array | undefined
-  let manifestPlaintexts: Array<Uint8Array> = []
-  let manifestRecords: Array<Uint8Array> = []
+  let manifestPlaintexts: Uint8Array[] = []
+  let manifestRecords: Uint8Array[] = []
   let manifestTotal = 1
   let receiver: ParcelReceiver | undefined
   let received: RecordSet | undefined
-  let fileSizes: ReadonlyArray<number> = []
+  let fileSizes: readonly number[] = []
   let storage: ParcelStorage | undefined
   let decision: "pending" | "accepted" | "declined" = "pending"
   let finished = false
@@ -94,10 +93,17 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
   const send = (message: ControlMessage) => connection?.sendControl(message)
 
   const fail = async (error: unknown, fromSender = false) => {
-    if (finished) return
+    if (finished) {
+      return
+    }
+
     finished = true
     const reason = fromSender && typeof error === "string" ? error : reasonOf(error)
-    if (!fromSender) send({ type: "abort", reason })
+
+    if (!fromSender) {
+      send({ type: "abort", reason })
+    }
+
     connection?.close()
     setStatus("failed", reason)
     say(fromSender ? `The sender stopped the transfer. ${describeFailure(reason)}` : describeFailure(reason))
@@ -105,23 +111,39 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
   }
 
   const topUp = () => {
-    if (received === undefined) return
+    if (received === undefined) {
+      return
+    }
+
     const due = grantDue(credits, received.size - received.count)
-    if (due > 0) send({ type: "credit", records: due })
+
+    if (due > 0) {
+      send({ type: "credit", records: due })
+    }
   }
 
   /** Accepts the contract on this connection: `accept`, then (when resuming) what is still missing, then credit. */
   const sendAcceptance = (resuming: boolean) => {
-    if (receiver === undefined || received === undefined) return
+    if (receiver === undefined || received === undefined) {
+      return
+    }
+
     resetCredits(credits)
     dropped.clear()
     send({ type: "accept", sequence, digest: toHex(receiver.digest) })
-    if (resuming) send({ type: "want", sequence, ranges: missingRanges(received) })
+
+    if (resuming) {
+      send({ type: "want", sequence, ranges: missingRanges(received) })
+    }
+
     topUp()
   }
 
   const finish = async () => {
-    if (receiver === undefined || storage === undefined || finished) return
+    if (receiver === undefined || storage === undefined || finished) {
+      return
+    }
+
     finished = true
     const manifest = receiver.manifest
     const files = await storage.commit()
@@ -136,6 +158,7 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
         { class: "file-list downloads" },
         files.map((file, index) => {
           const name = manifest.files[index]?.name ?? String(index)
+
           return element("li", {}, [
             element("a", { href: URL.createObjectURL(file), download: downloadName(name) }, [`Save ${name}`]),
             element("span", { class: "size" }, [formatSize(file.size)]),
@@ -147,20 +170,30 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
 
   const flushWant = () => {
     wantTimer = undefined
-    if (finished || dropped.size === 0) return
+
+    if (finished || dropped.size === 0) {
+      return
+    }
+
     send({ type: "want", sequence, ranges: rangesOf(dropped).slice(0, 1024) })
     dropped.clear()
   }
 
   const onAccept = async () => {
-    if (receiver === undefined || decision !== "pending") return
+    if (receiver === undefined || decision !== "pending") {
+      return
+    }
+
     decision = "accepted"
+
     try {
       storage = await openStorage(roomIdentifier, receiver.manifest.files.length)
     } catch {
       await fail(new TransferError("storage-unavailable"))
+
       return
     }
+
     setStatus("transferring")
     progress = progressBar("Receiving files")
     section.append(progress.node)
@@ -203,10 +236,17 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
   const onHeader = async (bytes: Uint8Array) => {
     if (receiver !== undefined) {
       // The sender offers the contract again after either side reconnects: resume under the same digest.
-      if (headerBytes === undefined || !bytesEqual(bytes, headerBytes)) throw new TransferError("contract-mismatch")
-      if (decision === "accepted") sendAcceptance(true)
+      if (headerBytes === undefined || !bytesEqual(bytes, headerBytes)) {
+        throw new TransferError("contract-mismatch")
+      }
+
+      if (decision === "accepted") {
+        sendAcceptance(true)
+      }
+
       return
     }
+
     opener = await openHeader(linkSecret, bytes)
     headerBytes = bytes.slice()
     manifestPlaintexts = []
@@ -215,12 +255,23 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
   }
 
   const onManifestRecord = async (index: number, bytes: Uint8Array) => {
-    if (receiver !== undefined || opener === undefined || index !== manifestPlaintexts.length) return
+    if (receiver !== undefined || opener === undefined || index !== manifestPlaintexts.length) {
+      return
+    }
+
     const plaintext = await opener.openManifestRecord(index, bytes)
-    if (index === 0) manifestTotal = opener.manifestRecordCountFrom(plaintext)
+
+    if (index === 0) {
+      manifestTotal = opener.manifestRecordCountFrom(plaintext)
+    }
+
     manifestPlaintexts.push(plaintext)
     manifestRecords.push(bytes.slice())
-    if (manifestPlaintexts.length < manifestTotal) return
+
+    if (manifestPlaintexts.length < manifestTotal) {
+      return
+    }
+
     receiver = await opener.acceptContract(manifestPlaintexts, manifestRecords)
     received = createRecordSet(receiver.recordCount)
     fileSizes = receiver.manifest.files.map((file) => file.size)
@@ -230,36 +281,65 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
   }
 
   const onLabelPage = async (page: number, bytes: Uint8Array) => {
-    if (receiver === undefined || received === undefined || decision !== "accepted") return
-    if (page >= receiver.pageCount) throw new TransferError("invalid-page")
+    if (receiver === undefined || received === undefined || decision !== "accepted") {
+      return
+    }
+
+    if (page >= receiver.pageCount) {
+      throw new TransferError("invalid-page")
+    }
+
     await receiver.verifyPage(page, bytes)
     const { start, end } = receiver.pageRecords(page)
-    if (containsRange(received, start, end)) receiver.releasePage(page)
+
+    if (containsRange(received, start, end)) {
+      receiver.releasePage(page)
+    }
   }
 
   const onDataRecord = async (index: number, bytes: Uint8Array, current: boolean) => {
-    if (receiver === undefined || received === undefined || storage === undefined || decision !== "accepted") return
-    if (index >= receiver.recordCount) throw new TransferError("invalid-record-index")
+    if (receiver === undefined || received === undefined || storage === undefined || decision !== "accepted") {
+      return
+    }
+
+    if (index >= receiver.recordCount) {
+      throw new TransferError("invalid-record-index")
+    }
+
     if (!hasRecord(received, index)) {
       let plaintext: Uint8Array<ArrayBuffer> | undefined
+
       try {
         plaintext = await receiver.openData(index, bytes)
       } catch (error) {
         // Receiver rule 6: a record ahead of its page is dropped and asked for again.
-        if (!isParcelError(error, "label-page-missing")) throw error
+        if (!isParcelError(error, "label-page-missing")) {
+          throw error
+        }
+
         dropped.add(index)
         wantTimer ??= setTimeout(flushWant, wantDelayMilliseconds)
       }
+
       if (plaintext !== undefined) {
         const spans = spansFor(fileSizes, index * receiver.recordSize, plaintext.length)
-        if (Result.isFailure(spans)) throw new TransferError("invalid-record-index")
+
+        if (Result.isFailure(spans)) {
+          throw new TransferError("invalid-record-index")
+        }
+
         for (const span of spans.success) {
           await storage.write(span.fileIndex, span.fileOffset, plaintext.subarray(span.spanOffset, span.spanOffset + span.length))
         }
+
         addRecord(received, index)
         const page = Math.floor(index / labelsPerPage)
         const { start, end } = receiver.pageRecords(page)
-        if (containsRange(received, start, end)) receiver.releasePage(page)
+
+        if (containsRange(received, start, end)) {
+          receiver.releasePage(page)
+        }
+
         setProgress(received.count, received.size)
         progress?.update(
           received.count,
@@ -268,55 +348,96 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
         )
       }
     }
+
     if (current) {
       consume(credits)
       topUp()
     }
-    if (isComplete(received)) await finish()
+
+    if (isComplete(received)) {
+      await finish()
+    }
   }
 
   const onUnit = (unit: Unit, epoch: number) => {
     chain = chain
       .then(async () => {
-        if (finished) return
-        if (unit.sequence !== sequence) throw new TransferError("unsupported-sequence")
+        if (finished) {
+          return
+        }
+
+        if (unit.sequence !== sequence) {
+          throw new TransferError("unsupported-sequence")
+        }
+
         switch (unit.kind) {
-          case "header":
+          case "header": {
             return onHeader(unit.bytes)
-          case "manifestRecord":
+          }
+
+          case "manifestRecord": {
             return onManifestRecord(unit.index, unit.bytes)
-          case "labelPage":
+          }
+
+          case "labelPage": {
             return onLabelPage(unit.index, unit.bytes)
-          case "dataRecord":
+          }
+
+          case "dataRecord": {
             return onDataRecord(unit.index, unit.bytes, epoch === connection?.epoch())
+          }
         }
       })
       .catch((error: unknown) => fail(error))
   }
 
   const onControl = (message: ControlMessage) => {
-    if (finished) return
+    if (finished) {
+      return
+    }
+
     switch (message.type) {
-      case "joined":
+      case "joined": {
         senderPresent = message.senderPresent
+
         if (!senderPresent) {
           setStatus(decision === "accepted" ? "reconnecting" : "waiting-for-sender")
           say("Waiting for the sender.")
-        } else if (decision !== "accepted") setStatus("waiting-for-sender")
+        } else if (decision !== "accepted") {
+          setStatus("waiting-for-sender")
+        }
+
         return
-      case "peer":
-        if (message.role !== "sender") return
+      }
+
+      case "peer": {
+        if (message.role !== "sender") {
+          return
+        }
         senderPresent = message.event === "joined"
-        if (!senderPresent) say("The sender disconnected. Waiting for them to come back.")
+
+        if (!senderPresent) {
+          say("The sender disconnected. Waiting for them to come back.")
+        }
+
         return
-      case "abort":
+      }
+
+      case "abort": {
         void fail(message.reason, true)
+
         return
-      case "error":
+      }
+
+      case "error": {
         void fail(new TransferError(message.reason))
+
         return
-      default:
+      }
+
+      default: {
         return
+      }
     }
   }
 
@@ -324,10 +445,18 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
   const stallCheck = setInterval(() => {
     if (finished) {
       clearInterval(stallCheck)
+
       return
     }
-    if (decision !== "accepted" || received === undefined || !senderPresent || !connection?.isJoined()) return
-    if (received.count === lastCount && !isComplete(received)) send({ type: "want", sequence, ranges: missingRanges(received) })
+
+    if (decision !== "accepted" || received === undefined || !senderPresent || !connection?.isJoined()) {
+      return
+    }
+
+    if (received.count === lastCount && !isComplete(received)) {
+      send({ type: "want", sequence, ranges: missingRanges(received) })
+    }
+
     lastCount = received.count
   }, stallMilliseconds)
 
@@ -343,7 +472,10 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
         onControl,
         onUnit,
         onState: (state) => {
-          if (finished) return
+          if (finished) {
+            return
+          }
+
           if (state === "reconnecting") {
             setStatus("reconnecting")
             say("Connection lost. Reconnecting.")

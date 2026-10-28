@@ -51,7 +51,9 @@ export interface RelayMeter {
 }
 
 export class RelaySessionNotFound extends Data.TaggedError("RelaySessionNotFound")<{ readonly sessionIdentifier: RelaySessionIdentifier }> {}
+
 export class NoCreditAvailable extends Data.TaggedError("NoCreditAvailable")<{ readonly sessionIdentifier: RelaySessionIdentifier }> {}
+
 export class RelaySessionClosed extends Data.TaggedError("RelaySessionClosed")<{ readonly sessionIdentifier: RelaySessionIdentifier }> {}
 
 export class Relay extends Context.Service<
@@ -77,7 +79,7 @@ export class Relay extends Context.Service<
 
 interface SessionRecord {
   readonly state: RelaySessionState
-  readonly queue: ReadonlyArray<Uint8Array>
+  readonly queue: readonly Uint8Array[]
   readonly credits: number
   readonly framesForwarded: number
   readonly bytesForwarded: number
@@ -105,14 +107,21 @@ export const makeRelayReference = (faults: ReadonlySet<RelayGuarantee> = new Set
         Effect.gen(function* () {
           const all = yield* Ref.get(sessions)
           const record = all.get(sessionIdentifier)
+
           if (record === undefined) {
-            if (!faults.has("relay/unknown-not-found")) return yield* new RelaySessionNotFound({ sessionIdentifier })
+            if (!faults.has("relay/unknown-not-found")) {
+              return yield* new RelaySessionNotFound({ sessionIdentifier })
+            }
+
             const blank: SessionRecord = { state: "Open", queue: [], credits: 0, framesForwarded: 0, bytesForwarded: 0 }
             const [result] = yield* step(blank)
+
             return result
           }
+
           const [result, next] = yield* step(record)
           yield* Ref.update(sessions, (current) => new Map(current).set(sessionIdentifier, next))
+
           return result
         })
 
@@ -125,22 +134,35 @@ export const makeRelayReference = (faults: ReadonlySet<RelayGuarantee> = new Set
             const sessionIdentifier = yield* randomIdentifier
             const record: SessionRecord = { state: "Open", queue: [], credits: Math.max(0, Math.floor(initialCredits)), framesForwarded: 0, bytesForwarded: 0 }
             yield* Ref.update(sessions, (all) => new Map(all).set(sessionIdentifier, record))
+
             return sessionIdentifier
           }),
 
         push: ({ sessionIdentifier, frame }) =>
           withSession<void, NoCreditAvailable | RelaySessionClosed>(sessionIdentifier, (record) => {
-            if (!isAllowed("pushFrame", record.state)) return Effect.fail(new RelaySessionClosed({ sessionIdentifier }))
-            if (record.credits < 1 && !faults.has("relay/credit-bound")) return Effect.fail(new NoCreditAvailable({ sessionIdentifier }))
+            if (!isAllowed("pushFrame", record.state)) {
+              return Effect.fail(new RelaySessionClosed({ sessionIdentifier }))
+            }
+
+            if (record.credits < 1 && !faults.has("relay/credit-bound")) {
+              return Effect.fail(new NoCreditAvailable({ sessionIdentifier }))
+            }
+
             const queue = faults.has("relay/order") ? [frame, ...record.queue] : [...record.queue, frame]
+
             return Effect.succeed([undefined, { ...record, queue, credits: Math.max(0, record.credits - 1) }] as const)
           }),
 
         take: (sessionIdentifier) =>
           withSession(sessionIdentifier, (record) => {
             const [next, ...rest] = record.queue
-            if (next === undefined) return Effect.succeed([Option.none<Uint8Array>(), record] as const)
+
+            if (next === undefined) {
+              return Effect.succeed([Option.none<Uint8Array>(), record] as const)
+            }
+
             const counted = faults.has("relay/exact-metering") ? 0 : 1
+
             return Effect.succeed([
               Option.some(next),
               { ...record, queue: rest, framesForwarded: record.framesForwarded + counted, bytesForwarded: record.bytesForwarded + counted * next.length },
@@ -149,13 +171,17 @@ export const makeRelayReference = (faults: ReadonlySet<RelayGuarantee> = new Set
 
         grant: ({ sessionIdentifier, credits }) =>
           withSession<void, RelaySessionClosed>(sessionIdentifier, (record) => {
-            if (!isAllowed("grantCredits", record.state)) return Effect.fail(new RelaySessionClosed({ sessionIdentifier }))
+            if (!isAllowed("grantCredits", record.state)) {
+              return Effect.fail(new RelaySessionClosed({ sessionIdentifier }))
+            }
+
             return Effect.succeed([undefined, { ...record, credits: record.credits + Math.max(0, Math.floor(credits)) }] as const)
           }),
 
         close: (sessionIdentifier) =>
           withSession(sessionIdentifier, (record) => {
             const next = Machine.next(relaySessionMachine, "closeSession", record.state, undefined)
+
             return Effect.succeed([undefined, { ...record, state: next === "Closed" ? "Closed" : record.state }] as const)
           }),
 

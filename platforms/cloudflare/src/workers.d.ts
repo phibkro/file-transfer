@@ -28,8 +28,8 @@ declare module "cloudflare:workers" {
 
   export interface DurableObjectState {
     readonly storage: DurableObjectStorage
-    acceptWebSocket(socket: HibernatableWebSocket, tags?: ReadonlyArray<string>): void
-    getWebSockets(tag?: string): Array<HibernatableWebSocket>
+    acceptWebSocket(socket: HibernatableWebSocket, tags?: readonly string[]): void
+    getWebSockets(tag?: string): HibernatableWebSocket[]
   }
 
   export abstract class DurableObject<Environment = unknown> {

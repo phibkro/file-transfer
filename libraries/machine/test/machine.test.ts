@@ -39,6 +39,7 @@ describe("machine", () => {
         { command: "stop", from: ["Done"], to: "A" },
       ],
     })
+
     expect([...problems(broken)].sort()).toEqual(
       [
         "command unused has no transition",

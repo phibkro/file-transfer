@@ -29,10 +29,14 @@ export interface Transport {
 export class InvalidFrameSize extends Data.TaggedError("InvalidFrameSize")<{ readonly maximumFrameBytes: number }> {}
 
 /** Splits a ciphertext record into frames no larger than `maximumFrameBytes`, which must be a positive integer. */
-export const frameRecord = (recordIndex: number, record: Uint8Array, maximumFrameBytes: number): Effect.Effect<ReadonlyArray<Frame>, InvalidFrameSize> => {
-  if (!Number.isInteger(maximumFrameBytes) || maximumFrameBytes < 1) return Effect.fail(new InvalidFrameSize({ maximumFrameBytes }))
-  const frames: Array<Frame> = []
+export const frameRecord = (recordIndex: number, record: Uint8Array, maximumFrameBytes: number): Effect.Effect<readonly Frame[], InvalidFrameSize> => {
+  if (!Number.isInteger(maximumFrameBytes) || maximumFrameBytes < 1) {
+    return Effect.fail(new InvalidFrameSize({ maximumFrameBytes }))
+  }
+
+  const frames: Frame[] = []
   const count = Math.max(1, Math.ceil(record.length / maximumFrameBytes))
+
   for (let frameIndex = 0; frameIndex < count; frameIndex++) {
     const start = frameIndex * maximumFrameBytes
     frames.push({
@@ -42,19 +46,22 @@ export const frameRecord = (recordIndex: number, record: Uint8Array, maximumFram
       bytes: record.subarray(start, Math.min(start + maximumFrameBytes, record.length)),
     })
   }
+
   return Effect.succeed(frames)
 }
 
 /** Reassembles the frames of one record, in frame order. */
-export const assembleRecord = (frames: ReadonlyArray<Frame>): Uint8Array => {
+export const assembleRecord = (frames: readonly Frame[]): Uint8Array => {
   const ordered = [...frames].sort((left, right) => left.frameIndex - right.frameIndex)
   const total = ordered.reduce((sum, frame) => sum + frame.bytes.length, 0)
   const record = new Uint8Array(total)
   let offset = 0
+
   for (const frame of ordered) {
     record.set(frame.bytes, offset)
     offset += frame.bytes.length
   }
+
   return record
 }
 

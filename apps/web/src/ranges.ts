@@ -22,17 +22,25 @@ export const hasRecord = (set: RecordSet, index: number): boolean => ((set.bits[
 
 /** Adds `index`; answers whether it was new. */
 export const addRecord = (set: RecordSet, index: number): boolean => {
-  if (index < 0 || index >= set.size || hasRecord(set, index)) return false
+  if (index < 0 || index >= set.size || hasRecord(set, index)) {
+    return false
+  }
+
   set.bits[index >> 3] = (set.bits[index >> 3] ?? 0) | (1 << (index & 7))
   set.count++
+
   return true
 }
 
 /** Removes `index`; answers whether it was present. */
 export const removeRecord = (set: RecordSet, index: number): boolean => {
-  if (index < 0 || index >= set.size || !hasRecord(set, index)) return false
+  if (index < 0 || index >= set.size || !hasRecord(set, index)) {
+    return false
+  }
+
   set.bits[index >> 3] = (set.bits[index >> 3] ?? 0) & ~(1 << (index & 7))
   set.count--
+
   return true
 }
 
@@ -40,41 +48,61 @@ export const isComplete = (set: RecordSet): boolean => set.count === set.size
 
 /** Whether every record from `start` to `end - 1` is in the set. */
 export const containsRange = (set: RecordSet, start: number, end: number): boolean => {
-  for (let index = start; index < end; index++) if (!hasRecord(set, index)) return false
+  for (let index = start; index < end; index++) {
+    if (!hasRecord(set, index)) {
+      return false
+    }
+  }
+
   return true
 }
 
 /** The ranges of records below `end` that are not in the set, in order, at most `limit` of them. */
-export const missingRanges = (set: RecordSet, end: number = set.size, limit: number = maximumRangesPerWant): ReadonlyArray<RecordRange> => {
-  const ranges: Array<RecordRange> = []
+export const missingRanges = (set: RecordSet, end: number = set.size, limit: number = maximumRangesPerWant): readonly RecordRange[] => {
+  const ranges: RecordRange[] = []
   let start = -1
   const last = Math.min(end, set.size)
+
   for (let index = 0; index < last && ranges.length < limit; index++) {
     const missing = !hasRecord(set, index)
-    if (missing && start < 0) start = index
+
+    if (missing && start < 0) {
+      start = index
+    }
+
     if (!missing && start >= 0) {
       ranges.push([start, index])
       start = -1
     }
   }
-  if (start >= 0 && ranges.length < limit) ranges.push([start, last])
+
+  if (start >= 0 && ranges.length < limit) {
+    ranges.push([start, last])
+  }
+
   return ranges
 }
 
 /** Coalesces record indexes (any order, duplicates allowed) into sorted ranges. */
-export const rangesOf = (indexes: Iterable<number>): ReadonlyArray<RecordRange> => {
+export const rangesOf = (indexes: Iterable<number>): readonly RecordRange[] => {
   const sorted = [...new Set(indexes)].sort((left, right) => left - right)
-  const ranges: Array<RecordRange> = []
+  const ranges: RecordRange[] = []
+
   for (const index of sorted) {
     const previous = ranges.at(-1)
-    if (previous !== undefined && previous[1] === index) ranges[ranges.length - 1] = [previous[0], index + 1]
-    else ranges.push([index, index + 1])
+
+    if (previous !== undefined && previous[1] === index) {
+      ranges[ranges.length - 1] = [previous[0], index + 1]
+    } else {
+      ranges.push([index, index + 1])
+    }
   }
+
   return ranges
 }
 
 /** Whether every range is well formed and inside `[0, size)`. */
-export const rangesAreValid = (ranges: ReadonlyArray<RecordRange>, size: number): boolean =>
+export const rangesAreValid = (ranges: readonly RecordRange[], size: number): boolean =>
   ranges.every(([start, end]) => Number.isSafeInteger(start) && Number.isSafeInteger(end) && start >= 0 && start < end && end <= size)
 
 /**
@@ -85,35 +113,46 @@ export const rangesAreValid = (ranges: ReadonlyArray<RecordRange>, size: number)
 export interface Schedule {
   readonly owed: RecordSet
   /** Records requested by a later `want`, sent before the sequential cursor. */
-  priority: Array<number>
+  priority: number[]
   /** Next index the sequential scan looks at. */
   cursor: number
 }
 
 export const createSchedule = (size: number): Schedule => {
   const owed = createRecordSet(size)
-  for (let index = 0; index < size; index++) addRecord(owed, index)
+
+  for (let index = 0; index < size; index++) {
+    addRecord(owed, index)
+  }
+
   return { owed, priority: [], cursor: 0 }
 }
 
 /** Replaces the debt with exactly `ranges`. */
-export const replaceDebt = (schedule: Schedule, ranges: ReadonlyArray<RecordRange>): void => {
+export const replaceDebt = (schedule: Schedule, ranges: readonly RecordRange[]): void => {
   schedule.owed.bits.fill(0)
   schedule.owed.count = 0
   schedule.priority = []
   schedule.cursor = 0
-  for (const [start, end] of ranges) for (let index = start; index < end; index++) addRecord(schedule.owed, index)
+
+  for (const [start, end] of ranges) {
+    for (let index = start; index < end; index++) {
+      addRecord(schedule.owed, index)
+    }
+  }
 }
 
 /** Owes `ranges` again, ahead of everything else. */
-export const prioritise = (schedule: Schedule, ranges: ReadonlyArray<RecordRange>): void => {
-  const front: Array<number> = []
+export const prioritise = (schedule: Schedule, ranges: readonly RecordRange[]): void => {
+  const front: number[] = []
+
   for (const [start, end] of ranges) {
     for (let index = start; index < end; index++) {
       addRecord(schedule.owed, index)
       front.push(index)
     }
   }
+
   schedule.priority = [...front, ...schedule.priority]
 }
 
@@ -121,10 +160,18 @@ export const prioritise = (schedule: Schedule, ranges: ReadonlyArray<RecordRange
 export const peekNext = (schedule: Schedule): number | undefined => {
   while (schedule.priority.length > 0) {
     const index = schedule.priority[0] ?? 0
-    if (hasRecord(schedule.owed, index)) return index
+
+    if (hasRecord(schedule.owed, index)) {
+      return index
+    }
+
     schedule.priority.shift()
   }
-  while (schedule.cursor < schedule.owed.size && !hasRecord(schedule.owed, schedule.cursor)) schedule.cursor++
+
+  while (schedule.cursor < schedule.owed.size && !hasRecord(schedule.owed, schedule.cursor)) {
+    schedule.cursor++
+  }
+
   return schedule.cursor < schedule.owed.size ? schedule.cursor : undefined
 }
 

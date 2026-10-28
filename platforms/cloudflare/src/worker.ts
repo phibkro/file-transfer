@@ -27,37 +27,68 @@ const socketPath = /^\/api\/rooms\/([^/]+)\/socket$/
 
 const createRoom = async (request: Request, environment: Environment): Promise<Response> => {
   const text = await request.text()
-  if (text.length > maximumCreateBodyLength) return json(413, { error: "body too large" })
+
+  if (text.length > maximumCreateBodyLength) {
+    return json(413, { error: "body too large" })
+  }
+
   let body: unknown
+
   try {
     body = JSON.parse(text)
   } catch {
     return json(400, { error: "invalid room" })
   }
+
   const record = decodeCreateRoom(body)
-  if (record === undefined) return json(400, { error: "invalid room" })
+
+  if (record === undefined) {
+    return json(400, { error: "invalid room" })
+  }
+
   const roomIdentifier = encodeRoomIdentifier(crypto.getRandomValues(new Uint8Array(16)))
   const room = environment.ROOMS.get(environment.ROOMS.idFromName(roomIdentifier))
   const created = await room.fetch("https://room/create", { method: "POST", body: JSON.stringify(record) })
-  if (created.status !== 201) return json(503, { error: "room not created" })
+
+  if (created.status !== 201) {
+    return json(503, { error: "room not created" })
+  }
+
   return json(201, { roomIdentifier })
 }
 
 export default {
   async fetch(request: Request, environment: Environment): Promise<Response> {
     const url = new URL(request.url)
+
     if (url.pathname === "/api/rooms") {
-      if (request.method !== "POST") return json(405, { error: "method not allowed" })
+      if (request.method !== "POST") {
+        return json(405, { error: "method not allowed" })
+      }
+
       return createRoom(request, environment)
     }
+
     const socket = socketPath.exec(url.pathname)
+
     if (socket !== null) {
       const roomIdentifier = socket[1] ?? ""
-      if (!roomIdentifierPattern.test(roomIdentifier)) return json(404, { error: "no such room" })
-      if (request.method !== "GET" || request.headers.get("Upgrade")?.toLowerCase() !== "websocket") return json(426, { error: "expected a WebSocket upgrade" })
+
+      if (!roomIdentifierPattern.test(roomIdentifier)) {
+        return json(404, { error: "no such room" })
+      }
+
+      if (request.method !== "GET" || request.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
+        return json(426, { error: "expected a WebSocket upgrade" })
+      }
+
       return environment.ROOMS.get(environment.ROOMS.idFromName(roomIdentifier)).fetch(request)
     }
-    if (url.pathname.startsWith("/api/")) return json(404, { error: "not found" })
+
+    if (url.pathname.startsWith("/api/")) {
+      return json(404, { error: "not found" })
+    }
+
     return environment.ASSETS.fetch(request)
   },
 }

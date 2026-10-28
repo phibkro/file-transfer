@@ -32,7 +32,7 @@ export interface TestHook {
   /** The failure reason code, when the status is `failed`. */
   failure(): string | undefined
   /** SHA-256 (hex) of each received file in manifest order; empty until the recipient completes. */
-  fileHashes(): Promise<ReadonlyArray<string>>
+  fileHashes(): Promise<readonly string[]>
 }
 
 declare global {
@@ -44,32 +44,39 @@ declare global {
 let status: Status = "idle"
 let progress: Progress = { done: 0, total: 0 }
 let failure: string | undefined
-let hashes: () => Promise<ReadonlyArray<string>> = async () => []
+let hashes: () => Promise<readonly string[]> = async () => []
 const listeners = new Set<() => void>()
 let frameRequested = false
 
 const flush = () => {
   frameRequested = false
-  document.body.dataset["progress"] = `${progress.done}/${progress.total}`
-  for (const listener of listeners) listener()
+  document.body.dataset.progress = `${progress.done}/${progress.total}`
+
+  for (const listener of listeners) {
+    listener()
+  }
 }
 
 export const setStatus = (next: Status, reason?: string) => {
   status = next
   failure = next === "failed" ? reason : undefined
-  document.body.dataset["status"] = next
+  document.body.dataset.status = next
   flush()
 }
 
 /** Coalesces updates to one per animation frame, so per-record progress does not thrash the page. */
 export const setProgress = (done: number, total: number) => {
   progress = { done, total }
-  if (frameRequested) return
+
+  if (frameRequested) {
+    return
+  }
+
   frameRequested = true
   requestAnimationFrame(flush)
 }
 
-export const setFileHashes = (compute: () => Promise<ReadonlyArray<string>>) => {
+export const setFileHashes = (compute: () => Promise<readonly string[]>) => {
   hashes = compute
 }
 
@@ -87,5 +94,5 @@ export const installTestHook = () => {
     failure: () => failure,
     fileHashes: () => hashes(),
   }
-  document.body.dataset["status"] = status
+  document.body.dataset.status = status
 }
