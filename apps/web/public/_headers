@@ -1,0 +1,12 @@
+# Cloudflare static assets headers (https://developers.cloudflare.com/workers/static-assets/headers/).
+
+# The preview frame has an opaque origin, so its module scripts and styles load in CORS mode. The assets are public
+# code; allowing any origin to read them exposes nothing.
+/assets/*
+  Access-Control-Allow-Origin: *
+
+# The preview page is sandboxed even when opened on its own (src/preview.ts).
+/preview*
+  Content-Security-Policy: sandbox allow-scripts; default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src blob:; media-src blob:; base-uri 'none'; form-action 'none'; frame-ancestors 'self'
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer

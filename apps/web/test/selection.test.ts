@@ -1,6 +1,6 @@
 import * as fc from "fast-check"
 import { describe, expect, it } from "vite-plus/test"
-import { addToSelection, removeFromSelection } from "../src/selection.ts"
+import { addToSelection, removeFromSelection, renameProblem } from "../src/selection.ts"
 
 const named = (...names: readonly string[]) => names.map((name) => ({ name }))
 
@@ -37,5 +37,29 @@ describe("file selection", () => {
         expect(change.selected.length + change.rejected.length).toBe(names.length)
       }),
     )
+  })
+})
+
+describe("renameProblem", () => {
+  const names = ["report.pdf", "photos/beach.jpg", "notes.txt"]
+
+  it("allows a new valid name, the same name, and a change of case", () => {
+    expect(renameProblem(names, 0, "summary.pdf")).toBeUndefined()
+    expect(renameProblem(names, 0, "report.pdf")).toBeUndefined()
+    expect(renameProblem(names, 0, "Report.PDF")).toBeUndefined()
+  })
+
+  it("rejects a name another file has, in any case", () => {
+    expect(renameProblem(names, 0, "NOTES.txt")).toBe("another file already has this name")
+  })
+
+  it("rejects a name that is also a folder of another file", () => {
+    expect(renameProblem(names, 2, "photos")).toBe("another file already has this name")
+  })
+
+  it("rejects names the parcel's name rules forbid", () => {
+    expect(renameProblem(names, 0, "con.txt")).toMatch(/^the name /u)
+    expect(renameProblem(names, 0, "a:b")).toMatch(/^the name /u)
+    expect(renameProblem(names, 0, "")).toMatch(/^the name /u)
   })
 })

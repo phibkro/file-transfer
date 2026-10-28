@@ -41,3 +41,20 @@ export const addToSelection = <T extends Named>(selected: readonly T[], incoming
 
 /** The selection without the file at `index`. */
 export const removeFromSelection = <T>(selected: readonly T[], index: number): readonly T[] => selected.filter((_, position) => position !== index)
+
+/**
+ * Why `candidate` cannot replace the name at `index` among `names`, or undefined when it can: it must follow the
+ * parcel's name rules and must not collide with any other name (a rename to the same name, or to a different case of
+ * it, is fine).
+ */
+export const renameProblem = (names: readonly string[], index: number, candidate: string): string | undefined => {
+  const problem = nameProblem(candidate)
+
+  if (problem !== undefined) {
+    return `the name ${problem}`
+  }
+
+  const others = names.filter((_, position) => position !== index)
+
+  return nameCollision([...others, candidate]) === undefined ? undefined : "another file already has this name"
+}

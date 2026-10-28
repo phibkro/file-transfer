@@ -83,6 +83,15 @@ One meaning per term, used the same way in code, docs and conversation. Code nam
 | Short code     | A short, single-use code shown by the room's owner, used as the password of a PAKE so an admitted knocker receives keys the server cannot learn.                 |
 | Admission      | The owner's decision on a knock, delivering what the role needs over the PAKE key: the link secret, and for a sender its sequence numbers.                       |
 
+## Previews and names (ADR 0018)
+
+| Term          | Meaning                                                                                                                                              | In code                         |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| Sealing       | What "Seal parcel and create link" does: label every record and seal the contract. Files and names are fixed from then on; a change is a new parcel. | `prepare`, `sealContract`       |
+| Save name     | The name a recipient saves a file under. Starts as the manifest's name; renaming it is local and changes nothing in the contract.                    | `saveNames` (`recipient.ts`)    |
+| Preview frame | The sandboxed frame, with an opaque origin, in which previews render. The app never renders file content on its own origin.                          | `preview.ts`, `previewFrame.ts` |
+| Sniffing      | Deciding a file's preview kind from its first bytes against an allowlist, never from its name or `mediaType`.                                        | `sniff`                         |
+
 ## Words we avoid
 
 - "Format", for the parcel: it also means code formatting (`vp fmt`) and file formats.

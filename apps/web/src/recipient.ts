@@ -18,7 +18,10 @@ import type { RecordSet } from "./ranges.ts"
 import { setFailureDetail, setFileHashes, setProgress, setReceivedFiles, setSpaceShortfall, setStatus, setTotalBytes } from "./report.ts"
 import { setUnsavedFiles } from "./leaveGuard.ts"
 import { offerRemoval } from "./storagePanel.ts"
+import { previewButton } from "./preview.ts"
+import { nameField } from "./rename.ts"
 import { saveAllControl } from "./saveAll.ts"
+import { renameProblem } from "./selection.ts"
 import { availableStorage, openStorage } from "./storage.ts"
 import type { ParcelStorage } from "./storage.ts"
 import { describeFailure, element, formatSize, progressBar, replaceChildren } from "./view.ts"
@@ -127,6 +130,66 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
   const credits = createCreditWindow(creditWindow)
   let lastCount = -1
   let progress: ReturnType<typeof progressBar> | undefined
+  // The names files are saved under: the manifest's until the recipient renames one. Only this browser sees them; the
+  // contract, the sender and the files' contents are unaffected.
+  let saveNames: string[] = []
+  const fileList = element("ul", { class: "file-list" })
+  // Set once every file is committed; the files' download links are created once and reused across renders.
+  let savable: { name: string; readonly file: File; readonly url: string }[] | undefined
+  let filesRemoved = false
+  // The Save links on the page now, by file; Save all activates these where the browser has no folder picker.
+  const saveLinks: HTMLAnchorElement[] = []
+
+  /** Renders the file list; `focusRename` puts focus back on that row's Rename button after a rename. */
+  const renderFiles = (focusRename?: number) => {
+    const sizes = fileSizes
+    fileList.replaceChildren(
+      ...saveNames.map((name, index) => {
+        const item = element("li", {}, [
+          filesRemoved
+            ? element("span", { class: "name" }, [name])
+            : nameField({
+                name,
+                problem: (candidate) => renameProblem(saveNames, index, candidate),
+                onRename: (renamed) => {
+                  saveNames = saveNames.map((current, position) => (position === index ? renamed : current))
+                  const entry = savable?.[index]
+
+                  if (entry !== undefined) {
+                    entry.name = renamed
+                  }
+
+                  renderFiles(index)
+                },
+              }),
+          element("span", { class: "size" }, [formatSize(sizes[index] ?? 0)]),
+        ])
+
+        const entry = savable?.[index]
+
+        if (entry !== undefined && !filesRemoved) {
+          const link = element("a", { href: entry.url, download: downloadName(name), class: "save", "aria-label": `Save ${name}` }, ["Save"])
+          link.addEventListener("click", () => {
+            setUnsavedFiles(false)
+          })
+          saveLinks[index] = link
+          item.append(
+            link,
+            previewButton(
+              () => entry.file,
+              () => entry.name,
+            ),
+          )
+        }
+
+        return item
+      }),
+    )
+
+    if (focusRename !== undefined) {
+      fileList.querySelectorAll<HTMLButtonElement>("button.rename")[focusRename]?.focus()
+    }
+  }
 
   const send = (message: ControlMessage) => connection?.sendControl(message)
 
@@ -204,34 +267,28 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
     setStatus("complete")
     say("Every file arrived and matched what the sender promised.")
 
-    const savable = files.map((file, index) => {
-      const name = manifest.files[index]?.name ?? String(index)
-
-      return { name, file, link: element("a", { href: URL.createObjectURL(file), download: downloadName(name) }, [`Save ${name}`]) }
-    })
-
-    section.append(
-      element(
-        "ul",
-        { class: "file-list downloads" },
-        savable.map(({ file, link }) => element("li", {}, [link, element("span", { class: "size" }, [formatSize(file.size)])])),
-      ),
-    )
+    savable = files.map((file, index) => ({ name: saveNames[index] ?? manifest.files[index]?.name ?? String(index), file, url: URL.createObjectURL(file) }))
+    fileList.classList.add("downloads")
+    renderFiles()
 
     // Received files are decrypted and live only in this browser until saved: ask before leaving until then.
     setUnsavedFiles(true)
 
-    for (const { link } of savable) {
-      link.addEventListener("click", () => {
-        setUnsavedFiles(false)
-      })
-    }
-
     if (savable.length > 1) {
+      const entries = savable
       section.append(
-        saveAllControl(savable, () => {
-          setUnsavedFiles(false)
-        }),
+        // Read when pressed, so renames made after this point count.
+        saveAllControl(
+          () =>
+            entries.flatMap((entry, index) => {
+              const link = saveLinks[index]
+
+              return link === undefined ? [] : [{ name: entry.name, file: entry.file, link }]
+            }),
+          () => {
+            setUnsavedFiles(false)
+          },
+        ),
       )
     }
 
@@ -240,11 +297,12 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
     const removeFiles = async () => {
       remove.disabled = true
 
-      for (const { link } of savable) {
-        URL.revokeObjectURL(link.href)
-        link.removeAttribute("href")
+      for (const { url } of savable ?? []) {
+        URL.revokeObjectURL(url)
       }
 
+      filesRemoved = true
+      renderFiles()
       await storage?.remove()
       setUnsavedFiles(false)
       offerRemoval(undefined)
@@ -318,13 +376,13 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
       setStatus("declined")
       say("You declined the files. Nothing was downloaded.")
     })
+    saveNames = manifest.files.map((file) => file.name)
+    fileSizes = manifest.files.map((file) => file.size)
+    renderFiles()
     section.append(
-      element(
-        "ul",
-        { class: "file-list" },
-        manifest.files.map((file) => element("li", {}, [file.name, element("span", { class: "size" }, [formatSize(file.size)])])),
-      ),
+      fileList,
       element("p", {}, [`${manifest.files.length} ${manifest.files.length === 1 ? "file" : "files"}, ${formatSize(manifest.totalSize)} in total`]),
+      element("p", { class: "rename-note" }, ["Renaming changes only the name a file is saved under in this browser. The sender's copies keep their names."]),
       actions,
     )
     accept.focus()

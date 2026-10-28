@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <!--
+      Shown only inside the sandboxed preview frame (src/preview.ts), whose origin is opaque: nothing here can reach the
+      app's storage, link secrets or other pages. The same policy also arrives as a header (public/_headers), whose
+      `sandbox` directive keeps the origin opaque even when this page is opened on its own.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src blob:; media-src blob:; base-uri 'none'; form-action 'none'"
+    />
+    <meta name="referrer" content="no-referrer" />
+    <title>Preview</title>
+    <link rel="stylesheet" href="/src/previewFrame.css" />
+    <script type="module" src="/src/previewFrame.ts"></script>
+  </head>
+  <body></body>
+</html>

@@ -307,7 +307,7 @@ const offer = async (sender: Page, base: string, files: readonly PayloadFile[]) 
     )
   }
 
-  await sender.getByRole("button", { name: "Create link" }).click()
+  await sender.getByRole("button", { name: "Seal parcel and create link" }).click()
   await waitForStatus(sender, ["waiting-for-recipient", "failed"])
   check(
     (await status(sender)) === "waiting-for-recipient",
@@ -466,6 +466,126 @@ const checkStorageClearing = async (page: Page, base: string) => {
   check(afterVisit.length === 0, "storage: a transfer left by a closed tab is deleted on the next visit", afterVisit)
 }
 
+/** A 64 by 48 orange PNG. */
+const orangePng = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAEAAAAAwAQMAAACbhe5cAAAAIGNIUk0AAHomAACAhAAA+gAAAIDoAAB1MAAA6mAAADqYAAAXcJy6UTwAAAAGUExURf+lAP////naJPcAAAABYktHRAH/Ai3eAAAAB3RJTUUH6gocFyURsF4nIgAAAA5JREFUGNNjYBgFQwkAAAGwAAGHcNqeAAAAAElFTkSuQmCC",
+  "base64",
+)
+
+/** The preview dialog's frame, and what it shows once it has rendered. */
+const previewFrame = (page: Page) => page.frameLocator("iframe.preview-frame")
+
+const closePreview = async (page: Page) => {
+  await page.locator(".preview-dialog").getByRole("button", { name: "Close" }).click()
+}
+
+/**
+ * Renaming and previews (docs/decisions/0018-previews-and-renaming.md): the sender renames a file before sealing and
+ * the recipient sees the new name; the recipient renames a file it saves; both preview an image in a frame whose
+ * origin is opaque; an HTML file previews as text, never as a page; and the preview page is sandboxed even when opened
+ * on its own.
+ */
+const previewsAndNames = async (browser: Browser, base: string) => {
+  const sender = await openPage(browser, false)
+  const recipient = await openPage(browser, false)
+
+  try {
+    const files: PayloadFile[] = [
+      { name: "photo.png", mimeType: "image/png", buffer: orangePng },
+      { name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("Packing list: tent, stove, map\n") },
+      {
+        name: "page.html",
+        mimeType: "text/html",
+        buffer: Buffer.from("<!doctype html><p id=hostile>hostile</p><script>parent.postMessage('ran', '*')</script>"),
+      },
+    ]
+
+    await sender.page.goto(`${base}/`)
+    await sender.page.setInputFiles("#files", files)
+
+    await sender.page.getByRole("button", { name: "Preview photo.png" }).click()
+    await previewFrame(sender.page).locator("img").waitFor({ timeout: 10_000 })
+
+    const imageWidth = await previewFrame(sender.page)
+      .locator("img")
+      .evaluate((image: HTMLImageElement) => image.naturalWidth)
+
+    const frameOrigin = await previewFrame(sender.page)
+      .locator("body")
+      .evaluate(() => window.origin)
+
+    check(imageWidth === 64, "preview: the sender previews an image before sealing", String(imageWidth))
+    check(frameOrigin === "null", "preview: previews render in a frame with an opaque origin", frameOrigin)
+    await closePreview(sender.page)
+
+    await sender.page.getByRole("button", { name: "Preview page.html" }).click()
+    await previewFrame(sender.page).locator("pre").waitFor({ timeout: 10_000 })
+    const shownAsText = (await previewFrame(sender.page).locator("pre").textContent()) ?? ""
+    const hostileElements = await previewFrame(sender.page).locator("#hostile").count()
+    check(shownAsText.includes("<script>") && hostileElements === 0, "preview: an HTML file previews as text, never as a page", shownAsText)
+    await closePreview(sender.page)
+
+    await sender.page.getByRole("button", { name: "Rename notes.txt" }).click()
+    await sender.page.getByRole("textbox", { name: "New name for notes.txt" }).fill("con.txt")
+    await sender.page.getByRole("button", { name: "Save" }).click()
+    const refusal = (await sender.page.locator(".rename-problem").textContent()) ?? ""
+    check(refusal.startsWith("This name cannot be used"), "rename: a name the parcel's rules forbid is refused in place", refusal)
+    await sender.page.getByRole("textbox", { name: "New name for notes.txt" }).fill("packing list.txt")
+    await sender.page.getByRole("button", { name: "Save" }).click()
+    check((await sender.page.getByRole("button", { name: "Rename packing list.txt" }).count()) === 1, "rename: the sender renames a file before sealing")
+
+    await sender.page.getByRole("button", { name: "Seal parcel and create link" }).click()
+    await waitForStatus(sender.page, ["waiting-for-recipient", "failed"])
+    check(
+      (await sender.page.locator(".file-list button.rename, .file-list button.remove").count()) === 0 &&
+        (await sender.page.getByRole("button", { name: "Send other files" }).isVisible()),
+      "seal: a sealed parcel cannot be renamed or changed, and offers Send other files instead",
+    )
+    await sender.page.getByRole("button", { name: "Show link" }).click()
+    const link = await sender.page.inputValue("#link")
+
+    await recipient.page.goto(link)
+    await waitForStatus(recipient.page, ["reviewing", "failed"])
+    const offered = await recipient.page.locator(".file-list .name").allTextContents()
+    check(
+      JSON.stringify(offered) === JSON.stringify(["photo.png", "packing list.txt", "page.html"]),
+      "rename: the recipient is offered the sender's new name",
+      offered,
+    )
+    await recipient.page.getByRole("button", { name: "Rename photo.png" }).click()
+    await recipient.page.getByRole("textbox", { name: "New name for photo.png" }).fill("holiday.png")
+    await recipient.page.getByRole("button", { name: "Save" }).click()
+    await recipient.page.getByRole("button", { name: "Accept", exact: true }).click()
+    await waitForStatus(recipient.page, ["complete", "failed"])
+    check((await status(recipient.page)) === "complete", "rename: a renamed offer still completes")
+
+    const download = await recipient.page.getByRole("link", { name: "Save holiday.png" }).getAttribute("download")
+    check(download === "holiday.png", "rename: the recipient saves a file under the name it chose", download ?? "none")
+    const hashes = await recipient.page.evaluate(async () => await window.fileTransferTest?.fileHashes())
+    check(JSON.stringify(hashes) === JSON.stringify(files.map((file) => sha256(file.buffer))), "rename: renaming changes no file's contents", hashes)
+
+    await recipient.page.getByRole("button", { name: "Preview holiday.png" }).click()
+    await previewFrame(recipient.page).locator("img").waitFor({ timeout: 10_000 })
+
+    const receivedWidth = await previewFrame(recipient.page)
+      .locator("img")
+      .evaluate((image: HTMLImageElement) => image.naturalWidth)
+
+    check(receivedWidth === 64, "preview: the recipient previews a received image", String(receivedWidth))
+    await closePreview(recipient.page)
+
+    // Opened on its own, the preview page must still have an opaque origin (the `sandbox` header in public/_headers).
+    await recipient.page.goto(`${base}/preview.html`)
+    const standaloneOrigin = await recipient.page.evaluate(() => window.origin)
+    check(standaloneOrigin === "null", "preview: the preview page is sandboxed even when opened on its own", standaloneOrigin)
+
+    check(sender.errors.length === 0 && recipient.errors.length === 0, "preview: no uncaught page errors", [...sender.errors, ...recipient.errors])
+  } finally {
+    await sender.close()
+    await recipient.close()
+  }
+}
+
 /** Megabytes per second of the last completed transfer, for the latency suite's table. */
 let lastMegabytesPerSecond = 0
 
@@ -506,7 +626,7 @@ const transfer = async (browser: Browser, base: string, scenario: TransferScenar
       )
     }
 
-    await recipient.page.getByRole("button", { name: "Accept" }).click()
+    await recipient.page.getByRole("button", { name: /^Accept(?: and download .+ on mobile data)?$/u }).click()
     const started = performance.now()
 
     try {
@@ -596,7 +716,7 @@ const decline = async (browser: Browser, base: string) => {
     const link = await offer(sender.page, base, payload([["foxtrot-decline.bin", 10_000]]))
     await recipient.page.goto(link)
     await waitForStatus(recipient.page, ["reviewing"])
-    await recipient.page.getByRole("button", { name: "Decline" }).click()
+    await recipient.page.getByRole("button", { name: "Decline", exact: true }).click()
     await waitForStatus(sender.page, ["declined", "failed"])
     check((await status(sender.page)) === "declined", "decline: the sender sees the refusal")
   } finally {
@@ -664,7 +784,7 @@ const large = async (browser: Browser, base: string) => {
   try {
     await sender.page.goto(`${base}/`)
     await sender.page.setInputFiles("#files", file.path)
-    await sender.page.getByRole("button", { name: "Create link" }).click()
+    await sender.page.getByRole("button", { name: "Seal parcel and create link" }).click()
     await waitForStatus(sender.page, ["waiting-for-recipient", "failed"])
     check((await status(sender.page)) === "waiting-for-recipient", `large: the sender labels ${gigabytes} GB and waits`)
     await sender.page.getByRole("button", { name: "Show link" }).click()
@@ -676,7 +796,7 @@ const large = async (browser: Browser, base: string) => {
       await waitForStatus(privateWindow.page, ["reviewing", "failed"])
       await privateWindow.page.locator(".space-warning").waitFor({ timeout: 10_000 })
       check(
-        await privateWindow.page.getByRole("button", { name: "Accept" }).isDisabled(),
+        await privateWindow.page.getByRole("button", { name: "Accept", exact: true }).isDisabled(),
         "large: a private window that cannot hold the files is warned and cannot accept",
       )
     }
@@ -684,7 +804,7 @@ const large = async (browser: Browser, base: string) => {
     await privateWindow.close()
     await recipient.page.goto(link)
     await waitForStatus(recipient.page, ["reviewing", "failed"])
-    await recipient.page.getByRole("button", { name: "Accept" }).click()
+    await recipient.page.getByRole("button", { name: "Accept", exact: true }).click()
     const started = performance.now()
     await waitForStatus(recipient.page, ["complete", "failed"])
     await waitForStatus(sender.page, ["complete", "failed"])
@@ -751,6 +871,7 @@ try {
     check(response?.ok() === true, "a recipient link path serves the app", `status ${response?.status() ?? "none"}`)
     await page.close()
     await transfer(browser, base, "basic")
+    await previewsAndNames(browser, base)
     await transfer(browser, base, "resume")
 
     if (process.env.E2E_HALF_OPEN !== "0") {

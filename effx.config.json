@@ -66,7 +66,7 @@
         "platform": "node"
       },
       {
-        "files": ["apps/web/src/files.ts", "apps/web/src/ranges.ts", "apps/web/src/credits.ts", "apps/web/src/selection.ts"],
+        "files": ["apps/web/src/files.ts", "apps/web/src/ranges.ts", "apps/web/src/credits.ts", "apps/web/src/selection.ts", "apps/web/src/sniff.ts"],
         "role": "pure-library",
         "platform": "portable"
       },
@@ -82,7 +82,10 @@
           "apps/web/src/summary.ts",
           "apps/web/src/saveAll.ts",
           "apps/web/src/leaveGuard.ts",
-          "apps/web/src/storagePanel.ts"
+          "apps/web/src/storagePanel.ts",
+          "apps/web/src/preview.ts",
+          "apps/web/src/previewFrame.ts",
+          "apps/web/src/rename.ts"
         ],
         "role": "runtime-adapter",
         "platform": "browser",

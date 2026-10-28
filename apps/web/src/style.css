@@ -221,6 +221,7 @@ a {
 
 .file-list li {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
 }
@@ -309,4 +310,125 @@ a {
 .storage-question {
   flex-basis: 100%;
   color: var(--text);
+}
+
+.file-list .name-field,
+.file-list .name {
+  display: inline-flex;
+  flex: 1 1 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.file-list .name-field .name {
+  flex: 0 1 auto;
+}
+
+/* Wide enough for one line per file: name first, then size and actions. */
+@media (min-width: 40rem) {
+  .file-list .name-field,
+  .file-list .name {
+    flex: 1 1 auto;
+  }
+}
+
+.rename-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.rename-input {
+  flex: 1 1 12rem;
+  min-width: 0;
+  font: inherit;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.rename-problem {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--accent);
+  font-size: 0.9rem;
+}
+
+.rename-problem:empty {
+  display: none;
+}
+
+button.rename,
+button.preview,
+a.save {
+  font-size: 0.85rem;
+  padding: 0.25rem 0.6rem;
+}
+
+.seal-note,
+.rename-note {
+  margin: 0.5rem 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.sealing-heading {
+  font-size: 1.1rem;
+  margin: 1rem 0 0.5rem;
+}
+
+.preview-dialog {
+  width: min(56rem, calc(100vw - 2rem));
+  max-height: calc(100vh - 2rem);
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.preview-dialog::backdrop {
+  background: rgb(0 0 0 / 60%);
+}
+
+.preview-bar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.preview-heading {
+  flex: 1;
+  margin: 0;
+  font-size: 1rem;
+  overflow-wrap: anywhere;
+}
+
+.preview-message:empty {
+  display: none;
+}
+
+.preview-frame {
+  display: block;
+  width: 100%;
+  height: min(70vh, 36rem);
+  margin-top: 0.75rem;
+  border: 0;
+  border-radius: 0.5rem;
+  background: var(--background);
+}
+
+.preview-frame[hidden] {
+  display: none;
+}
+
+/* While renaming, the form takes the whole first line at any width. */
+.file-list .name-field:has(.rename-form) {
+  flex-basis: 100%;
 }

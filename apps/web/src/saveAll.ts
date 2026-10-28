@@ -63,13 +63,14 @@ const downloadEach = async (files: readonly ReceivedFile[]) => {
 }
 
 /** The "Save all files" button and its status line, for two or more received files. */
-export const saveAllControl = (files: readonly ReceivedFile[], onSaved: () => void): HTMLElement => {
+export const saveAllControl = (received: () => readonly ReceivedFile[], onSaved: () => void): HTMLElement => {
   const picker = directoryPicker()
   const button = element("button", { type: "button", class: "primary" }, [picker === undefined ? "Save all files" : "Save all files to a folder"])
   const status = element("p", { class: "save-all-status", role: "status" })
 
   const saveAll = async () => {
     button.disabled = true
+    const files = received()
 
     try {
       if (picker === undefined) {

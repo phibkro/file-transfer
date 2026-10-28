@@ -30,7 +30,9 @@ import type { Connection } from "./connection.ts"
 import { addRecord, createRecordSet, createSchedule, markSent, peekNext, prioritise, rangesAreValid, replaceDebt } from "./ranges.ts"
 import type { Schedule } from "./ranges.ts"
 import { setProgress, setStatus, setTotalBytes } from "./report.ts"
-import { addToSelection, removeFromSelection } from "./selection.ts"
+import { previewButton } from "./preview.ts"
+import { nameField } from "./rename.ts"
+import { addToSelection, removeFromSelection, renameProblem } from "./selection.ts"
 import { sharePanel } from "./share.ts"
 import { describeFailure, element, formatSize, progressBar, replaceChildren } from "./view.ts"
 
@@ -43,10 +45,16 @@ interface Prepared {
   readonly linkSecret: Uint8Array
 }
 
-const manifestEntry = (file: File): ManifestFile => {
+/** A chosen file and the name it is sent under, which the sender may change until the parcel is sealed. */
+interface Entry {
+  readonly file: File
+  readonly name: string
+}
+
+const manifestEntry = ({ file, name }: Entry): ManifestFile => {
   const mediaType = file.type.toLowerCase()
 
-  return { name: file.name.normalize("NFC"), size: file.size, mediaType: isValidMediaType(mediaType) ? mediaType : "" }
+  return { name, size: file.size, mediaType: isValidMediaType(mediaType) ? mediaType : "" }
 }
 
 /** A failure outside the parcel library, named by a reason code like a `ParcelError`. */
@@ -78,11 +86,11 @@ const reasonOf = (cause: unknown): string => {
 }
 
 /** Labels every record, showing progress, and seals the contract. */
-const prepare = async (files: readonly File[], onProgress: (done: number, total: number) => void): Promise<Prepared> => {
-  const manifest = createManifest(files.map(manifestEntry))
+const prepare = async (entries: readonly Entry[], onProgress: (done: number, total: number) => void): Promise<Prepared> => {
+  const manifest = createManifest(entries.map(manifestEntry))
   const linkSecret = createSecret()
   const sealer = await createParcelSealer({ linkSecret, sequence, manifest })
-  const readRecord = recordReaderFromBlob(new Blob([...files]), sealer.recordSize)
+  const readRecord = recordReaderFromBlob(new Blob(entries.map((entry) => entry.file)), sealer.recordSize)
   let labelled = 0
 
   const labels = await labelRecords(sealer, async (index, length) => {
@@ -384,8 +392,11 @@ export const startSender = (root: HTMLElement) => {
   const list = element("ul", { class: "file-list", "aria-label": "Files to send" })
   const totals = element("p", { class: "selection-total" })
   const rejections = element("ul", { class: "rejections", role: "alert" })
-  const createLink = element("button", { type: "button", class: "primary", disabled: "" }, ["Create link"])
-  let selected: readonly File[] = []
+  const createLink = element("button", { type: "button", class: "primary", disabled: "" }, ["Seal parcel and create link"])
+  const sealNote = element("p", { class: "seal-note" }, ["Sealing locks these files and their names. To change them, you start a new parcel."])
+  const sealing = element("h2", { class: "sealing-heading", hidden: "" }, ["Sealing parcel"])
+  const sendOther = element("button", { type: "button", hidden: "" }, ["Send other files"])
+  let selected: readonly Entry[] = []
   let sealed = false
 
   const section = element("section", { "aria-labelledby": "send-heading" }, [
@@ -394,21 +405,49 @@ export const startSender = (root: HTMLElement) => {
     input,
     label,
     rejections,
+    sealing,
     list,
     totals,
     createLink,
+    sealNote,
     status,
+    sendOther,
   ])
 
   replaceChildren(root, section)
 
-  const renderSelection = () => {
+  /** Renders the list; `focusRename` puts focus back on that row's Rename button after a rename. */
+  const renderSelection = (focusRename?: number) => {
+    list.classList.toggle("sealed", sealed)
     list.replaceChildren(
-      ...selected.map((file, index) => {
-        const item = element("li", {}, [file.name, element("span", { class: "size" }, [formatSize(file.size)])])
+      ...selected.map((entry, index) => {
+        const name = sealed
+          ? element("span", { class: "name" }, [entry.name])
+          : nameField({
+              name: entry.name,
+              problem: (candidate) =>
+                renameProblem(
+                  selected.map((chosen) => chosen.name),
+                  index,
+                  candidate,
+                ),
+              onRename: (renamed) => {
+                selected = selected.map((chosen, position) => (position === index ? { ...chosen, name: renamed } : chosen))
+                renderSelection(index)
+              },
+            })
+
+        const item = element("li", {}, [
+          name,
+          element("span", { class: "size" }, [formatSize(entry.file.size)]),
+          previewButton(
+            () => entry.file,
+            () => entry.name,
+          ),
+        ])
 
         if (!sealed) {
-          const remove = element("button", { type: "button", class: "remove", "aria-label": `Remove ${file.name}` }, ["Remove"])
+          const remove = element("button", { type: "button", class: "remove", "aria-label": `Remove ${entry.name}` }, ["Remove"])
           remove.addEventListener("click", () => {
             selected = removeFromSelection(selected, index)
             renderSelection()
@@ -419,7 +458,12 @@ export const startSender = (root: HTMLElement) => {
         return item
       }),
     )
-    const total = selected.reduce((sum, file) => sum + file.size, 0)
+
+    if (focusRename !== undefined) {
+      list.querySelectorAll<HTMLButtonElement>("button.rename")[focusRename]?.focus()
+    }
+
+    const total = selected.reduce((sum, entry) => sum + entry.file.size, 0)
     totals.textContent = selected.length === 0 ? "" : `${selected.length} ${selected.length === 1 ? "file" : "files"}, ${formatSize(total)} in total`
     pickLabel.textContent = selected.length === 0 ? "Choose files" : "Add more files"
     createLink.disabled = sealed || selected.length === 0
@@ -430,14 +474,18 @@ export const startSender = (root: HTMLElement) => {
       return
     }
 
-    const change = addToSelection(selected, files)
+    const change = addToSelection(
+      selected,
+      files.map((file) => ({ file, name: file.name.normalize("NFC") })),
+    )
+
     selected = change.selected
     rejections.replaceChildren(...change.rejected.map((rejection) => element("li", {}, [`${rejection.name} was not added: ${rejection.reason}.`])))
     renderSelection()
   }
 
-  const begin = async (files: readonly File[]) => {
-    if (files.length === 0) {
+  const begin = async (entries: readonly Entry[]) => {
+    if (entries.length === 0) {
       return
     }
 
@@ -446,19 +494,24 @@ export const startSender = (root: HTMLElement) => {
     label.classList.add("disabled")
     label.hidden = true
     createLink.hidden = true
+    sealNote.hidden = true
+    sealing.hidden = false
     rejections.replaceChildren()
     renderSelection()
-    const progress = progressBar("Preparing files")
-    const total = files.reduce((sum, file) => sum + file.size, 0)
+    const progress = progressBar("Sealing parcel")
+    const total = entries.reduce((sum, entry) => sum + entry.file.size, 0)
     setTotalBytes(total)
     status.before(progress.node)
     setStatus("labelling")
 
     try {
-      const prepared = await prepare(files, (done, count) => {
+      const prepared = await prepare(entries, (done, count) => {
         setProgress(done, count)
-        progress.update(done, count, () => `Preparing ${formatSize(total)}: ${Math.round((done / count) * 100)}%`)
+        progress.update(done, count, () => `Encrypting and sealing ${formatSize(total)}: ${Math.round((done / count) * 100)}%`)
       })
+
+      sealing.textContent = "Parcel sealed"
+      sendOther.hidden = false
 
       setStatus("creating-room")
       status.textContent = "Opening a room."
@@ -490,6 +543,11 @@ export const startSender = (root: HTMLElement) => {
   })
   createLink.addEventListener("click", () => {
     void begin(selected)
+  })
+  // A sealed parcel cannot take more files; other files go in a new parcel with its own link, in a new tab, so this
+  // one keeps serving its recipient.
+  sendOther.addEventListener("click", () => {
+    window.open("/", "_blank", "noopener")
   })
   label.addEventListener("dragover", (event) => {
     event.preventDefault()
