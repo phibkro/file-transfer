@@ -14,7 +14,7 @@ interface KindRule {
   readonly mayDependOn: ReadonlyArray<Kind>
   /** Outside packages allowed in shipped source, or "any" for kinds that exist to wrap runtimes and vendors. */
   readonly externals: ReadonlyArray<string> | "any"
-  /** Whether shipped source may import runtime modules (`node:*`, `bun:*`). */
+  /** Whether shipped source may import runtime modules (`node:*`, `bun:*`, `cloudflare:*`). */
   readonly runtimeModules: boolean
 }
 
@@ -64,7 +64,9 @@ export type Violation =
   | { readonly rule: "unused-dependency"; readonly packageName: string; readonly dependency: string }
   | { readonly rule: "dependency-cycle"; readonly packages: ReadonlyArray<string> }
 
-const isRuntimeModule = (specifier: string) => specifier.startsWith("node:") || specifier.startsWith("bun:")
+/** Modules the runtime provides rather than a package: Node and Bun built-ins, and the Workers runtime's `cloudflare:*`. */
+const runtimeModulePrefixes = ["node:", "bun:", "cloudflare:"]
+const isRuntimeModule = (specifier: string) => runtimeModulePrefixes.some((prefix) => specifier.startsWith(prefix))
 const isRelative = (specifier: string) => specifier.startsWith("./") || specifier.startsWith("../")
 
 /** `@scope/name/sub` becomes `@scope/name`; `name/sub` becomes `name`. */
