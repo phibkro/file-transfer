@@ -1,0 +1,12 @@
+{
+  // The same bundle as workerd.capnp, served by wrangler dev (Miniflare on workerd).
+  "name": "spike-0001-relay",
+  "main": "dist/worker.js",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["no_web_socket_compression"],
+  "no_bundle": true,
+  "durable_objects": {
+    "bindings": [{ "name": "RELAY_SESSIONS", "class_name": "RelaySession" }],
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RelaySession"] }],
+}
