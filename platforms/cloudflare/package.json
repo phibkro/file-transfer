@@ -7,7 +7,8 @@
   "scripts": {
     "build": "esbuild src/worker.ts --bundle --format=esm --platform=neutral --target=es2022 --main-fields=module,main --conditions=workerd,worker,browser --external:cloudflare:workers --outfile=dist/worker.js",
     "dev": "bun run build && wrangler dev",
-    "integration": "bun run build && bun scripts/integration.ts"
+    "integration": "bun run build && bun scripts/integration.ts",
+    "deploy": "bun run --cwd ../../apps/web build && bun run build && wrangler deploy"
   },
   "dependencies": {
     "@file-transfer/parcel": "workspace:*",

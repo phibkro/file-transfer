@@ -21,6 +21,7 @@ Run from this directory after `bun install` at the repository root.
 
 - `bun run build` bundles `src/worker.ts` into `dist/worker.js` with esbuild.
 - `bun run dev` builds and starts `wrangler dev` on http://localhost:8787. Build `apps/web` first so `../../apps/web/dist` exists.
+- `bun run deploy` builds apps/web and the Worker, then runs `wrangler deploy` with whatever Cloudflare credentials wrangler finds (`wrangler login`, or `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`). A dry run uploads 636 KiB (135 KiB gzipped) with the `ROOMS` Durable Object and the assets.
 - `bun run integration` builds, starts `wrangler dev` on a random port with a stub page as assets, and runs the room checks; it exits non-zero on the first failure.
 
 ## Not yet here
