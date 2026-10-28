@@ -106,6 +106,17 @@ jobs:
         run: |
           gh pr comment "${{ github.event.pull_request.number }}" --edit-last --create-if-none \
             --body "Preview: $PREVIEW_URL (commit $COMMIT). The end-to-end check runs against it next."
+      - name: Wait until the Preview answers
+        env:
+          PREVIEW_URL: ${{ steps.deploy.outputs.url }}
+        run: |
+          for attempt in $(seq 1 24); do
+            status="$(curl -s -o /dev/null -w '%{http_code}' "$PREVIEW_URL/r/aaaaaaaaaaaaaaaaaaaaaa")"
+            echo "attempt $attempt: $status"
+            if [ "$status" = 200 ]; then exit 0; fi
+            sleep 5
+          done
+          exit 1
       - run: bunx playwright install --with-deps chromium
         working-directory: apps/web
       - run: bun run e2e
@@ -146,6 +157,15 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: bun run deploy --yes
+      - name: Wait until production answers
+        run: |
+          for attempt in $(seq 1 24); do
+            status="$(curl -s -o /dev/null -w '%{http_code}' https://send.phibkro.org/r/aaaaaaaaaaaaaaaaaaaaaa)"
+            echo "attempt $attempt: $status"
+            if [ "$status" = 200 ]; then exit 0; fi
+            sleep 5
+          done
+          exit 1
       - run: bunx playwright install --with-deps chromium
         working-directory: apps/web
       - run: bun run e2e
