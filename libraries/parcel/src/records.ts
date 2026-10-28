@@ -45,7 +45,7 @@ export interface RecordPosition {
 }
 
 export const sealRecord = async (keys: StreamKeys, header: Uint8Array, position: RecordPosition, plaintext: Uint8Array): Promise<Uint8Array<ArrayBuffer>> => {
-  if (header.length !== headerLength) throw new ParcelError("invalid-argument", "the header must be 54 bytes")
+  if (header.length !== headerLength) throw new ParcelError("invalid-argument", `the header must be ${headerLength} bytes`)
   const positionBytes = counterAndFlag(position.counter, position.isFinal)
   const synthetic = await syntheticFor(keys, positionBytes, plaintext)
   const sealed = await crypto.subtle.encrypt(

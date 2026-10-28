@@ -49,10 +49,23 @@ export interface ParcelSender {
   readonly stream: ReadableStream<Uint8Array>
 }
 
+export interface SenderOptions extends SealerOptions {
+  readonly readRecord: RecordReader
+  /**
+   * When resuming after a reload, the contract digest stored for this sequence number. If relabelling the source
+   * gives a different contract, the source changed: fail with `source-changed` and offer the files as a new contract
+   * under the next sequence number (docs/parcel.md, sender rules).
+   */
+  readonly expectedDigest?: Uint8Array
+}
+
 /** Labels every record, seals the contract, and returns the stream that sends it (the labelling pass runs before this resolves). */
-export const createParcelSender = async (options: SealerOptions & { readonly readRecord: RecordReader }): Promise<ParcelSender> => {
+export const createParcelSender = async (options: SenderOptions): Promise<ParcelSender> => {
   const sealer = await createParcelSealer(options)
   const contract = await sealer.sealContract(await labelRecords(sealer, options.readRecord))
+  if (options.expectedDigest !== undefined && !bytesEqual(options.expectedDigest, contract.digest)) {
+    throw new ParcelError("source-changed", "relabelling gave a different contract than the one stored for this sequence number")
+  }
 
   async function* units(): AsyncGenerator<Uint8Array> {
     yield contract.header.bytes.slice()
@@ -128,8 +141,9 @@ export const createDecryptionStream = (linkSecret: Uint8Array, options: OpenOpti
   let manifestRecords: Array<Uint8Array> = []
   let manifestRecordTotal = 1
   let receiver: ParcelReceiver | undefined
-  let pageLabels: ReadonlyArray<Uint8Array> = []
+  let pageLabelCount = 0
   let pageStart = 0
+  let currentPage = 0
   let unit: Unit = { kind: "header" }
   let pending = new Uint8Array(headerLength)
   let filled = 0
@@ -186,19 +200,19 @@ export const createDecryptionStream = (linkSecret: Uint8Array, options: OpenOpti
       }
       case "page": {
         if (receiver === undefined) throw new ParcelError("invalid-argument", "page before the contract")
-        pageLabels = await receiver.verifyPage(unit.page, pending)
+        pageLabelCount = (await receiver.verifyPage(unit.page, pending)).length
+        currentPage = unit.page
         pageStart = receiver.pageRecords(unit.page).start
         advance({ kind: "data", index: pageStart })
         return
       }
       case "data": {
         if (receiver === undefined) throw new ParcelError("invalid-argument", "data before the contract")
-        const label = pageLabels[unit.index - pageStart]
-        if (label === undefined) throw new ParcelError("invalid-argument", "record outside its page")
-        controller.enqueue(await receiver.openData(unit.index, pending, label))
+        controller.enqueue(await receiver.openData(unit.index, pending))
         const next = unit.index + 1
+        if (next - pageStart >= pageLabelCount) receiver.releasePage(currentPage)
         if (next >= receiver.recordCount) advance({ kind: "done" })
-        else if (next - pageStart >= pageLabels.length) advance({ kind: "page", page: next / labelsPerPage })
+        else if (next - pageStart >= pageLabelCount) advance({ kind: "page", page: next / labelsPerPage })
         else advance({ kind: "data", index: next })
         return
       }

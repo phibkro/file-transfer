@@ -1,7 +1,17 @@
 import fc from "fast-check"
 import { describe, expect, it } from "vite-plus/test"
-import { concatBytes, createManifest, createParcelSealer, headerLength, labelRecords, recordReaderFromBytes } from "../src/index.ts"
-import { decryptAll, encryptAll, layoutOf, outcome, receivePartially, singleFileManifest } from "./support.ts"
+import {
+  concatBytes,
+  createManifest,
+  createDecryptionStream,
+  createParcelSealer,
+  createParcelSender,
+  headerLength,
+  labelRecords,
+  openHeader,
+  recordReaderFromBytes,
+} from "../src/index.ts"
+import { collect, decryptAll, encryptAll, fromChunks, layoutOf, outcome, receivePartially, singleFileManifest } from "./support.ts"
 
 const secretArbitrary = fc.uint8Array({ minLength: 32, maxLength: 32 })
 const exponent = 12
@@ -202,12 +212,76 @@ describe("tampering is rejected", () => {
     )
   })
 
-  it("a different parcel for a sequence number that already accepted a header (one parcel per parcel secret)", async () => {
+  it("a different parcel for a sequence number that already accepted a contract (one parcel per parcel secret)", async () => {
     const secret = new Uint8Array(32).fill(7)
     const accepted = await fixture(secret, 100)
     const substitute = await fixture(secret, 100)
-    const expectedHeader = accepted.subarray(0, headerLength)
-    expect(await outcome(decryptAll(secret, accepted, 777, { expectedHeader }))).toBe("accepted")
-    expect(await outcome(decryptAll(secret, substitute, 777, { expectedHeader }))).toBe("header-mismatch")
+    const expectedDigest = (await sendWithContract(secret, bytesOf(100, 5))).contract.digest
+    expect(await outcome(decryptAll(secret, substitute, 777, { expectedDigest }))).toBe("contract-mismatch")
+    const { contract } = await sendWithContract(secret, bytesOf(100, 5), accepted.slice(10, 26))
+    expect(await outcome(decryptAll(secret, accepted, 777, { expectedDigest: contract.digest }))).toBe("accepted")
+  })
+})
+
+/** Sends `data` as one file at sequence 0, returning the contract and the parcel bytes. */
+const sendWithContract = async (secret: Uint8Array, data: Uint8Array, salt?: Uint8Array, expectedDigest?: Uint8Array) => {
+  const sender = await createParcelSender({
+    linkSecret: secret,
+    manifest: singleFileManifest(data.length),
+    recordSizeExponent: exponent,
+    readRecord: recordReaderFromBytes(data, size),
+    ...(salt === undefined ? {} : { salt }),
+    ...(expectedDigest === undefined ? {} : { expectedDigest }),
+  })
+  return { contract: sender.contract, parcel: await collect(sender.stream) }
+}
+
+describe("a sender that relabels a changed file on resume (second review, S1)", () => {
+  const secret = new Uint8Array(32).fill(21)
+  const salt = new Uint8Array(16).fill(5)
+  const original = bytesOf(3 * size, 8)
+  const changed = original.slice()
+  changed[2 * size + 3] = (changed[2 * size + 3] ?? 0) ^ 0xff
+
+  it("produces a different contract under a byte-identical header, which a receiver pinning the digest rejects", async () => {
+    const first = await sendWithContract(secret, original, salt)
+    const second = await sendWithContract(secret, changed, salt)
+    expect(Buffer.from(second.parcel.subarray(0, headerLength)).equals(Buffer.from(first.parcel.subarray(0, headerLength)))).toBe(true)
+    expect(await outcome(decryptAll(secret, second.parcel))).toBe("accepted")
+    expect(await outcome(decryptAll(secret, second.parcel, 777, { expectedDigest: first.contract.digest }))).toBe("contract-mismatch")
+    expect(await outcome(decryptAll(secret, first.parcel, 777, { expectedDigest: first.contract.digest }))).toBe("accepted")
+  })
+
+  it("is caught by the sender itself when it compares the new digest with the stored one", async () => {
+    const stored = (await sendWithContract(secret, original, salt)).contract.digest
+    expect(await outcome(sendWithContract(secret, changed, salt, stored))).toBe("source-changed")
+    expect(await outcome(sendWithContract(secret, original, salt, stored))).toBe("accepted")
+  })
+
+  it("the receiver's digest is the sender's", async () => {
+    const { contract, parcel } = await sendWithContract(secret, original, salt)
+    const { stream, contract: received } = createDecryptionStream(secret)
+    await collect(fromChunks([parcel]).pipeThrough(stream))
+    expect(Buffer.from((await received).digest).equals(Buffer.from(contract.digest))).toBe(true)
+  })
+})
+
+describe("a record that arrives before its label page (receiver rule 6)", () => {
+  it("is refused with label-page-missing, opens once the page verifies, and is refused again after the page is released", async () => {
+    const secret = new Uint8Array(32).fill(22)
+    const data = bytesOf(2 * size, 9)
+    const sealer = await createParcelSealer({ linkSecret: secret, manifest: singleFileManifest(data.length), recordSizeExponent: exponent })
+    const contract = await sealer.sealContract(await labelRecords(sealer, recordReaderFromBytes(data, size)))
+    const records = [await sealer.sealData(0, data.subarray(0, size)), await sealer.sealData(1, data.subarray(size))]
+    const opener = await openHeader(secret, contract.header.bytes)
+    const plaintexts = await Promise.all(contract.manifestRecords.map((record, counter) => opener.openManifestRecord(counter, record)))
+    const receiver = await opener.acceptContract(plaintexts, contract.manifestRecords)
+    const [first, second] = records
+    if (first === undefined || second === undefined) throw new Error("fixture")
+    expect(await outcome(receiver.openData(0, first))).toBe("label-page-missing")
+    await receiver.verifyPage(0, await contract.labelPage(0))
+    expect(Buffer.from(await receiver.openData(0, first)).equals(Buffer.from(data.subarray(0, size)))).toBe(true)
+    receiver.releasePage(0)
+    expect(await outcome(receiver.openData(1, second))).toBe("label-page-missing")
   })
 })
