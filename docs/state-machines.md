@@ -51,7 +51,7 @@ stateDiagram-v2
 
 ## Recipient (`apps/web/src/recipientPhase.ts`)
 
-Checked by `apps/web/test/recipientPhase.test.ts` (that the table is well formed, every command in a terminal phase, and the illegal cells spike 0006 found) and the browser suite's life-cycle checks (`apps/web/scripts/endToEnd.ts`), which drive the app through those cells. It is not a service, so no conformance suite checks every cell.
+Checked by `apps/web/test/recipientPhase.test.ts` (that the table is well formed, every command in a terminal phase, and the cells spike 0006 found broken) and the browser suite's life-cycle checks (`apps/web/scripts/endToEnd.ts`), which drive the app through those cells. It is not a service, so no conformance suite checks every cell.
 
 ```mermaid
 stateDiagram-v2
