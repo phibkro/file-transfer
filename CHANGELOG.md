@@ -2,6 +2,21 @@
 
 Every release of this repository, newest first, written from the changesets each pull request adds (docs/versioning.md). Each package also keeps its own CHANGELOG.md.
 
+## v0.4.5
+
+### @file-transfer/web 0.4.5
+
+#### Patch Changes
+
+- 5bf09fb: The web app exports its recipient life cycle table so docs/state-machines.md can be generated from it. Nothing changes for people using the app.
+
+### @file-transfer/platform-cloudflare 0.4.5
+
+#### Patch Changes
+
+- @file-transfer/service-quota@0.4.5
+  - @file-transfer/service-telemetry@0.4.5
+
 ## v0.4.4
 
 ### @file-transfer/web 0.4.4
