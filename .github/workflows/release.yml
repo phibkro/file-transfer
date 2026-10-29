@@ -115,4 +115,15 @@ jobs:
           git commit -q -m "$title" -m "Versions and changelogs from the changesets merged since the last release (docs/versioning.md)."
           for tag in $TAGS; do git tag -a "$tag" -m "$tag"; done
           git push origin HEAD:main
-          git push origin $TAGS
+          # GitHub creates no push events for tags when more than three are pushed at once, so the product tag, whose
+          # push starts publish.yml, goes on its own after the library tags.
+          product=""
+          libraries=""
+          for tag in $TAGS; do
+            case "$tag" in
+              v*) product="$tag" ;;
+              *) libraries="$libraries $tag" ;;
+            esac
+          done
+          if [ -n "$libraries" ]; then git push origin $libraries; fi
+          if [ -n "$product" ]; then git push origin "$product"; fi
