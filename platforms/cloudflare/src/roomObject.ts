@@ -6,7 +6,7 @@
  * - Storage holds the room record, written once at creation, and is never written per frame (docs/decisions/0004:
  *   on celld every write delays the frames behind it). The only other writes are the idle alarm, set at creation and
  *   when the last participant leaves, the relayed byte count, written when a socket closes, and the completed sequence
- *   number, written when a recipient reports `complete` (once per transfer, more only if it repeats it).
+ *   number, written the first time a recipient reports `complete` (once per room).
  * - Relayed bytes (the operator's limit, limits.ts) are counted in memory on the frame path. The sender's attachment
  *   carries the count across hibernation (updated every `attachmentStepBytes`), and storage keeps it once a socket
  *   closes, so neither a pause nor a reconnect resets it.
@@ -158,6 +158,11 @@ export class RoomObject extends DurableObject<LimitVariables & CountingEnvironme
     const sender = this.attachmentOf(socket)
 
     if (sender.admitted) {
+      if (sender.role === "recipient" && messageType(message) === "complete") {
+        // rememberCompletion keeps the first sequence only, so it needs to know whether one is stored.
+        await this.loadCompleted()
+      }
+
       this.carryOut(socket, decide(sender, this.admittedParticipants(), { type: "text", text: message }))
 
       if (countersEnabled(this.env)) {
@@ -540,7 +545,9 @@ export class RoomObject extends DurableObject<LimitVariables & CountingEnvironme
         }
 
         case "rememberCompletion": {
-          if (this.completed?.sequence !== instruction.sequence) {
+          // The first completion stands: a later one, even for another sequence, is not written, which keeps the record
+          // one-way and the room's storage writes to one per transfer. The webSocketMessage branch loaded it first.
+          if (this.completed !== undefined && this.completed.sequence === undefined) {
             this.completed = { sequence: instruction.sequence }
             // Not awaited: the runtime holds outgoing messages until the write is durable (output gates).
             void this.ctx.storage.put(completedKey, instruction.sequence)

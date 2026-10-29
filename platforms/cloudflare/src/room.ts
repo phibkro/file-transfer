@@ -12,8 +12,9 @@ import type { Role } from "@file-transfer/transport"
 import { Result, Schema } from "effect"
 
 /**
- * Written once at creation. Besides it a room stores only the relayed byte count and, once a recipient completes, the
- * completed sequence number (`rememberCompletion`); never a control message's text.
+ * Written once at creation. Besides it a room stores only counts (bytes relayed, bytes reported to the daily budget, the
+ * counted outcome when counting is on) and the first sequence a recipient completed (`rememberCompletion`); never a
+ * control message's text.
  */
 export interface RoomRecord {
   readonly roomTokenHash: string
