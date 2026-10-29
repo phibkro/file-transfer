@@ -19,6 +19,11 @@ export const roomGuarantees = declareGuarantees([
   { identifier: "room/closed-rejects-joins", property: "a closed room admits nobody", strength: "port-enforced" },
   { identifier: "room/unknown-not-found", property: "an unknown room identifier is reported as not found", strength: "port-enforced" },
   { identifier: "room/distinct-identifiers", property: "every created room has an identifier no other room has", strength: "port-enforced" },
+  {
+    identifier: "room/follows-machine",
+    property: "every command in every state, the illegal ones included, does what the room machine's table says",
+    strength: "port-enforced",
+  },
 ])
 
 export type RoomGuarantee = (typeof roomGuarantees)[number]["identifier"]
@@ -164,8 +169,9 @@ export const makeRoomReference = (faults: ReadonlySet<RoomGuarantee> = new Set()
         close: (roomIdentifier) =>
           Effect.gen(function* () {
             const record = yield* lookup(roomIdentifier)
-            const state = Machine.next(roomMachine, "closeRoom", record.state, undefined) ?? record.state
-            yield* store(roomIdentifier, { ...record, state: state === Machine.boundary ? record.state : state })
+            const next = Machine.next(roomMachine, "closeRoom", record.state, undefined)
+            const state = next === undefined || next === Machine.boundary || faults.has("room/follows-machine") ? record.state : next
+            yield* store(roomIdentifier, { ...record, state })
           }),
 
         describe: (roomIdentifier) =>

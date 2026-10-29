@@ -2,6 +2,77 @@
 
 Every release of this repository, newest first, written from the changesets each pull request adds (docs/versioning.md). Each package also keeps its own CHANGELOG.md.
 
+## v0.4.0
+
+### @file-transfer/conformance 0.2.0
+
+#### Minor Changes
+
+- 6fb7536: Machines now expose their full state × command matrix, illegal pairs included (`Machine.matrix`, `Machine.toTable`), and `Machine.problems` reports a command whose transitions from one state cannot be told apart. `transitionTableCheck` checks a service against every cell of its machine's table, and the room and relay services declare it as their `follows-machine` guarantee. The relay meter now reports the session's state. `docs/state-machines.md` is generated from the tables.
+
+#### Patch Changes
+
+- Updated dependencies [6fb7536]
+  - @file-transfer/machine@0.2.0
+
+### @file-transfer/machine 0.2.0
+
+#### Minor Changes
+
+- 6fb7536: Machines now expose their full state × command matrix, illegal pairs included (`Machine.matrix`, `Machine.toTable`), and `Machine.problems` reports a command whose transitions from one state cannot be told apart. `transitionTableCheck` checks a service against every cell of its machine's table, and the room and relay services declare it as their `follows-machine` guarantee. The relay meter now reports the session's state. `docs/state-machines.md` is generated from the tables.
+
+### @file-transfer/platform-cloudflare 0.4.0
+
+#### Patch Changes
+
+- @file-transfer/service-quota@0.4.0
+  - @file-transfer/service-telemetry@0.4.0
+
+### @file-transfer/service-abuse 0.4.0
+
+#### Patch Changes
+
+- Updated dependencies [6fb7536]
+  - @file-transfer/conformance@0.2.0
+
+### @file-transfer/service-quota 0.4.0
+
+#### Patch Changes
+
+- Updated dependencies [6fb7536]
+  - @file-transfer/conformance@0.2.0
+
+### @file-transfer/service-relay 0.4.0
+
+#### Minor Changes
+
+- 6fb7536: Machines now expose their full state × command matrix, illegal pairs included (`Machine.matrix`, `Machine.toTable`), and `Machine.problems` reports a command whose transitions from one state cannot be told apart. `transitionTableCheck` checks a service against every cell of its machine's table, and the room and relay services declare it as their `follows-machine` guarantee. The relay meter now reports the session's state. `docs/state-machines.md` is generated from the tables.
+
+#### Patch Changes
+
+- Updated dependencies [6fb7536]
+  - @file-transfer/machine@0.2.0
+  - @file-transfer/conformance@0.2.0
+
+### @file-transfer/service-room 0.4.0
+
+#### Minor Changes
+
+- 6fb7536: Machines now expose their full state × command matrix, illegal pairs included (`Machine.matrix`, `Machine.toTable`), and `Machine.problems` reports a command whose transitions from one state cannot be told apart. `transitionTableCheck` checks a service against every cell of its machine's table, and the room and relay services declare it as their `follows-machine` guarantee. The relay meter now reports the session's state. `docs/state-machines.md` is generated from the tables.
+
+#### Patch Changes
+
+- Updated dependencies [6fb7536]
+  - @file-transfer/machine@0.2.0
+  - @file-transfer/conformance@0.2.0
+
+### @file-transfer/service-telemetry 0.4.0
+
+#### Patch Changes
+
+- Updated dependencies [6fb7536]
+  - @file-transfer/conformance@0.2.0
+
 ## v0.3.0
 
 ### @file-transfer/web 0.3.0
