@@ -38,7 +38,7 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref }}
       - uses: oven-sh/setup-bun@v2
@@ -69,7 +69,7 @@ jobs:
           else
             tar -czf "$RUNNER_TEMP/out/$name.tar.gz" -C package .
           fi
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: node-${{ matrix.platform }}
           path: ${{ runner.temp }}/out/*
@@ -84,11 +84,11 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref }}
       - uses: oven-sh/setup-bun@v2
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: node-windows-x64
           path: ${{ runner.temp }}/node
@@ -102,7 +102,7 @@ jobs:
   web-client:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref }}
       - uses: oven-sh/setup-bun@v2
@@ -115,7 +115,7 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/out"
           tar -czf "$RUNNER_TEMP/out/file-transfer-web-${LABEL//\//-}.tar.gz" -C apps/web/dist .
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: web-client
           path: ${{ runner.temp }}/out/*
