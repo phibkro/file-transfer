@@ -10,6 +10,12 @@ name: release
 #      arm64 image on an arm64 machine, and publishes the GitHub release with the notes and checksums.
 # A push to main with no changesets waiting (or only empty ones) releases nothing. Started by hand, it does the same
 # for main's current commit.
+#
+# Main is protected by a ruleset (pull requests and passing checks), which the workflow's own token cannot bypass, so
+# the release commit and tags are pushed with a deploy key that is on the ruleset's bypass list. Its private key is the
+# secret RELEASE_DEPLOY_KEY of the `release` environment, which only main may use, so no pull request can read it
+# (docs/versioning.md, Release key). Unlike the workflow's token, a deploy key's push starts `checks`, so the release
+# commit is checked and deployed like any other; its own release run finds no changesets and stops.
 
 on:
   workflow_run:
@@ -26,9 +32,35 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  version:
+  pending:
+    # Whether there is anything to release, decided without the release environment, so the many pushes to main that
+    # release nothing never touch the key or wait for the environment's reviewers.
     if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
     runs-on: ubuntu-latest
+    outputs:
+      commit: ${{ steps.current.outputs.commit }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+      - name: Release only the commit the checks passed on, when changesets wait
+        id: current
+        env:
+          CHECKED: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          if [ -n "$CHECKED" ] && [ "$(git rev-parse HEAD)" != "$CHECKED" ]; then
+            echo "main moved on since the checked commit; the run for the newer commit releases it"
+          elif [ -z "$(find .changeset -name '*.md' ! -name README.md -print -quit)" ]; then
+            echo "no changesets waiting; nothing to release"
+          else
+            echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          fi
+
+  version:
+    needs: [pending]
+    if: needs.pending.outputs.commit != ''
+    runs-on: ubuntu-latest
+    environment: release
     permissions:
       contents: write
     outputs:
@@ -39,16 +71,19 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
-      - name: Release only the commit the checks passed on
+          # Pushes go over SSH with this key (see the comment at the top); without it the push to main is refused.
+          ssh-key: ${{ secrets.RELEASE_DEPLOY_KEY }}
+      - name: Check the key and the commit
         id: current
         env:
-          CHECKED: ${{ github.event.workflow_run.head_sha }}
+          PENDING: ${{ needs.pending.outputs.commit }}
+          HAS_KEY: ${{ secrets.RELEASE_DEPLOY_KEY != '' }}
         run: |
-          if [ -n "$CHECKED" ] && [ "$(git rev-parse HEAD)" != "$CHECKED" ]; then
-            echo "main moved on since the checked commit; the run for the newer commit releases it"
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-          elif [ -z "$(find .changeset -name '*.md' ! -name README.md -print -quit)" ]; then
-            echo "no changesets waiting; nothing to release"
+          if [ "$HAS_KEY" != true ]; then
+            echo "::error::the release environment has no RELEASE_DEPLOY_KEY secret, so the release cannot be pushed to main (docs/versioning.md, Release key)"
+            exit 1
+          elif [ "$(git rev-parse HEAD)" != "$PENDING" ]; then
+            echo "main moved on while waiting; the run for the newer commit releases it"
             echo "skip=true" >> "$GITHUB_OUTPUT"
           fi
       - uses: oven-sh/setup-bun@v2
