@@ -451,7 +451,10 @@ const cutSocket = async (observed: Observed, mode: "clean" | "half-open") => {
   await socket.page.close({ code: 1012, reason: "e2e cut" })
 
   if (mode === "clean") {
-    await socket.server.close({ code: 1001, reason: "e2e cut" })
+    // The server's end is a socket the browser opened (Playwright's connectToServer), and a browser closes a socket only
+    // with 1000 or 3000 to 4999: any other code is refused and the room never hears the close, which made every
+    // "clean" cut half-open until 2026-10-29 (found in review of the verification skill, #17).
+    await socket.server.close({ code: 1000, reason: "e2e cut" })
   }
 }
 
