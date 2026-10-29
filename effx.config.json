@@ -95,7 +95,14 @@
         "platform": "node"
       },
       {
-        "files": ["apps/web/src/files.ts", "apps/web/src/ranges.ts", "apps/web/src/credits.ts", "apps/web/src/selection.ts", "apps/web/src/sniff.ts"],
+        "files": [
+          "apps/web/src/files.ts",
+          "apps/web/src/ranges.ts",
+          "apps/web/src/credits.ts",
+          "apps/web/src/selection.ts",
+          "apps/web/src/sniff.ts",
+          "apps/web/scripts/faultPlan.ts"
+        ],
         "role": "pure-library",
         "platform": "portable"
       },

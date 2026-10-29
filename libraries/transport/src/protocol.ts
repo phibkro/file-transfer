@@ -21,7 +21,16 @@ export const Joined = v.object({
   participantIdentifier: v.string(),
   senderPresent: v.boolean(),
   recipientCount: v.pipe(v.number(), v.safeInteger()),
+  /** The room answers the text frame `ping` with `pong` (docs/protocol.md, "Liveness"); absent on older rooms. */
+  answersPings: v.optional(v.boolean()),
 })
+
+/**
+ * Liveness frames (docs/protocol.md, "Liveness"): bare text, not JSON, so a room can answer them without decoding
+ * anything, and an endpoint that does not know them ignores them like any text frame that fails to decode.
+ */
+export const pingFrame = "ping"
+export const pongFrame = "pong"
 
 export const Peer = v.object({ type: v.literal("peer"), event: v.picklist(["joined", "left"]), role })
 export const ErrorMessage = v.object({ type: v.literal("error"), reason: v.string() })

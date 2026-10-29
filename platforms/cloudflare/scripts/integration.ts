@@ -9,7 +9,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import nodePath from "node:path"
-import { decodeControlMessage, encodeControlMessage, encodeUnit } from "@file-transfer/transport"
+import { decodeControlMessage, encodeControlMessage, encodeUnit, pingFrame, pongFrame } from "@file-transfer/transport"
 import type { ControlMessage, Unit } from "@file-transfer/transport"
 
 const roomToken = "c123f8631c7587e150411d4221c44c682b288fdeb07bc3e0224b312b8d71ff35"
@@ -322,6 +322,9 @@ const run = async () => {
   const firstSender = connect(roomIdentifier)
   const senderJoined = await joinRoom(firstSender, "sender")
   check(senderJoined.type === "joined" && senderJoined.senderPresent && senderJoined.recipientCount === 0, "the sender is admitted", senderJoined)
+  check(senderJoined.type === "joined" && senderJoined.answersPings === true, "the room says it answers liveness pings", senderJoined)
+  firstSender.socket.send(pingFrame)
+  check((await firstSender.next()) === pongFrame, "a ping is answered with pong (docs/protocol.md, Liveness)")
 
   // A reconnecting sender replaces the one the room still holds; the old socket is told why and closed with 4000.
   const sender = connect(roomIdentifier)
