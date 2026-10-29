@@ -1,5 +1,11 @@
 # @file-transfer/web
 
+## 0.4.5
+
+### Patch Changes
+
+- 5bf09fb: The web app exports its recipient life cycle table so docs/state-machines.md can be generated from it. Nothing changes for people using the app.
+
 ## 0.4.4
 
 ### Patch Changes
