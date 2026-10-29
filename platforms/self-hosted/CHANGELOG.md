@@ -1,5 +1,9 @@
 # @file-transfer/platform-self-hosted
 
+## 0.4.4
+
+No changes in this release.
+
 ## 0.4.3
 
 No changes in this release.

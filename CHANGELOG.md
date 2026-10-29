@@ -2,6 +2,21 @@
 
 Every release of this repository, newest first, written from the changesets each pull request adds (docs/versioning.md). Each package also keeps its own CHANGELOG.md.
 
+## v0.4.4
+
+### @file-transfer/web 0.4.4
+
+#### Patch Changes
+
+- 733094a: When the browser cannot open storage for a transfer (a full disk, say), the recipient now gives back the storage lock and removes the files it had started, so they no longer linger until the tab closes.
+
+### @file-transfer/platform-cloudflare 0.4.4
+
+#### Patch Changes
+
+- @file-transfer/service-quota@0.4.4
+  - @file-transfer/service-telemetry@0.4.4
+
 ## v0.4.3
 
 ### @file-transfer/web 0.4.3
