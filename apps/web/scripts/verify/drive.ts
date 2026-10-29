@@ -38,6 +38,9 @@ interface Step {
 }
 
 const steps: Step[] = []
+
+/** Text frames (control messages) each page received, with the time, for checks on what the room told whom. */
+const controlReceived: { readonly page: string; readonly at: number; readonly text: string }[] = []
 const sent: { readonly page: string; readonly kind: "url" | "body" | "frame"; readonly text: string }[] = []
 
 const step = (action: string, observed: string, ok: boolean) => {
@@ -76,6 +79,11 @@ const openProfile = async (label: string) => {
   page.on("websocket", (socket) => {
     socket.on("framesent", (frame) => {
       sent.push({ page: label, kind: "frame", text: Buffer.from(frame.payload).toString("latin1") })
+    })
+    socket.on("framereceived", (frame) => {
+      if (typeof frame.payload === "string") {
+        controlReceived.push({ page: label, at: Date.now(), text: frame.payload })
+      }
     })
   })
 
@@ -176,10 +184,15 @@ const receiveAll = async (sender: Page, recipient: Page, files: ReturnType<typeo
 }
 
 let failure: string | undefined
+const pages: { readonly side: string; readonly page: Page }[] = []
+
+// What each side reported when the journey failed: its status, failure reason and the exception behind it.
+const failedSides: { readonly side: string; readonly status: string; readonly reason: string | null; readonly detail: string | null }[] = []
 
 try {
   const sender = await openProfile("sender")
   const recipient = await openProfile("recipient")
+  pages.push({ side: "sender", page: sender }, { side: "recipient", page: recipient })
 
   if (journey === "send-receive") {
     const files = makeFiles([
@@ -221,6 +234,7 @@ try {
 
   if (journey === "resume") {
     // Both ends of each routed socket, so a cut can close both, as a server restart does.
+    // Bytes the room sent on each socket, so the cut can show that the room stopped sending on the old one.
     const sockets: { readonly page: WebSocketRoute; readonly server: WebSocketRoute }[] = []
     await recipient.routeWebSocket(/\/api\/rooms\/.+\/socket/u, (socket) => {
       const server = socket.connectToServer()
@@ -238,6 +252,7 @@ try {
         await socket.close(closeOptions(code, reason))
       })
     })
+    let cutAt = 0
     // Large enough that the relay is still carrying records when the socket is cut.
     const files = makeFiles([["verify-resume.bin", 24 * 1024 * 1024]])
     const link = await offer(sender, files)
@@ -250,19 +265,44 @@ try {
         return progress !== undefined && progress.total > 0 && progress.done / progress.total >= 0.3
       })
       const cut = sockets.at(-1)
-      // Closing the page's end does not fire its own onClose, so the room's end is closed here too.
+      cutAt = Date.now()
+      // The room's end is a socket the browser opened (Playwright's connectToServer), and a browser closes a socket only
+      // with 1000 or 3000 to 4999: a 1012 there is refused and the room never hears the close. So the page's end gets
+      // 1012, as a server restart would send, and the room's end gets 1000.
       await cut?.page.close({ code: 1012, reason: "verification cut" })
-      await cut?.server.close({ code: 1012, reason: "verification cut" })
+      await cut?.server.close({ code: 1000, reason: "verification cut" })
       step("cut the recipient's socket at 30%, both ends", `socket ${sockets.length} closed with 1012`, cut !== undefined)
     })
     step("rejoin on a new socket", `${sockets.length} sockets opened`, sockets.length >= 2)
+    // A room that heard the close tells the sender `peer left`; one that did not hears of it only when the new socket
+    // replaces the old, which sends the sender `peer joined` and no `peer left` (docs/protocol.md).
+    const heardLeave = controlReceived.some((frame) => frame.page === "sender" && frame.at >= cutAt && frame.text.includes('"event":"left"'))
+    step("the room heard the cut and told the sender", heardLeave ? "the sender got peer left" : "the sender got no peer left", heardLeave)
     const path = await recipient.evaluate(() => window.fileTransferTest?.wentDirect())
     step("records travelled the relay only", `went direct: ${String(path)}`, path === false)
   }
 } catch (error) {
   failure = error instanceof Error ? error.message : String(error)
+
+  // Evidence of the failure itself: each page as it was, with the reason it gives.
+  for (const { side, page } of pages) {
+    await capture(page, `failed-${side}`).catch(() => undefined)
+
+    const report = await page
+      .evaluate(() => ({
+        status: window.fileTransferTest?.status() ?? "no test hook",
+        reason: window.fileTransferTest?.failure(),
+        detail: window.fileTransferTest?.failureDetail(),
+      }))
+      .catch(() => ({ status: "page closed", reason: undefined, detail: undefined }))
+
+    failedSides.push({ side, status: report.status, reason: report.reason ?? null, detail: report.detail ?? null })
+  }
 } finally {
-  writeFileSync(nodePath.join(evidence, "result.json"), `${JSON.stringify({ journey, origin, browser: browserName, steps, failure }, undefined, 2)}\n`)
+  writeFileSync(
+    nodePath.join(evidence, "result.json"),
+    `${JSON.stringify({ journey, origin, browser: browserName, steps, failure, failedSides }, undefined, 2)}\n`,
+  )
   await browser.close()
 }
 
