@@ -24,5 +24,5 @@ Preconditions:
 
 ## Gotchas
 
-- The decline travels as a control message; if the recipient's socket is reconnecting at that moment the message is dropped and the sender keeps waiting (docs/spikes/0006, finding R5). This journey does not cover that case.
+- The decline travels as a control message; if the recipient's socket is reconnecting at that moment the message is dropped and the sender keeps waiting (docs/spikes/0006, finding R5; the spike lands with pull request #15). This journey does not cover that case.
 - After a failure the `Decline` button may still be on the page and still act (spike 0006, R2); a journey that declines after a failure would report `declined` over `failed`.

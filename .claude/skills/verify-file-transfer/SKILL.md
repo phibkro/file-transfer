@@ -15,7 +15,7 @@ Generated on 2026-10-29 by following pstack's `create-verification-skill` (curso
 bun apps/web/scripts/verify/launch.ts            # prints {"run": "<run directory>", "origin": "http://127.0.0.1:<port>"}
 ```
 
-It builds `apps/web` and `platforms/cloudflare`, starts `wrangler dev` on a random port with its Durable Object state under `<run>/state` (empty on every launch, so there is nothing to migrate or seed), and returns only once the page is the app (`<title>File transfer</title>`) and `GET /api/limits` answers JSON. It writes `<run>/server.json` (origin, process, revision) and logs to `<run>/server.log`. A launch takes about 30 seconds, most of it building.
+It builds `apps/web` and `platforms/cloudflare`, starts `wrangler dev` on a random port with its Durable Object state under `<run>/state` (empty on every launch, so there is nothing to migrate or seed), and returns only once the page is the app (`<title>File transfer</title>`) and `GET /api/limits` answers JSON. It writes `<run>/server.json` (origin, process group, revision, a digest of uncommitted edits, `ready`) as soon as the server process exists, sets `ready` once it is usable, and logs to `<run>/server.log`. An interrupted or failed launch stops the server it started. A launch takes from a few seconds to half a minute, most of it building.
 
 Instances are isolated by port and state directory, so two runs can live side by side. Never drive a server you did not start in this run, and never drive production (`send.phibkro.org`).
 
@@ -28,7 +28,7 @@ bun apps/web/scripts/verify/doctor.ts <run directory>   # a local instance from 
 bun apps/web/scripts/verify/doctor.ts https://...       # a preview
 ```
 
-Read-only. For a run directory it checks that the recorded server process is alive and was built from the revision checked out now, then (for both) that the origin serves the app and `/api/limits` answers JSON. Exit code 0 means worth driving. Run it before the first drive, after any failed drive, and after switching branches (a revision mismatch means relaunch).
+Read-only. For a run directory it checks that launch finished (`ready`), that the recorded server process is alive, and that it was built from the revision and the uncommitted edits checked out now; then (for both) that the origin serves the app and `/api/limits` answers JSON. Exit code 0 means worth driving. Run it before the first drive, after any failed drive, and after any edit or branch switch (a mismatch means stop and relaunch).
 
 ## Drive
 
@@ -50,7 +50,7 @@ For behaviour no journey covers, write a short Playwright script in the scratchp
 Each journey writes to `<evidence>/<journey>/`:
 
 - `NN-<side>-<state>.png` and `NN-<side>-<state>.aria.yml`: a full-page screenshot and the ARIA snapshot after each step, so the proof shows the action and the state it left, with the app's heading visible.
-- `sent.json` (send-receive): every request URL and socket frame either browser sent, checked for the link secret and the file names. This is CLAUDE.md's invariant seen from the endpoints.
+- `sent.json` (send-receive): every request URL, request body and socket frame either browser sent, checked for the link secret and the file names. This is CLAUDE.md's invariant seen from the endpoints.
 - `result.json`: journey, origin, browser, each step's action and observed outcome, and the failure if any.
 
 Proof standards:
@@ -66,7 +66,9 @@ Proof standards:
 bun apps/web/scripts/verify/stop.ts <run directory>
 ```
 
-Kills exactly the process group `launch.ts` recorded (never by name) and deletes `<run>/state`. `<run>/evidence` and `server.log` stay. Run it after the last drive, and after every failed attempt to launch, so no `wrangler` or `workerd` outlives the run. Playwright browsers close when `drive.ts` exits.
+Kills exactly the process group `launch.ts` recorded (never by name) and deletes `<run>/state`; with no `server.json` it says there is nothing to stop. `<run>/evidence` and `server.log` stay. Run it after the last drive, and after every failed or interrupted launch, so no `wrangler` or `workerd` outlives the run. Playwright browsers close when `drive.ts` exits.
+
+In a worktree-isolated agent the shell may refuse compound commands that contain `git` or expanded paths; run the helpers one command per call.
 
 ## Helpers
 

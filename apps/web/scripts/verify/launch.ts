@@ -1,12 +1,14 @@
 /**
  * Starts a disposable local instance for verification (.claude/skills/verify-file-transfer): builds apps/web and
  * platforms/cloudflare, starts `wrangler dev` with its state under a fresh run directory, waits until the app and its
- * API answer, and writes `server.json` (origin, process, revision) into the run directory for doctor.ts, drive.ts and
- * stop.ts. Prints the run directory and origin as one JSON line.
+ * API answer. It writes `server.json` (origin, process group, revision, working tree, `ready`) into the run directory
+ * as soon as the server process exists, so stop.ts can clean up even after an interrupted or failed launch, and sets
+ * `ready` once the server is usable. Prints the run directory and origin as one JSON line.
  *
  *   bun apps/web/scripts/verify/launch.ts [run directory]
  */
 import { spawn, spawnSync } from "node:child_process"
+import { createHash } from "node:crypto"
 import { mkdirSync, openSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import nodePath from "node:path"
@@ -60,7 +62,44 @@ const server = spawn(
 
 server.unref()
 
-const revision = spawnSync("git", ["rev-parse", "HEAD"], { cwd: repository, encoding: "utf-8" }).stdout.trim()
+const git = (...arguments_: string[]) => spawnSync("git", arguments_, { cwd: repository, encoding: "utf-8" }).stdout
+const revision = git("rev-parse", "HEAD").trim()
+
+// Uncommitted edits are built too, so the instance is described by the revision plus a digest of the working tree's
+// difference from it (doctor.ts recomputes both).
+const workingTree = createHash("sha256")
+  .update(git("diff", "HEAD"))
+  .update(git("status", "--porcelain", "--untracked-files=all"))
+  .digest("hex")
+
+const describe = (ready: boolean) => {
+  const description = { run, origin, processIdentifier: server.pid, revision, workingTree, ready, startedAt: new Date().toISOString() }
+  writeFileSync(nodePath.join(run, "server.json"), `${JSON.stringify(description, undefined, 2)}\n`)
+}
+
+describe(false)
+
+/** Kills the server's whole process group (wrangler and the workerd it started) and exits. */
+const abandon = (message: string) => {
+  if (server.pid !== undefined) {
+    try {
+      process.kill(-server.pid)
+    } catch {
+      // Already gone.
+    }
+  }
+
+  console.error(message)
+  process.exit(1)
+}
+
+process.on("SIGINT", () => {
+  abandon("launch interrupted; the server it started was stopped")
+})
+
+process.on("SIGTERM", () => {
+  abandon("launch terminated; the server it started was stopped")
+})
 
 /** Ready means usable: the page is the app, and the API that a sender calls first answers with JSON. */
 const isReady = async (): Promise<boolean> => {
@@ -79,8 +118,7 @@ const isReady = async (): Promise<boolean> => {
 
 for (let attempt = 0; attempt < 120; attempt++) {
   if (await isReady()) {
-    const description = { run, origin, processIdentifier: server.pid, revision, startedAt: new Date().toISOString() }
-    writeFileSync(nodePath.join(run, "server.json"), `${JSON.stringify(description, undefined, 2)}\n`)
+    describe(true)
     console.log(JSON.stringify({ run, origin }))
     process.exit(0)
   }
@@ -88,10 +126,4 @@ for (let attempt = 0; attempt < 120; attempt++) {
   await Bun.sleep(500)
 }
 
-if (server.pid !== undefined) {
-  process.kill(-server.pid)
-}
-
-console.error(`wrangler dev did not become ready within 60 s; see ${nodePath.join(run, "server.log")}`)
-
-process.exit(1)
+abandon(`wrangler dev did not become ready within 60 s; see ${nodePath.join(run, "server.log")}`)

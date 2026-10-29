@@ -1,7 +1,7 @@
 /**
  * Drives one user journey against a running instance the way two people would, in two isolated browser profiles, and
  * writes the evidence (.claude/skills/verify-file-transfer, features/): a screenshot and an ARIA snapshot of each page
- * after each step, every socket frame and request URL the browsers sent, and `result.json` with each step's action
+ * after each step, every request URL, request body and socket frame the browsers sent, and `result.json` with each step's action
  * and observed outcome. Exits non-zero when the journey fails; the evidence stays either way.
  *
  *   bun apps/web/scripts/verify/drive.ts <journey> <origin> <evidence directory> [chromium | firefox | webkit]
@@ -38,7 +38,7 @@ interface Step {
 }
 
 const steps: Step[] = []
-const sent: { readonly page: string; readonly kind: "url" | "frame"; readonly text: string }[] = []
+const sent: { readonly page: string; readonly kind: "url" | "body" | "frame"; readonly text: string }[] = []
 
 const step = (action: string, observed: string, ok: boolean) => {
   steps.push({ action, observed, ok })
@@ -65,7 +65,14 @@ const openProfile = async (label: string) => {
   }
 
   const page = await context.newPage()
-  page.on("request", (request) => sent.push({ page: label, kind: "url", text: request.url() }))
+  page.on("request", (request) => {
+    sent.push({ page: label, kind: "url", text: request.url() })
+    const body = request.postData()
+
+    if (body !== null) {
+      sent.push({ page: label, kind: "body", text: body })
+    }
+  })
   page.on("websocket", (socket) => {
     socket.on("framesent", (frame) => {
       sent.push({ page: label, kind: "frame", text: Buffer.from(frame.payload).toString("latin1") })
@@ -131,7 +138,7 @@ const offer = async (sender: Page, files: ReturnType<typeof makeFiles>) => {
   return link
 }
 
-/** CLAUDE.md's invariant as the browsers see it: no URL and no frame they send carries the secret or a file name. */
+/** CLAUDE.md's invariant as the browsers see it: no URL, request body or frame they send carries the secret or a file name. */
 const checkNothingLeaks = (link: string, files: ReturnType<typeof makeFiles>) => {
   const secret = new URL(link).hash.slice(1)
   const needles = [secret, ...files.map((file) => file.name)]
@@ -144,7 +151,7 @@ const checkNothingLeaks = (link: string, files: ReturnType<typeof makeFiles>) =>
       1,
     )}\n`,
   )
-  step("check what the browsers sent", `${sent.length} URLs and frames, ${leaks.length} carrying the secret or a file name`, leaks.length === 0)
+  step("check what the browsers sent", `${sent.length} URLs, request bodies and frames, ${leaks.length} carrying the secret or a file name`, leaks.length === 0)
 }
 
 const receiveAll = async (sender: Page, recipient: Page, files: ReturnType<typeof makeFiles>, during?: () => Promise<void>) => {
@@ -213,10 +220,11 @@ try {
   }
 
   if (journey === "resume") {
-    const sockets: WebSocketRoute[] = []
+    // Both ends of each routed socket, so a cut can close both, as a server restart does.
+    const sockets: { readonly page: WebSocketRoute; readonly server: WebSocketRoute }[] = []
     await recipient.routeWebSocket(/\/api\/rooms\/.+\/socket/u, (socket) => {
       const server = socket.connectToServer()
-      sockets.push(socket)
+      sockets.push({ page: socket, server })
       socket.onMessage((message) => {
         server.send(message)
       })
@@ -241,8 +249,11 @@ try {
 
         return progress !== undefined && progress.total > 0 && progress.done / progress.total >= 0.3
       })
-      await sockets.at(-1)?.close({ code: 1012, reason: "verification cut" })
-      step("cut the recipient's socket at 30%", `socket ${sockets.length} closed with 1012`, sockets.length > 0)
+      const cut = sockets.at(-1)
+      // Closing the page's end does not fire its own onClose, so the room's end is closed here too.
+      await cut?.page.close({ code: 1012, reason: "verification cut" })
+      await cut?.server.close({ code: 1012, reason: "verification cut" })
+      step("cut the recipient's socket at 30%, both ends", `socket ${sockets.length} closed with 1012`, cut !== undefined)
     })
     step("rejoin on a new socket", `${sockets.length} sockets opened`, sockets.length >= 2)
     const path = await recipient.evaluate(() => window.fileTransferTest?.wentDirect())
