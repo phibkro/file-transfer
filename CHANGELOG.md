@@ -2,6 +2,21 @@
 
 Every release of this repository, newest first, written from the changesets each pull request adds (docs/versioning.md). Each package also keeps its own CHANGELOG.md.
 
+## v0.3.0
+
+### @file-transfer/web 0.3.0
+
+#### Minor Changes
+
+- a076e33: The completion report says when the direct path opened and how often it dropped back to the relay, and what network the browser reports (Chromium-based browsers only), for testing on real networks with docs/network-testing.md.
+
+### @file-transfer/platform-cloudflare 0.3.0
+
+#### Patch Changes
+
+- @file-transfer/service-quota@0.3.0
+  - @file-transfer/service-telemetry@0.3.0
+
 ## v0.2.0
 
 ### @file-transfer/web 0.2.0
