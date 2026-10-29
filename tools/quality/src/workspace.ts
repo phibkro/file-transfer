@@ -51,7 +51,8 @@ export const importSpecifiers = (path: string, source: string): string[] => {
   const dynamic = module.dynamicImports.flatMap(({ moduleRequest }) => {
     const text = source.slice(moduleRequest.start, moduleRequest.end)
 
-    if (/^(?<quote>["'])[^"']*\k<quote>$/u.test(text) || /^`[^`$]*`$/u.test(text)) {
+    // A backslash makes the source text differ from the module it names (`"./\x2e./"`), so only escape-free literals count.
+    if (/^(?<quote>["'])[^"'\\]*\k<quote>$/u.test(text) || /^`[^`$\\]*`$/u.test(text)) {
       return [text.slice(1, -1)]
     }
 

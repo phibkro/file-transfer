@@ -142,6 +142,11 @@ describe("module graph negative controls", () => {
     expect(importSpecifiers("example.ts", source).toSorted()).toEqual(["a", "b", "c", computedImportSpecifier, computedImportSpecifier].toSorted())
   })
 
+  it("records a literal written with an escape sequence as computed, since its text is not the module it names", () => {
+    const escaped = ['await import("./\\x2e./escape.ts")', "await import(`./\\x2e./escape.ts`)"].join("\n")
+    expect(importSpecifiers("example.ts", escaped)).toEqual([computedImportSpecifier, computedImportSpecifier])
+  })
+
   it("rejects a computed import in shipped code but allows it in development-only files", () => {
     const computed = { file: "src/index.ts", specifier: computedImportSpecifier, developmentOnly: false }
     expect(rulesBroken(replace(library, { imports: [...library.imports, computed] }))).toEqual(["computed-import-in-source"])
