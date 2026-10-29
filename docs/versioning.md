@@ -58,10 +58,14 @@ The release commit is pushed by GitHub Actions, so it does not run `checks` agai
 Main accepts changes only through pull requests with passing checks (the `protect-main` ruleset), and a workflow's own token cannot be exempted, so the release workflow pushes its commit and tags with a deploy key that is on the ruleset's bypass list. The private key is the `RELEASE_DEPLOY_KEY` secret of the `release` environment, whose deployment branches are limited to main, so a workflow run for a pull request cannot read it. To set it up, or to replace a key:
 
 ```sh
+# The environment, deployable from main only
+gh api -X PUT repos/phibkro/file-transfer/environments/release \
+  -F 'deployment_branch_policy[protected_branches]=false' -F 'deployment_branch_policy[custom_branch_policies]=true'
+gh api -X POST repos/phibkro/file-transfer/environments/release/deployment-branch-policies -f name=main -f type=branch
+# The key: public half as a deploy key with write access, private half as the environment's secret
 ssh-keygen -t ed25519 -N "" -C "file-transfer release" -f release-key
 gh repo deploy-key add release-key.pub --repo phibkro/file-transfer --allow-write --title release
-gh secret set RELEASE_DEPLOY_KEY --repo phibkro/file-transfer --env release < release-key
-rm release-key release-key.pub
+gh secret set RELEASE_DEPLOY_KEY --repo phibkro/file-transfer --env release < release-key && rm release-key release-key.pub
 ```
 
-Then, in the repository settings: limit the `release` environment's deployment branches to `main`, and add the key under Deploy keys in the ruleset's bypass list. A release finds no key and stops with an error naming this section. Adding yourself as a required reviewer on the `release` environment makes every release wait for your approval.
+Then add the key under Deploy keys in the ruleset's bypass list. `gh secret set` does not create the environment, which is why it comes first. A release finds no key and stops with an error naming this section. Adding yourself as a required reviewer on the `release` environment makes every release wait for your approval.
