@@ -37,9 +37,11 @@
  * - `life-cycle`: only the recipient life cycle checks (also part of `standard`);
  * - `scenario`: one transfer scenario (`E2E_SCENARIO`, default half-open) `E2E_REPEAT` times (default 10), to chase a
  *   failure that shows up in a few runs out of many.
+ *
+ * `E2E_TRACE_DIRECTORY` keeps Playwright traces of the last pages closed, so a failed check can be replayed.
  */
 import { createHash, randomBytes } from "node:crypto"
-import { closeSync, ftruncateSync, mkdtempSync, openSync, rmSync, writeFileSync, writeSync } from "node:fs"
+import { closeSync, ftruncateSync, mkdirSync, mkdtempSync, openSync, rmSync, writeFileSync, writeSync } from "node:fs"
 import { tmpdir } from "node:os"
 import nodePath from "node:path"
 import { chromium, firefox, webkit } from "playwright"
@@ -129,6 +131,20 @@ const platformDirectory = new URL("../../../platforms/cloudflare/", import.meta.
 const selfHostedDirectory = new URL("../../../platforms/self-hosted/", import.meta.url).pathname
 const configuredBase = process.env.BASE_URL
 const browserName = process.env.E2E_BROWSER ?? "chromium"
+
+/**
+ * Where to keep Playwright traces of the most recent pages, for a failure to be replayed (`bunx playwright show-trace`).
+ * The suite stops at the first failed check, so the pages it closed last are the ones that failed; older traces are
+ * deleted as newer ones are saved. Unset, nothing is recorded. CI uploads the directory when the job fails.
+ */
+const traceDirectory = process.env.E2E_TRACE_DIRECTORY
+const tracesKept = 6
+const savedTraces: string[] = []
+let pagesOpened = 0
+
+if (traceDirectory !== undefined) {
+  mkdirSync(traceDirectory, { recursive: true })
+}
 
 const browserTypes = new Map([
   ["chromium", chromium],
@@ -302,6 +318,12 @@ const newContext = async (browser: Browser, persistent: boolean): Promise<{ read
  */
 const openPage = async (browser: Browser, routed = true, persistent = false, direct = true, chaos = false) => {
   const { context, dispose } = await newContext(browser, persistent)
+  pagesOpened++
+  const trace = traceDirectory === undefined ? undefined : nodePath.join(traceDirectory, `page-${String(pagesOpened).padStart(3, "0")}.zip`)
+
+  if (trace !== undefined) {
+    await context.tracing.start({ screenshots: true, snapshots: true, title: `page ${pagesOpened}` })
+  }
 
   if (chaos) {
     // Keeps every peer connection and data channel the page makes, so a fault can kill its direct path.
@@ -437,6 +459,15 @@ const openPage = async (browser: Browser, routed = true, persistent = false, dir
   }
 
   const close = async () => {
+    if (trace !== undefined) {
+      await context.tracing.stop({ path: trace })
+      savedTraces.push(trace)
+
+      for (const old of savedTraces.splice(0, Math.max(0, savedTraces.length - tracesKept))) {
+        rmSync(old, { force: true })
+      }
+    }
+
     await context.close()
     dispose()
   }
