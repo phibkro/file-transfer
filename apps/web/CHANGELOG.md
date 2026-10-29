@@ -1,5 +1,12 @@
 # @file-transfer/web
 
+## 0.1.1
+
+### Patch Changes
+
+- Updated dependencies [7ef4f07]
+  - @file-transfer/parcel@1.0.1
+
 ## 0.1.0
 
 ### Minor Changes
