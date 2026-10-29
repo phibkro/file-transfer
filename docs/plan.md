@@ -1,16 +1,16 @@
 # Plan
 
-Startup phase: prove that people want this and that some will pay, before stabilising or optimising. Phases 0 and 1 are roughly eight weeks of focused solo work (an estimate; the spike is the main uncertainty).
+Startup phase: prove that people want this, then that some will pay, before stabilising or optimising. Since ADR 0019 the first launch is open source: operators run instances (their own Cloudflare account or self-hosted), and the hosted paid product waits for the adoption gate. Phases 0 and 1 are roughly eight weeks of focused solo work (an estimate; the spike is the main uncertainty).
 
 ## Phases and gates
 
-| Phase              | Scope                                                                                             | Gate to the next phase                                                                        |
-| ------------------ | ------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| 0 Spike and parcel | Measure throughput and save tiers; write parcel v1 with test vectors; external review             | 10 GB transfers work on every target browser; parcel v1 reviewed and frozen                   |
-| 1 MVP launch       | Live encrypted transfers, relay fallback, resume, abuse page, fake doors; Show HN; no money taken | Completion and repeat-sender targets met; fake-door clicks above the threshold set in advance |
-| 2 Paid store       | Accounts, R2 store with expiry and revoke, merchant-of-record billing                             | Paying users; relay plus TURN cost above the fixed cost of own relays                         |
-| 3 Stabilise        | Own relays (workerd or celld, Bun fallback), coturn, self-host parity                             | Teams or self-hosters asking for private networks and native clients                          |
-| 4 The network      | Rust iroh nodes and CLI, network directory and policies, seeding, PAKE codes                      |                                                                                               |
+| Phase                | Scope                                                                                                                                                                                            | Gate to the next phase                                                                                     |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| 0 Spike and parcel   | Measure throughput and save tiers; write parcel v1 with test vectors; external review                                                                                                            | 10 GB transfers work on every target browser; parcel v1 reviewed and frozen                                |
+| 1 Open-source launch | Live encrypted transfers, resume; operator limits, counters and `/admin`; Deploy to Cloudflare, Alchemy and workerd self-hosting; demo instance; Show HN and self-hosting communities (ADR 0019) | Adoption: stars, outside issues and pull requests, demo completion rate, against thresholds set in advance |
+| 2 Hosted product     | Accounts, R2 store with expiry and revoke, relay priority, merchant-of-record billing (ADR 0006, 0014); fake doors first                                                                         | Paying users; relay plus TURN cost above the fixed cost of own relays                                      |
+| 3 Stabilise          | Own relays (workerd or celld, Bun fallback), coturn, self-host parity                                                                                                                            | Teams or self-hosters asking for private networks and native clients                                       |
+| 4 The network        | Rust iroh nodes and CLI, network directory and policies, seeding, PAKE codes                                                                                                                     |                                                                                                            |
 
 ## M0 Spike (week 1)
 
@@ -53,14 +53,23 @@ Startup phase: prove that people want this and that some will pay, before stabil
 - [ ] Network matrix: home broadband, mobile data, corporate Wi-Fi, two browsers per side (paste the completion reports)
   - Three sender reports so far (home, Tailscale, cellular; Firefox; a few MB each, spike 0002). Needs recipient reports and transfers of 100 MB or more
 
-## M3 Launch readiness (week 5)
+## M3 Operators and distribution (ADR 0019)
+
+- [ ] Operator limits enforced by the room server: rooms per client address per window, relayed bytes per room, optional Turnstile; `GET /api/limits` read by the app before sealing
+- [ ] Counters in a SQLite-backed Durable Object (hourly buckets, no identifiers), `services/telemetry` layers for both platforms
+- [ ] `/admin` behind `ADMIN_TOKEN` (and optionally Cloudflare Access): activity, relayed bytes against the free plan's daily budget, limits
+- [ ] Deploy to Cloudflare: CI publishes a prebuilt, self-contained bundle repository for the button
+- [ ] `platforms/self-hosted` on workerd, Docker image (Nix module after)
+- [ ] README as the landing page: deploy in one click or one command, what operators see, why relays see only ciphertext
+
+## M3b Launch readiness (week 5)
 
 - [ ] Landing page answering: Firefox Send's abuse problem, when TURN or the relay sees traffic, how to trust the served JavaScript
-- [ ] Turnstile on room creation, per-IP limits in `services/quota`, `/abuse` form, privacy policy, terms
+- [ ] `/abuse` form, privacy policy and terms for the demo instance (limits and Turnstile moved to M3)
   - Production has none of these yet: `services/quota`, `services/abuse` and `services/telemetry` exist as reference layers but no platform wires them in, so room creation and relaying are unlimited
-- [ ] Aggregate counters in `services/telemetry`, Umami on the landing page
-- [ ] Fake doors after a completed transfer (offline recipients, faster relayed transfers, private network), waitlist, Van Westendorp survey
-- [ ] `platforms/self-hosted` on workerd (Bun layers only if M0 rules workerd out), Docker image, Nix module
+- [ ] (moved to M3: counters for every instance; nothing phones home)
+- [ ] Fake doors and pricing survey: deferred to phase 2 (ADR 0019)
+- [ ] (moved to M3: self-hosting on workerd)
 
 ## M4 Launch and learn (weeks 6 to 8)
 
@@ -69,17 +78,21 @@ Startup phase: prove that people want this and that some will pay, before stabil
 
 ## Metrics (thresholds are starting hypotheses; fix them before launch)
 
-| Metric                 | Definition                                                                      | Threshold                           |
-| ---------------------- | ------------------------------------------------------------------------------- | ----------------------------------- |
-| Completion rate        | Full file received, over transfers where a recipient joined                     | at least 97%                        |
-| Activation             | Links created that lead to a completed transfer                                 | at least 40%                        |
-| Repeat senders         | Week-1 senders who send again in weeks 2 to 4 (device-level estimate)           | at least 20%                        |
-| Paid-feature demand    | Completed-transfer users who click a paid fake door; share joining the waitlist | at least 5% click; at least 1% join |
-| Relayed share and cost | Relayed bytes over total; relay plus TURN cost per month                        | tracked; feeds gate 3               |
+| Metric                 | Definition                                                                                 | Threshold                           |
+| ---------------------- | ------------------------------------------------------------------------------------------ | ----------------------------------- |
+| Completion rate        | Full file received, over transfers where a recipient joined (demo instance counters)       | at least 97%                        |
+| Activation             | Rooms created that lead to a completed transfer (demo instance counters)                   | at least 40%                        |
+| Adoption               | GitHub stars; outside issues and pull requests; operators who tell us they run an instance | set before launch (ADR 0019)        |
+| Paid-feature demand    | Phase 2: completed-transfer users who click a paid fake door; share joining the waitlist   | at least 5% click; at least 1% join |
+| Relayed share and cost | Relayed bytes over total; relay plus TURN cost per month                                   | tracked; feeds gate 3               |
+
+Repeat senders cannot be counted without identifying devices, which counters exclude (ADR 0019); they wait for accounts.
 
 ## Open decisions
 
-- Positioning: consumer, or teams from the start (test a team offer as a fake door in phase 1)
+- Positioning: consumer, or teams from the start (test a team offer as a fake door in phase 2)
+- Adoption thresholds for the phase 1 gate (ADR 0019)
+- Default limits for new instances, from the relay load test
 - Who gives parcel v1 its human applied-crypto review before launch
 - Brand name, domain, trademark, and who holds them
 - Vite with plain TypeScript or Astro for the landing page
