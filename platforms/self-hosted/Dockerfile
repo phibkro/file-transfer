@@ -27,7 +27,8 @@ RUN version="$(bun -e 'console.log(require("/source/platforms/self-hosted/node_m
   && cp /tmp/workerd/package/bin/workerd /out/workerd \
   && cp -r platforms/self-hosted/workerd.capnp platforms/self-hosted/dist platforms/self-hosted/public /out/
 
-FROM debian:bookworm-slim
+# Distroless: glibc and the system CA certificates workerd loads at start-up, and nothing else (no shell).
+FROM gcr.io/distroless/base-debian12:nonroot
 LABEL org.opencontainers.image.source="https://github.com/phibkro/file-transfer"
 LABEL org.opencontainers.image.description="End-to-end encrypted file transfer: the self-hosted server node (workerd)"
 LABEL org.opencontainers.image.licenses="AGPL-3.0-only"
@@ -35,7 +36,8 @@ COPY --from=build --chmod=755 /out/workerd /usr/local/bin/workerd
 COPY --from=build /out/workerd.capnp /srv/workerd.capnp
 COPY --from=build /out/dist /srv/dist
 COPY --from=build /out/public /srv/public
-# Owned by the unprivileged user the server runs as; a numeric user needs no entry in /etc/passwd.
+# Owned by the unprivileged user the server runs as, 10001 as in earlier images, so existing storage volumes stay
+# writable; a numeric user needs no entry in /etc/passwd.
 COPY --from=build --chown=10001:10001 /out/storage /srv/storage
 WORKDIR /srv
 USER 10001:10001

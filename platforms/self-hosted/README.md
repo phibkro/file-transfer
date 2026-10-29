@@ -2,12 +2,12 @@
 
 The service on your own machine (docs/decisions/0004): the room Worker built from `platforms/cloudflare`, unchanged, on plain [workerd](https://github.com/cloudflare/workerd), Cloudflare's open-source runtime. A small assets Worker serves `apps/web`'s build the way Cloudflare's static assets do (clean URLs, the single-page fallback for `/r/<room>`, the rules in `_headers`). Durable Objects keep their SQLite storage in `storage/`.
 
-| File                  | Role                                                                                                  |
-| --------------------- | ----------------------------------------------------------------------------------------------------- |
-| `workerd.capnp`       | Services, sockets, Durable Objects and settings (environment variables, named as in `wrangler.jsonc`) |
-| `src/assetsWorker.ts` | Static files from workerd's disk service, with content types, caching and `_headers`                  |
-| `src/assetRouting.ts` | The pure rules: clean URLs, fallback, content types, `_headers` parsing and matching                  |
-| `Dockerfile`          | One container: build with Bun, run on `debian:bookworm-slim` with the workerd binary                  |
+| File                  | Role                                                                                                                              |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `workerd.capnp`       | Services, sockets, Durable Objects and settings (environment variables, named as in `wrangler.jsonc`)                             |
+| `src/assetsWorker.ts` | Static files from workerd's disk service, with content types, caching and `_headers`                                              |
+| `src/assetRouting.ts` | The pure rules: clean URLs, fallback, content types, `_headers` parsing and matching                                              |
+| `Dockerfile`          | One container: build with Bun, run on distroless (`gcr.io/distroless/base-debian12`) with the workerd binary, for amd64 and arm64 |
 
 ## Run it with Docker
 
