@@ -566,7 +566,8 @@ const offer = async (sender: Page, base: string, files: readonly PayloadFile[]) 
 
 /**
  * The invariant from CLAUDE.md, as seen from the browsers: no request URL, request body or socket frame they send
- * carries the secret or a file name (a body sent as a ReadableStream is not read; see requestBodies.ts).
+ * carries the secret or a file name (except bodies requestBodies.ts cannot see: from a worker, a just-created about:blank
+ * frame, or a ReadableStream).
  */
 const checkNothingLeaks = (link: string, files: readonly PayloadFile[], observedList: readonly Observed[]) => {
   const secret = new URL(link).hash.slice(1)
