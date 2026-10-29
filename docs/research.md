@@ -70,7 +70,7 @@ Checked against 17 systems (magic-wormhole, croc, Firefox Send, RFC 8188, Thunde
 Input to ADR 0024.
 
 - Storj: client-side encryption, paid operators, pays in USDC and "no longer pays out in STORJ tokens" (storj.dev/node/payouts); vets nodes and withholds early earnings against Sybil operators (static.storj.io/storjv3.pdf).
-- Filecoin: utilisation 7.6% of 12.2 EiB in Q2 2023 (Cointelegraph), 36% of 3.0 EiB in Q3 2025 (Messari, via KuCoin); retrieval is "a separate process that isn't always provable" (wp.filecointldr.io, ?p=2090); PDP proves possession with Merkle challenges (docs.filecoin.io/provide-storage/pdp).
+- Filecoin: utilisation 7.6% of 12.2 EiB in Q2 2023 (Cointelegraph), 36% of 3.0 EiB in Q3 2025 (Messari, via KuCoin); retrieval is "a separate process that isn't always provable" (wp.filecointldr.io, ?p=2090); PDP proves possession with Merkle challenges (docs.filecoin.io/provide-storage/pdp/about).
 - Swarm: bandwidth cheques and postage stamps; 1,304 of 1,649 staking nodes in Finland in June 2026 (ethswarm.org blog).
 - Nym: "rewards from our finite mixmining pool do not match usage of the network" (nym.com/blog/nym-roadmap-2026); users pay with anonymous credentials.
 - Orchid: probabilistic tickets on Ethereum; winning tickets can link a user to providers (Orchid whitepaper).
