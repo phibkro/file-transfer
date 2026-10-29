@@ -42,7 +42,7 @@ import { createHash, randomBytes } from "node:crypto"
 import { closeSync, ftruncateSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync, writeSync } from "node:fs"
 import { tmpdir } from "node:os"
 import nodePath from "node:path"
-import { decodeLinkSecret, deriveRoomToken, hashRoomToken, toHex } from "@file-transfer/parcel"
+import { decodeLinkSecret, deriveRoomToken, hashRoomToken } from "@file-transfer/parcel"
 import { chromium, firefox, webkit } from "playwright"
 import type { Browser, BrowserContext, LaunchOptions, Page, WebSocketRoute } from "playwright"
 import { describePlan, faultPlan } from "./faultPlan.ts"
@@ -393,6 +393,11 @@ const openPage = async (browser: Browser, routed = true, persistent = false, dir
   const page = await context.newPage()
   const observed: Observed = { urls: [], frames: [], sockets: [], cutBeforeText: undefined, silentSockets: 0 }
   const errors: string[] = []
+  page.on("framenavigated", (frame) => {
+    if (frame === page.mainFrame() && new URL(frame.url()).hash.length > 1) {
+      leakNeedles.links.add(frame.url())
+    }
+  })
   page.on("request", (request) => observed.urls.push(request.url()))
   page.on("pageerror", (error) => {
     if (!isWebKitSendFailure(error.message)) {
@@ -539,7 +544,7 @@ const offer = async (sender: Page, base: string, files: readonly PayloadFile[]) 
   await sender.getByRole("button", { name: "Show link" }).click()
   const link = await sender.inputValue("#link")
   check(new URL(link).hash.length > 32, "Show link reveals the full link")
-  offeredLinks.push({ link, files })
+  rememberOffer(link, files)
   await sender.getByRole("button", { name: "Show QR code" }).click()
 
   // The encoder loads on first use (src/share.ts), so the code appears a moment after the click.
@@ -556,8 +561,28 @@ const offer = async (sender: Page, base: string, files: readonly PayloadFile[]) 
   return link
 }
 
-/** Every link the suite created, with its files, for the server-side leak probe. */
-const offeredLinks: { readonly link: string; readonly files: readonly PayloadFile[] }[] = []
+/**
+ * What the server-side leak probe looks for: every link a page opened or the suite created (a wrong key's included),
+ * the links that created a room (whose token hash the server must keep), and every file and name the suite used.
+ */
+interface LeakNeedles {
+  readonly links: Set<string>
+  readonly roomLinks: Set<string>
+  readonly files: PayloadFile[]
+  readonly names: Set<string>
+}
+
+const leakNeedles: LeakNeedles = { links: new Set(), roomLinks: new Set(), files: [], names: new Set() }
+
+const rememberOffer = (link: string, files: readonly PayloadFile[]) => {
+  leakNeedles.links.add(link)
+  leakNeedles.roomLinks.add(link)
+  leakNeedles.files.push(...files)
+
+  for (const file of files) {
+    leakNeedles.names.add(file.name)
+  }
+}
 
 /** Every file under a directory, recursively. */
 const filesUnder = (directory: string): string[] =>
@@ -589,31 +614,61 @@ const serverKeptNoSecrets = async (scratch: string) => {
     }
   }
 
-  for (const [index, { link, files }] of offeredLinks.entries()) {
+  /**
+   * The forms a byte string takes when code prints or stores it: hex, base64, base64url, raw, and the start of the
+   * decimal lists `console.log` prints for a Uint8Array and JSON writes for an array (eight bytes are enough to be unique).
+   */
+  const lookForBytes = (label: string, bytes: Uint8Array) => {
+    const buffer = Buffer.from(bytes)
+    const first = [...bytes.subarray(0, 8)]
+    look(`${label} (hex)`, Buffer.from(buffer.toString("hex")))
+    look(`${label} (base64)`, Buffer.from(buffer.toString("base64").replace(/=+$/u, "")))
+    look(`${label} (base64url)`, Buffer.from(buffer.toString("base64url")))
+    look(`${label} (bytes)`, buffer)
+    look(`${label} (decimal list)`, Buffer.from(first.join(", ")))
+    look(`${label} (JSON array)`, Buffer.from(first.join(",")))
+  }
+
+  for (const [index, link] of [...leakNeedles.links].entries()) {
     const fragment = new URL(link).hash
-    const secret = decodeLinkSecret(fragment)
-    const token = await deriveRoomToken(secret)
-    look(`link ${index}'s secret (fragment)`, Buffer.from(fragment.slice(1)))
-    look(`link ${index}'s secret (hex)`, Buffer.from(toHex(secret)))
-    look(`link ${index}'s secret (bytes)`, Buffer.from(secret))
-    look(`link ${index}'s room token (hex)`, Buffer.from(toHex(token)))
-    look(`link ${index}'s room token (bytes)`, Buffer.from(token))
+    look(`link ${index}'s fragment`, Buffer.from(fragment.slice(1)))
 
-    for (const file of files) {
-      look(`the name ${file.name}`, Buffer.from(file.name))
-      const middle = Math.max(0, Math.floor(file.buffer.length / 2) - 16)
-      look(`contents of ${file.name}`, file.buffer.subarray(middle, middle + 32))
-    }
+    // A damaged link's fragment does not decode; its text above is all there is to look for.
+    const secret = (() => {
+      try {
+        return decodeLinkSecret(fragment)
+      } catch {
+        return undefined
+      }
+    })()
 
-    const hash = Buffer.from(await hashRoomToken(token))
+    if (secret !== undefined) {
+      const token = await deriveRoomToken(secret)
+      lookForBytes(`link ${index}'s secret`, secret)
+      lookForBytes(`link ${index}'s room token`, token)
 
-    if (!kept.some((file) => file.path.startsWith("state") && file.bytes.includes(hash))) {
-      missingHashes.push(`link ${index}`)
+      if (leakNeedles.roomLinks.has(link)) {
+        const hash = Buffer.from(await hashRoomToken(token))
+
+        if (!kept.some((file) => file.path.startsWith("state") && file.bytes.includes(hash))) {
+          missingHashes.push(`link ${index}`)
+        }
+      }
     }
   }
 
-  check(offeredLinks.length > 0 && missingHashes.length === 0, "the leak probe finds every room's token hash where the server keeps state", {
-    links: offeredLinks.length,
+  for (const name of leakNeedles.names) {
+    look(`the name ${name}`, Buffer.from(name))
+  }
+
+  for (const file of leakNeedles.files) {
+    const middle = Math.max(0, Math.floor(file.buffer.length / 2) - 16)
+    look(`contents of ${file.name}`, file.buffer.subarray(middle, middle + 32))
+  }
+
+  check(leakNeedles.roomLinks.size > 0 && missingHashes.length === 0, "the leak probe finds every room's token hash where the server keeps state", {
+    rooms: leakNeedles.roomLinks.size,
+    links: leakNeedles.links.size,
     missing: missingHashes.join(", "),
     stateBytes,
   })
@@ -834,6 +889,8 @@ const previewsAndNames = async (browser: Browser, base: string) => {
     )
     await sender.page.getByRole("button", { name: "Show link" }).click()
     const link = await sender.page.inputValue("#link")
+    rememberOffer(link, files)
+    leakNeedles.names.add("packing list.txt").add("holiday.png")
 
     await recipient.page.goto(link)
     await waitForStatus(recipient.page, ["reviewing", "failed"])
