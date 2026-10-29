@@ -13,7 +13,9 @@
   "dependencies": {
     "@file-transfer/parcel": "workspace:*",
     "@file-transfer/transport": "workspace:*",
+    "uplot": "1.6.32",
     "uqr": "0.1.3",
+    "valibot": "1.5.0",
     "vite-plus": "1.4.0"
   },
   "devDependencies": {

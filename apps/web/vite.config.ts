@@ -27,6 +27,7 @@ export default defineConfig({
         security: "security.html",
         privacy: "privacy.html",
         runYourOwn: "run-your-own.html",
+        admin: "admin.html",
       },
     },
   },

@@ -57,7 +57,7 @@ Startup phase: prove that people want this, then that some will pay, before stab
 
 - [x] Operator limits enforced by the room server: rooms per client address per hour, relayed bytes per room; `GET /api/limits` read by the app before sealing (Turnstile still to come, opt-in)
 - [x] Counters in a SQLite-backed Durable Object (hourly buckets, no identifiers), opt-in with `COUNTERS=on`; JSON and OpenMetrics at `/api/admin/*` behind `ADMIN_TOKEN` (self-hosted layer still to come)
-- [ ] `/admin` behind `ADMIN_TOKEN` (and optionally Cloudflare Access): activity, relayed bytes against the free plan's daily budget, limits
+- [x] `/admin` behind `ADMIN_TOKEN` (and optionally Cloudflare Access): settings, completion share, relayed volume, a 48-hour chart (uPlot, loaded on that page only), totals
 - [ ] Deploy to Cloudflare: CI publishes a prebuilt, self-contained bundle repository for the button
 - [ ] `platforms/self-hosted` on workerd, Docker image (Nix module after)
 - [ ] README as the landing page: deploy in one click or one command, what operators see, why relays see only ciphertext

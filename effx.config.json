@@ -100,11 +100,12 @@
           "apps/web/src/preview.ts",
           "apps/web/src/previewFrame.ts",
           "apps/web/src/rename.ts",
-          "apps/web/src/serverLimits.ts"
+          "apps/web/src/serverLimits.ts",
+          "apps/web/src/admin.ts"
         ],
         "role": "runtime-adapter",
         "platform": "browser",
-        "adapterDependencies": ["uqr"]
+        "adapterDependencies": ["uqr", "uplot", "valibot"]
       },
       {
         "files": ["apps/web/src/main.ts"],

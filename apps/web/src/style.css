@@ -594,3 +594,59 @@ a.save {
 .diagram-arrowhead {
   fill: var(--muted);
 }
+
+/* Operator page (src/admin.ts). */
+.admin-facts {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.25rem 1rem;
+}
+
+.admin-facts dt {
+  color: var(--muted);
+}
+
+.admin-facts dd {
+  margin: 0;
+  text-align: right;
+}
+
+.admin-token {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 1.5rem 0 0.5rem;
+}
+
+.admin-token label {
+  flex-basis: 100%;
+  font-weight: 600;
+}
+
+.admin-token input {
+  flex: 1 1 12rem;
+  min-width: 0;
+  font: inherit;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.admin-chart {
+  width: 100%;
+  overflow: hidden;
+}
+
+.admin-note,
+.admin-status {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.content h3 {
+  margin: 1.5rem 0 0.5rem;
+  font-size: 1rem;
+}

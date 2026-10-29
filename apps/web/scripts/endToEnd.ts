@@ -114,6 +114,11 @@ const startLocalServer = async () => {
       "--show-interactive-dev-session=false",
       "--log-level",
       "warn",
+      // Counting on with a known admin token, so the operator page can be checked (src/admin.ts).
+      "--var",
+      "COUNTERS:on",
+      "--var",
+      `ADMIN_TOKEN:${localAdminToken}`,
     ],
     { cwd: platformDirectory, env: environment, stdout: "ignore", stderr: "pipe" },
   )
@@ -594,6 +599,36 @@ const previewsAndNames = async (browser: Browser, base: string) => {
   }
 }
 
+/** The admin token the local server runs with; never a real instance's. */
+const localAdminToken = "end-to-end-admin-token"
+
+/**
+ * The operator page (src/admin.ts) against the local server, after the transfers above: a wrong token is refused, the
+ * right one shows the counts and draws the chart, and the page ships nothing that identifies a transfer.
+ */
+const operatorPage = async (browser: Browser, base: string) => {
+  const page = await browser.newPage()
+  const errors: string[] = []
+  page.on("pageerror", (error) => errors.push(error.message))
+
+  try {
+    await page.goto(`${base}/admin`)
+    await page.getByText("Counting").first().waitFor()
+    await page.getByLabel("Admin token").fill("not-the-token")
+    await page.getByRole("button", { name: "Show counts" }).click()
+    await page.getByText("That token is not this instance's admin token.").waitFor({ timeout: 10_000 })
+    check(true, "operator: a wrong admin token is refused")
+    await page.getByLabel("Admin token").fill(localAdminToken)
+    await page.getByRole("button", { name: "Show counts" }).click()
+    await page.locator(".admin-chart canvas").first().waitFor({ timeout: 10_000 })
+    const totals = await page.locator(".table-wrap table").textContent()
+    check(/rooms created\s*[1-9]/iu.test(totals ?? ""), "operator: the right token shows the counts and draws the chart", totals ?? "")
+    check(errors.length === 0, "operator: no uncaught page errors", errors)
+  } finally {
+    await page.close()
+  }
+}
+
 /** Megabytes per second of the last completed transfer, for the latency suite's table. */
 let lastMegabytesPerSecond = 0
 
@@ -889,6 +924,10 @@ try {
     await transfer(browser, base, "throughput")
     await decline(browser, base)
     await wrongKey(browser, base)
+
+    if (local !== undefined) {
+      await operatorPage(browser, base)
+    }
   }
 
   console.log(`\nall ${passed} checks passed`)

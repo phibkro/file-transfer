@@ -10,3 +10,7 @@
   Content-Security-Policy: sandbox allow-scripts; default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src blob:; media-src blob:; base-uri 'none'; form-action 'none'; frame-ancestors 'self'
   X-Content-Type-Options: nosniff
   Referrer-Policy: no-referrer
+
+# The operator page is for the instance's operator only.
+/admin*
+  X-Robots-Tag: noindex
