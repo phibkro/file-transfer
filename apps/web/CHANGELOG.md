@@ -1,5 +1,11 @@
 # @file-transfer/web
 
+## 0.5.1
+
+### Patch Changes
+
+- e3d0bbf: The web app reads its own address in one module, and a lint rule stops any other code from reading the URL fragment that holds the link secret. Nothing changes for people using the app.
+
 ## 0.5.0
 
 No changes in this release.
