@@ -82,6 +82,7 @@ jobs:
         env:
           E2E_BROWSER: ${{ matrix.browser }}
           E2E_TRACE_DIRECTORY: ${{ runner.temp }}/traces
+          E2E_TIMEOUT_MS: "1"
       # The suite stops at its first failed check and keeps Playwright traces of the last pages it closed, so a failure
       # can be replayed with `bunx playwright show-trace <zip>`. The pages hold only the suite's synthetic files.
       - uses: actions/upload-artifact@v7
