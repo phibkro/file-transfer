@@ -1,0 +1,82 @@
+diff --git a/lib/Cloudflare/Workers/WorkerProvider.js b/lib/Cloudflare/Workers/WorkerProvider.js
+index 5277a76fa724523b4a682c1dbd9fbe1d3555202f..46a98eabcc3848d6cea41dbf44a1c14d0deba88d 100644
+--- a/lib/Cloudflare/Workers/WorkerProvider.js
++++ b/lib/Cloudflare/Workers/WorkerProvider.js
+@@ -47,6 +47,20 @@ import { getCacheBinding, getCronBindings, isContainerDecl, resolveObservability
+ import { withoutDevOnlyBindings, } from "./WorkerBinding.js";
+ import { isWorkerLoader } from "./WorkerLoader.js";
+ import { createWorkerName } from "./WorkerName.js";
++
++// A Preview deployment's `assets.config` is untyped in the API client, so it is sent as given: convert Alchemy's
++// camelCase config to the API's field names (patched in by file-transfer; see patches/README.md).
++const toPreviewAssetsConfig = (config) => config === undefined
++    ? undefined
++    : Object.fromEntries(Object.entries({
++        html_handling: config.htmlHandling,
++        not_found_handling: config.notFoundHandling,
++        run_worker_first: config.runWorkerFirst,
++        serve_directly: config.serveDirectly,
++        _headers: config.headers,
++        _redirects: config.redirects,
++    }).filter(([, value]) => value !== undefined));
++
+ class MissingDurableObjects extends Data.TaggedError("MissingDurableObjects") {
+ }
+ /**
+@@ -2363,7 +2377,7 @@ export const LiveWorkerProvider = () => Provider.effect(Worker, Effect.gen(funct
+         if (assets) {
+             yield* Effect.logInfo(`Cloudflare Worker Preview: uploading assets for ${parentName}`);
+             const { jwt } = yield* uploadAssets(accountId, parentName, assets, session);
+-            metadataAssets = { jwt, config: mergeAssetsConfigFiles(assets.config, assets) };
++            metadataAssets = { jwt, config: toPreviewAssetsConfig(mergeAssetsConfigFiles(assets.config, assets)) };
+             metadataBindings.push({ type: "assets", name: "ASSETS" });
+         }
+         appendAlchemyAndEnvBindings(metadataBindings, news, accountId, parentName);
+diff --git a/src/Cloudflare/Workers/WorkerProvider.ts b/src/Cloudflare/Workers/WorkerProvider.ts
+index 9898fc07e3625f54bd60ccfeb4a861615e9b64cc..33bbe16f7a98f5c37e2efa49b483e8e7a596fa8d 100644
+--- a/src/Cloudflare/Workers/WorkerProvider.ts
++++ b/src/Cloudflare/Workers/WorkerProvider.ts
+@@ -37,6 +37,7 @@ import { CloudflareLogs } from "../Logs.ts";
+ import { detachQueueConsumersOfScript } from "../Queues/Consumer.ts";
+ import { resolveZoneId, type Reference as ZoneReference } from "../Zone/lookup.ts";
+ import {
++  type AssetsConfig,
+   getAssetsPathPrefix,
+   mergeAssetsConfigFiles,
+   readAssets,
+@@ -73,6 +74,26 @@ import {
+ } from "./WorkerBinding.ts";
+ import { isWorkerLoader } from "./WorkerLoader.ts";
+ import { createWorkerName } from "./WorkerName.ts";
++
++/**
++ * A Preview deployment's `assets.config` is untyped in the API client, so it is sent as given: convert Alchemy's
++ * camelCase config to the API's field names, or Cloudflare drops `_headers`, `_redirects`, `not_found_handling` and
++ * `run_worker_first` without an error (patched in by file-transfer; see patches/README.md).
++ */
++const toPreviewAssetsConfig = (config: AssetsConfig | undefined): Record<string, unknown> | undefined =>
++  config === undefined
++    ? undefined
++    : Object.fromEntries(
++        Object.entries({
++          html_handling: config.htmlHandling,
++          not_found_handling: config.notFoundHandling,
++          run_worker_first: config.runWorkerFirst,
++          serve_directly: config.serveDirectly,
++          _headers: config.headers,
++          _redirects: config.redirects,
++        }).filter(([, value]) => value !== undefined),
++      );
++
+ class MissingDurableObjects extends Data.TaggedError("MissingDurableObjects")<{
+   scriptName: string;
+   expected: string[];
+@@ -3143,7 +3164,7 @@ export const LiveWorkerProvider = () =>
+         if (assets) {
+           yield* Effect.logInfo(`Cloudflare Worker Preview: uploading assets for ${parentName}`);
+           const { jwt } = yield* uploadAssets(accountId, parentName, assets, session);
+-          metadataAssets = { jwt, config: mergeAssetsConfigFiles(assets.config, assets) };
++          metadataAssets = { jwt, config: toPreviewAssetsConfig(mergeAssetsConfigFiles(assets.config, assets)) };
+           metadataBindings.push({ type: "assets", name: "ASSETS" });
+         }
+         appendAlchemyAndEnvBindings(metadataBindings, news, accountId, parentName);
