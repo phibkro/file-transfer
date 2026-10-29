@@ -59,6 +59,17 @@ describe("reviewChangesets", () => {
     expect(reviewChangesets({ changedFiles: ["docs/plan.md"], addedChangesets: [changeset([])], packages, ignored }).violations).toEqual([])
   })
 
+  it("lets automated updates leave out the empty changeset, but not a needed one", () => {
+    const automated = { addedChangesets: [], packages, ignored, requireEmpty: false }
+
+    expect(reviewChangesets({ ...automated, changedFiles: ["spikes/0003/package.json", "bun.lock"] }).violations).toEqual([])
+    expect(reviewChangesets({ ...automated, changedFiles: ["tools/quality/package.json"] }).violations).toEqual([])
+    expect(reviewChangesets({ ...automated, changedFiles: ["libraries/parcel/package.json"] }).violations).toEqual([
+      expect.stringContaining("adds no changeset"),
+      expect.stringContaining("@file-transfer/parcel changed"),
+    ])
+  })
+
   it("requires every changed package to be named", () => {
     const review = reviewChangesets({
       changedFiles: ["libraries/parcel/src/seal.ts", "apps/web/src/main.ts", "tools/quality/src/x.ts"],

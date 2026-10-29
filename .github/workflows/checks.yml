@@ -1,14 +1,19 @@
 name: checks
 
-# Checks on every push and pull request; deploys after the checks pass:
+# Checks every pull request and every push to main; deploys after the checks pass:
 # - a pull request from a branch of this repository gets a Worker Preview (`pr-<number>`), commented on the pull request
 #   and verified end to end, updated on every push and destroyed when the pull request closes;
 # - a push to main deploys production (https://send.phibkro.org) and verifies it end to end.
-# Pull requests from forks never receive the deploy secrets (GitHub withholds them) and are only checked.
+# Pull requests from forks and from Dependabot never receive the deploy secrets (GitHub withholds them) and are only
+# checked.
 # Deploy jobs run only when the repository variable DEPLOYMENTS is "enabled" (platforms/cloudflare/README.md, CI).
 
 on:
+  # Pushes to main only. A pull request's own run checks its branch; a second run per push would report every job twice
+  # on the same commit, and the push run's skipped jobs (changesets, preview, the artifacts caller) would stand in for
+  # the real ones in main's required checks.
   push:
+    branches: [main]
   pull_request:
     types: [opened, synchronize, reopened, closed]
 
@@ -91,6 +96,7 @@ jobs:
       - run: bun run check:changesets
         env:
           CHANGESET_BASE: origin/${{ github.base_ref }}
+          CHANGESET_AUTHOR: ${{ github.event.pull_request.user.login }}
 
   artifacts:
     # The node executables on every platform and the web client, built and smoke-tested the way a release builds them.
@@ -175,7 +181,7 @@ jobs:
 
   preview:
     needs: [check, secrets]
-    if: vars.DEPLOYMENTS == 'enabled' && github.event_name == 'pull_request' && github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository
+    if: vars.DEPLOYMENTS == 'enabled' && github.event_name == 'pull_request' && github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -230,7 +236,7 @@ jobs:
           BASE_URL: ${{ steps.deploy.outputs.check_url }}
 
   preview-cleanup:
-    if: vars.DEPLOYMENTS == 'enabled' && github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.head.repo.full_name == github.repository
+    if: vars.DEPLOYMENTS == 'enabled' && github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]'
     runs-on: ubuntu-latest
     environment: preview
     steps:

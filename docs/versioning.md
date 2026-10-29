@@ -14,7 +14,7 @@ flowchart TB
 
 Run `bunx changeset` in your branch, choose the packages you changed and a bump for each, and describe the change in a sentence or two a user of that package would understand. Commit the file it writes in `.changeset/`.
 
-- A pull request that ships nothing (documentation, tests, CI, repository tools) adds an empty changeset: `bunx changeset --empty`, with a sentence saying what it does.
+- A pull request that ships nothing (documentation, tests, CI, repository tools) adds an empty changeset: `bunx changeset --empty`, with a sentence saying what it does. Dependabot's updates are the one exception, because Dependabot cannot write one: they may leave it out when they change no shipped file, and a maintainer adds the changeset when they do.
 - `bun run check:changesets` runs the same check as CI: it fails when the pull request adds no changeset, or changes a package's shipped files (anything but `test/`, `scripts/`, `*.test.ts`, `README.md` and `CHANGELOG.md`) without naming that package. It lists the bumps of seam packages for the reviewer.
 - Write what changed for the people who use the package, not how: "Recipients can rename a file before saving" rather than "Add nameField".
 
