@@ -11,7 +11,11 @@ import { decodeControlMessage, encodeControlMessage, recipientToSenderTypes, sen
 import type { Role } from "@file-transfer/transport"
 import { Result, Schema } from "effect"
 
-/** Written once at creation; the only thing a room stores. */
+/**
+ * Written once at creation. Besides it a room stores only counts (bytes relayed, bytes reported to the daily budget, the
+ * counted outcome when counting is on) and the first sequence a recipient completed (`rememberCompletion`); never a
+ * control message's text.
+ */
 export interface RoomRecord {
   readonly roomTokenHash: string
   readonly maximumRecipients: number
@@ -54,6 +58,8 @@ export interface Admission {
   /** SHA-256 of the join's roomToken bytes, lowercase hex (`hashRoomToken` in libraries/parcel). */
   readonly presentedTokenHash: string
   readonly participantIdentifier: string
+  /** The sequence a recipient reported complete in this room, if one has. */
+  readonly completedSequence: number | undefined
 }
 
 export type RoomEvent =
@@ -76,6 +82,11 @@ export type Instruction =
    * it): send it `error` with this reason and close it with `replacedCloseCode`.
    */
   | { readonly type: "evict"; readonly participantIdentifier: string; readonly reason: string }
+  /**
+   * Store that a recipient completed this sequence. A sender whose socket dropped with `complete` in flight may come
+   * back after every recipient has gone; the room tells it on its next join (docs/protocol.md, "Completion").
+   */
+  | { readonly type: "rememberCompletion"; readonly sequence: number }
 
 /** Close code for every protocol violation (RFC 6455: policy violation). */
 export const violationCloseCode = 1008
@@ -184,11 +195,22 @@ const join = (participants: readonly Participant[], role: Role, admission: Admis
     },
   ]
 
+  if (role === "sender" && admission.completedSequence !== undefined) {
+    instructions.push({ type: "reply", text: encodeControlMessage({ type: "complete", sequence: admission.completedSequence }) })
+  }
+
   if (others.length > 0) {
     instructions.push({ type: "relay", to: others, text: encodeControlMessage({ type: "peer", event: "joined", role }) })
   }
 
   return instructions
+}
+
+/** The sequence a recipient's `complete` reports, when the text is one the room can decode. */
+const completedSequenceOf = (text: string): number | undefined => {
+  const decoded = decodeControlMessage(text)
+
+  return decoded.ok && decoded.value.type === "complete" ? decoded.value.sequence : undefined
 }
 
 /**
@@ -259,8 +281,10 @@ export const decide = (self: Attachment, participants: readonly Participant[], e
       }
 
       const sender = identifiersOf(participants, "sender")
+      const relay: readonly Instruction[] = sender.length === 0 ? [] : [{ type: "relay", to: sender, text: event.text }]
+      const completed = type === "complete" ? completedSequenceOf(event.text) : undefined
 
-      return sender.length === 0 ? [] : [{ type: "relay", to: sender, text: event.text }]
+      return completed === undefined ? relay : [{ type: "rememberCompletion", sequence: completed }, ...relay]
     }
   }
 }

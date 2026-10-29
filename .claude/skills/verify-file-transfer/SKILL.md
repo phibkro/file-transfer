@@ -73,7 +73,7 @@ In a worktree-isolated agent the shell may refuse compound commands that contain
 
 ## Helpers
 
-All in `apps/web/scripts/verify/`, executable with `bun`, linted and type-checked with the rest of the repository: `launch.ts`, `doctor.ts`, `drive.ts`, `stop.ts`. The deeper suites stay in `apps/web/scripts/endToEnd.ts` (`E2E_SUITE=standard | chaos | lab | large | latency | scenario`, see its header); use them for fault injection and network emulation beyond these journeys.
+All in `apps/web/scripts/verify/`, executable with `bun`, linted and type-checked with the rest of the repository: `launch.ts`, `doctor.ts`, `drive.ts`, `stop.ts`. The deeper suites stay in `apps/web/scripts/endToEnd.ts` (`E2E_SUITE=standard | completion | life-cycle | chaos | lab | large | latency | scenario`, see its header); use them for fault injection and network emulation beyond these journeys.
 
 ## Feature map
 
