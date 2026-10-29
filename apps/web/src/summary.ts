@@ -50,6 +50,41 @@ const megabytesPerSecond = (summary: TransferSummary): string => (summary.second
 
 const pathText = (summary: TransferSummary): string => (summary.direct ? "direct between browsers" : "through the server's relay")
 
+/** The direct path's story: when it opened and how often it dropped, for testing on real networks. */
+const directText = (summary: TransferSummary): string => {
+  if (summary.secondsToDirect === undefined) {
+    return "never opened"
+  }
+
+  const drops = summary.directDrops === 1 ? "dropped once" : `dropped ${summary.directDrops} times`
+
+  return `opened after ${summary.secondsToDirect.toFixed(1)} s, ${summary.directDrops === 0 ? "never dropped" : drops}`
+}
+
+interface NetworkInformation {
+  readonly type?: string
+  readonly effectiveType?: string
+  readonly downlink?: number
+}
+
+/** What the browser says about its network; only Chromium-based browsers do (the Network Information API). */
+const networkText = (): string => {
+  if (!("connection" in navigator)) {
+    return "not reported by this browser"
+  }
+
+  // SAFETY: the `in` check above found the property; the DOM types this project builds with do not declare it.
+  const connection = navigator.connection as NetworkInformation | undefined
+
+  const parts = [
+    connection?.type,
+    connection?.effectiveType === undefined ? undefined : `${connection.effectiveType}-like`,
+    connection?.downlink === undefined ? undefined : `about ${connection.downlink} Mbit/s down`,
+  ].filter((part) => part !== undefined)
+
+  return parts.length === 0 ? "not reported by this browser" : parts.join(", ")
+}
+
 const reportText = (role: string, summary: TransferSummary, location: string): string =>
   [
     `file-transfer report (${role})`,
@@ -58,6 +93,8 @@ const reportText = (role: string, summary: TransferSummary, location: string): s
     `speed: ${megabytesPerSecond(summary)}`,
     `reconnects: ${summary.reconnects}`,
     `path: ${pathText(summary)}`,
+    `direct path: ${directText(summary)}`,
+    `network: ${networkText()}`,
     `cloudflare location: ${location}`,
     `browser: ${browserName()}`,
   ].join("\n")
@@ -90,6 +127,7 @@ const render = async (root: HTMLElement, role: string) => {
     ["Speed", megabytesPerSecond(summary)],
     ["Reconnects", String(summary.reconnects)],
     ["Path", pathText(summary)],
+    ["Direct path", directText(summary)],
     ["Cloudflare location", location],
   ]
 
