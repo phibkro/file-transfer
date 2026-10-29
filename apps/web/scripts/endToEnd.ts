@@ -1055,13 +1055,18 @@ const settledLocks = async (page: Page, limitMilliseconds = 5000) => {
 /**
  * An init script that holds storage opening on a gate: once the test sets `holdStorage`, the page's next request for
  * its storage directory waits until the test calls `releaseStorage`, and `storageHeldCalls` counts the requests held.
- * A fixed delay raced the test's own sleeps (a WebKit run on CI completed the transfer before the check looked), and
- * nothing showed whether the delay had applied at all; the gate makes both visible.
+ * The checks used to delay storage by a fixed time and sleep, with nothing showing whether the delay applied; in
+ * WebKit it sometimes did not (a patch on the `navigator.storage` instance is lost after a garbage collection), and a
+ * CI run completed the transfer before the check looked. The gate is patched on the prototype, and the test confirms
+ * the page is held at it before going on.
  */
 const gateStorage = () => {
-  const manager = navigator.storage
-  const original = manager.getDirectory.bind(manager)
-  manager.getDirectory = async () => {
+  // Patched on the prototype: WebKit hands out a fresh `navigator.storage` object after a garbage collection, so a
+  // patch on the instance silently stops applying (found in review of #23; the cause of the CI flake on #21).
+  const descriptor = Object.getOwnPropertyDescriptor(StorageManager.prototype, "getDirectory")
+  // SAFETY: every browser the suite drives defines getDirectory as a method of StorageManager.prototype (the app uses it).
+  const original = descriptor?.value as (this: StorageManager) => Promise<FileSystemDirectoryHandle>
+  StorageManager.prototype.getDirectory = async function getDirectory(this: StorageManager) {
     if (window.holdStorage === true) {
       window.storageHeldCalls = (window.storageHeldCalls ?? 0) + 1
       await new Promise<void>((resolve) => {
@@ -1075,7 +1080,7 @@ const gateStorage = () => {
       })
     }
 
-    return await original()
+    return await original.call(this)
   }
 }
 
@@ -1247,42 +1252,29 @@ const recipientLifeCycle = async (browser: Browser, base: string) => {
 
     try {
       await recipient.page.addInitScript(() => {
-        // Wraps each handle on the way down to a transfer's directory, so creating its second file fails as a full disk
-        // would, after the first file's writable is already open. Files are stored by position.
+        // Creating a transfer's second file fails as a full disk would, after the first file's writable is already
+        // open. Files are stored by position, so the second is "1". Patched on the prototype, which WebKit keeps
+        // across garbage collection (an instance patch on navigator.storage is lost there).
         const failingFile = "1"
+        const descriptor = Object.getOwnPropertyDescriptor(FileSystemDirectoryHandle.prototype, "getFileHandle")
 
-        const failSecondFile = (directory: FileSystemDirectoryHandle) => {
-          const getFileHandle = directory.getFileHandle.bind(directory)
-          directory.getFileHandle = async (name, options) => {
-            if (name === failingFile) {
-              throw new DOMException("verification: the disk is full", "QuotaExceededError")
-            }
+        // SAFETY: every browser the suite drives defines getFileHandle as a method of FileSystemDirectoryHandle.prototype.
+        const original = descriptor?.value as (
+          this: FileSystemDirectoryHandle,
+          name: string,
+          options?: FileSystemGetFileOptions,
+        ) => Promise<FileSystemFileHandle>
 
-            return await getFileHandle(name, options)
+        FileSystemDirectoryHandle.prototype.getFileHandle = async function getFileHandle(
+          this: FileSystemDirectoryHandle,
+          name: string,
+          options?: FileSystemGetFileOptions,
+        ) {
+          if (name === failingFile) {
+            throw new DOMException("verification: the disk is full", "QuotaExceededError")
           }
 
-          return directory
-        }
-
-        const wrapTransfers = (transfers: FileSystemDirectoryHandle) => {
-          const getDirectoryHandle = transfers.getDirectoryHandle.bind(transfers)
-          transfers.getDirectoryHandle = async (name, options) => failSecondFile(await getDirectoryHandle(name, options))
-
-          return transfers
-        }
-
-        const manager = navigator.storage
-        const getDirectory = manager.getDirectory.bind(manager)
-        manager.getDirectory = async () => {
-          const root = await getDirectory()
-          const getDirectoryHandle = root.getDirectoryHandle.bind(root)
-          root.getDirectoryHandle = async (name, options) => {
-            const directory = await getDirectoryHandle(name, options)
-
-            return name === "transfers" ? wrapTransfers(directory) : directory
-          }
-
-          return root
+          return await original.call(this, name, options)
         }
       })
 
