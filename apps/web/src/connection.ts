@@ -81,10 +81,11 @@ const livenessCheckMilliseconds = 2500
 export const joinLimitMilliseconds = 15_000
 
 /**
- * Close codes an endpoint sends, from 4100 up so they never share a number with the room's own (4000 to 4002,
- * platforms/cloudflare/src/room.ts). The room ignores them; they name the reason in logs and traces.
+ * Close codes an endpoint sends (docs/protocol.md, Liveness). They are part of the room protocol seam, so a code keeps
+ * its meaning: `silent` stays 4001 although the room also closes with 4001 for its relay limit, and codes added from
+ * now on start at 4100, clear of the room's 4000 to 4099. The room ignores them; they name the reason in traces.
  */
-const closeCodes = { silent: 4100, noAnswerToJoin: 4101 } as const
+const closeCodes = { silent: 4001, noAnswerToJoin: 4100 } as const
 
 export const openConnection = (options: ConnectionOptions): Connection => {
   const { handlers } = options

@@ -1,5 +1,6 @@
 ---
 "@file-transfer/web": patch
+"@file-transfer/transport": minor
 ---
 
-A socket whose join the room never answers (opened, then lost on a silent network) is given up after 15 seconds and replaced, instead of waiting minutes for the browser to notice. Endpoint close codes move to their own range so none shares a number with the room's: a silent socket now closes with 4100 (was 4001) and an unanswered join with 4101. The room ignores endpoint close codes.
+A socket whose join the room never answers (opened, then lost on a silent network) is given up after 15 seconds and replaced, instead of waiting minutes for the browser to notice. The room protocol gains one endpoint close code for it, 4100 ("no answer to join"); codes an endpoint adds from now on start at 4100, clear of the room's own. Existing codes keep their meanings, and the room ignores endpoint close codes.
