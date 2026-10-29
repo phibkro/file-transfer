@@ -1,5 +1,28 @@
 # @file-transfer/platform-cloudflare
 
+## 0.4.2
+
+### Patch Changes
+
+- @file-transfer/service-quota@0.4.2
+  - @file-transfer/service-telemetry@0.4.2
+
+## 0.4.1
+
+### Patch Changes
+
+- Updated dependencies [410c3e4]
+  - @file-transfer/transport@1.2.0
+  - @file-transfer/service-quota@0.4.1
+  - @file-transfer/service-telemetry@0.4.1
+
+## 0.4.0
+
+### Patch Changes
+
+- @file-transfer/service-quota@0.4.0
+  - @file-transfer/service-telemetry@0.4.0
+
 ## 0.3.0
 
 ### Patch Changes

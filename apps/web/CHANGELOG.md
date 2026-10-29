@@ -1,5 +1,23 @@
 # @file-transfer/web
 
+## 0.4.2
+
+### Patch Changes
+
+- ca3331c: The recipient follows an explicit life cycle. When saving the received files fails, it now tells the sender and frees the storage instead of hanging at 100%; Accept and Decline disappear when a transfer fails while the offer is on screen; and an abort that arrives while storage is opening is no longer overwritten.
+
+## 0.4.1
+
+### Patch Changes
+
+- 410c3e4: A socket whose join the room never answers (opened, then lost on a silent network) is given up after 15 seconds and replaced, instead of waiting minutes for the browser to notice. The room protocol gains one endpoint close code for it, 4100 ("no answer to join"); codes an endpoint adds from now on start at 4100, clear of the room's own. Existing codes keep their meanings, and the room ignores endpoint close codes.
+- Updated dependencies [410c3e4]
+  - @file-transfer/transport@1.2.0
+
+## 0.4.0
+
+No changes in this release.
+
 ## 0.3.0
 
 ### Minor Changes

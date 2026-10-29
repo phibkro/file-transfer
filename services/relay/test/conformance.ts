@@ -2,13 +2,14 @@
  * The Relay service's conformance suite: one check per guarantee in `relayGuarantees`. Every platform layer runs
  * `relaySuite.run` and `relaySuite.negativeControls` with its own broken variants, as the reference layer does.
  */
-import { conformanceSuite } from "@file-transfer/conformance"
+import { conformanceSuite, transitionTableCheck } from "@file-transfer/conformance"
+import * as Machine from "@file-transfer/machine"
 import { expect } from "vite-plus/test"
 import { Effect, Option } from "effect"
 import type { Layer } from "effect"
 import * as fc from "fast-check"
-import { Relay, relayGuarantees } from "../src/index.ts"
-import type { RelayGuarantee } from "../src/index.ts"
+import { Relay, relayGuarantees, relaySessionMachine } from "../src/index.ts"
+import type { RelayGuarantee, RelaySessionState } from "../src/index.ts"
 
 const runner =
   (layer: Layer.Layer<Relay>) =>
@@ -25,6 +26,62 @@ const operationArbitrary = fc.oneof(
   fc.record({ kind: fc.constant("take" as const) }),
   fc.record({ kind: fc.constant("grant" as const), credits: fc.integer({ min: 0, max: 4 }) }),
 )
+
+/** A fresh session with one credit, so a push it allows can succeed. */
+const openSession = Effect.gen(function* () {
+  const relay = yield* Relay
+
+  return yield* relay.open({ initialCredits: 1 })
+})
+
+const actOn =
+  <E>(act: (relay: Relay["Service"], sessionIdentifier: string) => Effect.Effect<unknown, E>) =>
+  (sessionIdentifier: string) =>
+    Effect.gen(function* () {
+      const relay = yield* Relay
+      yield* act(relay, sessionIdentifier)
+
+      return sessionIdentifier
+    })
+
+/** Drives a relay session through every pair of its machine's table. */
+const followsMachine = transitionTableCheck(relaySessionMachine, {
+  arrange: (state) =>
+    Effect.gen(function* () {
+      if (state === Machine.boundary) {
+        return "no-such-session"
+      }
+
+      const sessionIdentifier = yield* openSession
+
+      if (state === "Closed") {
+        const relay = yield* Relay
+        yield* Effect.orDie(relay.close(sessionIdentifier))
+      }
+
+      return sessionIdentifier
+    }),
+  apply: {
+    openSession: () => openSession,
+    pushFrame: actOn((relay, sessionIdentifier) => relay.push({ sessionIdentifier, frame: Uint8Array.of(1) })),
+    grantCredits: actOn((relay, sessionIdentifier) => relay.grant({ sessionIdentifier, credits: 1 })),
+    takeFrame: actOn((relay, sessionIdentifier) => relay.take(sessionIdentifier)),
+    closeSession: actOn((relay, sessionIdentifier) => relay.close(sessionIdentifier)),
+  },
+  observe: (sessionIdentifier) =>
+    Effect.gen(function* () {
+      const relay = yield* Relay
+
+      return yield* Effect.match(relay.meter(sessionIdentifier), {
+        onFailure: (): RelaySessionState | Machine.Boundary => Machine.boundary,
+        onSuccess: (meter) => meter.state,
+      })
+    }),
+  inexpressible: [
+    { state: "Open", command: "openSession", reason: "opening always makes a new session; nothing names an existing one" },
+    { state: "Closed", command: "openSession", reason: "opening always makes a new session; nothing names an existing one" },
+  ],
+})
 
 const asArrays = (frames: readonly Uint8Array[]) => frames.map((frame) => Array.from(frame))
 
@@ -172,5 +229,7 @@ export const relaySuite = conformanceSuite<Relay, RelayGuarantee>({
 
       expect(tag).toBe("RelaySessionNotFound")
     },
+
+    "relay/follows-machine": followsMachine,
   },
 })

@@ -2,6 +2,124 @@
 
 Every release of this repository, newest first, written from the changesets each pull request adds (docs/versioning.md). Each package also keeps its own CHANGELOG.md.
 
+## v0.4.2
+
+### @file-transfer/web 0.4.2
+
+#### Patch Changes
+
+- ca3331c: The recipient follows an explicit life cycle. When saving the received files fails, it now tells the sender and frees the storage instead of hanging at 100%; Accept and Decline disappear when a transfer fails while the offer is on screen; and an abort that arrives while storage is opening is no longer overwritten.
+
+### @file-transfer/platform-cloudflare 0.4.2
+
+#### Patch Changes
+
+- @file-transfer/service-quota@0.4.2
+  - @file-transfer/service-telemetry@0.4.2
+
+## v0.4.1
+
+### @file-transfer/web 0.4.1
+
+#### Patch Changes
+
+- 410c3e4: A socket whose join the room never answers (opened, then lost on a silent network) is given up after 15 seconds and replaced, instead of waiting minutes for the browser to notice. The room protocol gains one endpoint close code for it, 4100 ("no answer to join"); codes an endpoint adds from now on start at 4100, clear of the room's own. Existing codes keep their meanings, and the room ignores endpoint close codes.
+- Updated dependencies [410c3e4]
+  - @file-transfer/transport@1.2.0
+
+### @file-transfer/client 0.1.3
+
+#### Patch Changes
+
+- Updated dependencies [410c3e4]
+  - @file-transfer/transport@1.2.0
+
+### @file-transfer/transport 1.2.0
+
+#### Minor Changes
+
+- 410c3e4: A socket whose join the room never answers (opened, then lost on a silent network) is given up after 15 seconds and replaced, instead of waiting minutes for the browser to notice. The room protocol gains one endpoint close code for it, 4100 ("no answer to join"); codes an endpoint adds from now on start at 4100, clear of the room's own. Existing codes keep their meanings, and the room ignores endpoint close codes.
+
+### @file-transfer/platform-cloudflare 0.4.1
+
+#### Patch Changes
+
+- Updated dependencies [410c3e4]
+  - @file-transfer/transport@1.2.0
+  - @file-transfer/service-quota@0.4.1
+  - @file-transfer/service-telemetry@0.4.1
+
+## v0.4.0
+
+### @file-transfer/conformance 0.2.0
+
+#### Minor Changes
+
+- 6fb7536: Machines now expose their full state × command matrix, illegal pairs included (`Machine.matrix`, `Machine.toTable`), and `Machine.problems` reports a command whose transitions from one state cannot be told apart. `transitionTableCheck` checks a service against every cell of its machine's table, and the room and relay services declare it as their `follows-machine` guarantee. The relay meter now reports the session's state. `docs/state-machines.md` is generated from the tables.
+
+#### Patch Changes
+
+- Updated dependencies [6fb7536]
+  - @file-transfer/machine@0.2.0
+
+### @file-transfer/machine 0.2.0
+
+#### Minor Changes
+
+- 6fb7536: Machines now expose their full state × command matrix, illegal pairs included (`Machine.matrix`, `Machine.toTable`), and `Machine.problems` reports a command whose transitions from one state cannot be told apart. `transitionTableCheck` checks a service against every cell of its machine's table, and the room and relay services declare it as their `follows-machine` guarantee. The relay meter now reports the session's state. `docs/state-machines.md` is generated from the tables.
+
+### @file-transfer/platform-cloudflare 0.4.0
+
+#### Patch Changes
+
+- @file-transfer/service-quota@0.4.0
+  - @file-transfer/service-telemetry@0.4.0
+
+### @file-transfer/service-abuse 0.4.0
+
+#### Patch Changes
+
+- Updated dependencies [6fb7536]
+  - @file-transfer/conformance@0.2.0
+
+### @file-transfer/service-quota 0.4.0
+
+#### Patch Changes
+
+- Updated dependencies [6fb7536]
+  - @file-transfer/conformance@0.2.0
+
+### @file-transfer/service-relay 0.4.0
+
+#### Minor Changes
+
+- 6fb7536: Machines now expose their full state × command matrix, illegal pairs included (`Machine.matrix`, `Machine.toTable`), and `Machine.problems` reports a command whose transitions from one state cannot be told apart. `transitionTableCheck` checks a service against every cell of its machine's table, and the room and relay services declare it as their `follows-machine` guarantee. The relay meter now reports the session's state. `docs/state-machines.md` is generated from the tables.
+
+#### Patch Changes
+
+- Updated dependencies [6fb7536]
+  - @file-transfer/machine@0.2.0
+  - @file-transfer/conformance@0.2.0
+
+### @file-transfer/service-room 0.4.0
+
+#### Minor Changes
+
+- 6fb7536: Machines now expose their full state × command matrix, illegal pairs included (`Machine.matrix`, `Machine.toTable`), and `Machine.problems` reports a command whose transitions from one state cannot be told apart. `transitionTableCheck` checks a service against every cell of its machine's table, and the room and relay services declare it as their `follows-machine` guarantee. The relay meter now reports the session's state. `docs/state-machines.md` is generated from the tables.
+
+#### Patch Changes
+
+- Updated dependencies [6fb7536]
+  - @file-transfer/machine@0.2.0
+  - @file-transfer/conformance@0.2.0
+
+### @file-transfer/service-telemetry 0.4.0
+
+#### Patch Changes
+
+- Updated dependencies [6fb7536]
+  - @file-transfer/conformance@0.2.0
+
 ## v0.3.0
 
 ### @file-transfer/web 0.3.0
