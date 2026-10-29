@@ -43,6 +43,13 @@ Platforms are isomorphic: `cloudflare` and `self-hosted` provide a Layer for the
 - `libraries/parcel` is the irreversible core: every change needs test vectors and property-based tests (round trip, truncation, reordering, record swapping, wrong key). Do not change parcel v1 after it is frozen; add versions instead.
 - Prefer measuring to estimating: spikes live in `spikes/` and record results in `docs/spikes/`.
 
+## Skills for agents
+
+- `.claude/skills/verify-file-transfer`: drive the app as a sender and a recipient and capture evidence; use it to prove a change works.
+- `.claude/skills/open-pull-request`: how to open a pull request here (checks, changeset, verification, body).
+- `.claude/skills/review-pull-request`: an independent verdict (PASS, PASS+NOTES, FAIL) on a pull request, by an agent that did not write it.
+- `.claude/skills/maintain-verification-skill`: keep the verification skill's feature map honest as the app changes.
+
 ## Phase discipline
 
 We are in the startup phase (see `docs/plan.md`). Prefer adopting or lifting existing code (credit it, keep licence notices) over writing new code, except for the parcel, key handling and verification, which we write small and test heavily. Do not add Rust, accounts, payments, or a store before their phase gate.
