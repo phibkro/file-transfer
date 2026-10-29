@@ -7,6 +7,6 @@
     "load": "node --experimental-strip-types load.ts"
   },
   "dependencies": {
-    "ws": "8.18.3"
+    "ws": "8.21.0"
   }
 }
