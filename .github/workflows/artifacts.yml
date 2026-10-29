@@ -2,17 +2,15 @@ name: artifacts
 
 # Builds what a release ships, without publishing it (docs/decisions/0021): the server node as one executable per
 # platform, each smoke-tested on its own platform, and the web client's static files. Called by `checks` on every pull
-# request and push, so a change that breaks an executable fails before it merges, and by `release`, which publishes
-# what it built. `workerd compile` attaches the configuration to the workerd binary that runs it, so each executable is
-# built on a runner of its own platform.
+# request and push to main, so a change that breaks an executable fails before it merges, and by `publish` on a
+# release tag's push, which publishes what it built. It always builds the commit of the run that called it, never a
+# commit handed in as an input, so no caller can make it run code its own event did not name (CodeQL
+# actions/cache-poisoning). `workerd compile` attaches the configuration to the workerd binary that runs it, so each
+# executable is built on a runner of its own platform.
 
 on:
   workflow_call:
     inputs:
-      ref:
-        description: The commit to build (defaults to the calling run's)
-        type: string
-        default: ""
       label:
         description: Goes into the file names, for example v0.1.0
         type: string
@@ -30,15 +28,15 @@ jobs:
           - { runner: ubuntu-latest, platform: linux-x64 }
           - { runner: ubuntu-24.04-arm, platform: linux-arm64 }
           - { runner: macos-latest, platform: macos-arm64 }
+          # GitHub runs Intel macOS until about August 2027 (runner-images changelog, 2025-09-19).
+          - { runner: macos-15-intel, platform: macos-x64 }
           - { runner: windows-latest, platform: windows-x64 }
     runs-on: ${{ matrix.runner }}
     defaults:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.ref }}
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
       - run: bun run compile
@@ -67,18 +65,38 @@ jobs:
           else
             tar -czf "$RUNNER_TEMP/out/$name.tar.gz" -C package .
           fi
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: node-${{ matrix.platform }}
           path: ${{ runner.temp }}/out/*
           retention-days: 7
 
+  windows-arm64:
+    # workerd publishes no Windows arm64 binary and maps Windows on arm64 to the x64 one, so the x64 executable is the
+    # Windows arm64 release too; this starts it on an arm64 machine, under Windows' x64 emulation.
+    needs: [node]
+    runs-on: windows-11-arm
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/download-artifact@v8
+        with:
+          name: node-windows-x64
+          path: ${{ runner.temp }}/node
+      - name: Smoke-test the x64 executable on arm64
+        working-directory: platforms/self-hosted
+        run: |
+          archive="$(ls "$RUNNER_TEMP"/node/*.zip)"
+          pwsh -NoProfile -Command "Expand-Archive -Path '$archive' -DestinationPath '$RUNNER_TEMP/unpacked'"
+          bun scripts/smokeNode.ts "$RUNNER_TEMP/unpacked/file-transfer-node.exe"
+
   web-client:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.ref }}
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
       - run: bun run build
@@ -89,7 +107,7 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/out"
           tar -czf "$RUNNER_TEMP/out/file-transfer-web-${LABEL//\//-}.tar.gz" -C apps/web/dist .
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: web-client
           path: ${{ runner.temp }}/out/*

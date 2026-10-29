@@ -1,5 +1,53 @@
 # @file-transfer/web
 
+## 0.4.3
+
+### Patch Changes
+
+- a89b246: A recipient that has received every file now stays connected for its whole linger when the sender leaves, so a sender whose connection dropped before it heard "complete" rejoins and finishes instead of waiting forever. The end-to-end suite's clean socket cut now really closes the server's end, which is how this was found.
+
+## 0.4.2
+
+### Patch Changes
+
+- ca3331c: The recipient follows an explicit life cycle. When saving the received files fails, it now tells the sender and frees the storage instead of hanging at 100%; Accept and Decline disappear when a transfer fails while the offer is on screen; and an abort that arrives while storage is opening is no longer overwritten.
+
+## 0.4.1
+
+### Patch Changes
+
+- 410c3e4: A socket whose join the room never answers (opened, then lost on a silent network) is given up after 15 seconds and replaced, instead of waiting minutes for the browser to notice. The room protocol gains one endpoint close code for it, 4100 ("no answer to join"); codes an endpoint adds from now on start at 4100, clear of the room's own. Existing codes keep their meanings, and the room ignores endpoint close codes.
+- Updated dependencies [410c3e4]
+  - @file-transfer/transport@1.2.0
+
+## 0.4.0
+
+No changes in this release.
+
+## 0.3.0
+
+### Minor Changes
+
+- a076e33: The completion report says when the direct path opened and how often it dropped back to the relay, and what network the browser reports (Chromium-based browsers only), for testing on real networks with docs/network-testing.md.
+
+## 0.2.0
+
+### Minor Changes
+
+- cc21d36: A socket that goes silent without closing (a NAT forgetting the connection, a phone changing networks) no longer stalls a transfer: rooms now answer liveness pings and say so in `joined` (`answersPings`), and endpoints ping after 10 seconds of silence and rejoin after 20, resuming from what is missing. Before, such a transfer could hang until the browser's TCP timeout, many minutes later. Older rooms and endpoints keep working as before (docs/protocol.md, "Liveness").
+
+### Patch Changes
+
+- Updated dependencies [cc21d36]
+  - @file-transfer/transport@1.1.0
+
+## 0.1.1
+
+### Patch Changes
+
+- Updated dependencies [7ef4f07]
+  - @file-transfer/parcel@1.0.1
+
 ## 0.1.0
 
 ### Minor Changes

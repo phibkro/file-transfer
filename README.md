@@ -50,7 +50,7 @@ On your own machine, with Docker (amd64 or arm64; behind a proxy that terminates
 docker run -p 8080:8080 -v file-transfer-storage:/srv/storage ghcr.io/phibkro/file-transfer
 ```
 
-Or as one program, without Docker: download `file-transfer-node` for Linux (x64, arm64), macOS (Apple silicon) or Windows from the [releases](https://github.com/phibkro/file-transfer/releases), then `mkdir storage && ./file-transfer-node`. Each release also carries the web client's static files. See [ADR 0021](docs/decisions/0021-distribution-web-client-and-server-node.md).
+Or as one program, without Docker: download `file-transfer-node` for Linux (x64, arm64), macOS (Apple silicon, Intel) or Windows (x64, and arm64 through emulation) from the [releases](https://github.com/phibkro/file-transfer/releases), then `mkdir storage && ./file-transfer-node`. Each release also carries the web client's static files. See [ADR 0021](docs/decisions/0021-distribution-web-client-and-server-node.md).
 
 ## Documents
 

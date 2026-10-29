@@ -14,7 +14,7 @@ flowchart TB
 
 Run `bunx changeset` in your branch, choose the packages you changed and a bump for each, and describe the change in a sentence or two a user of that package would understand. Commit the file it writes in `.changeset/`.
 
-- A pull request that ships nothing (documentation, tests, CI, repository tools) adds an empty changeset: `bunx changeset --empty`, with a sentence saying what it does.
+- A pull request that ships nothing (documentation, tests, CI, repository tools) adds an empty changeset: `bunx changeset --empty`, with a sentence saying what it does. Dependabot's updates are the one exception, because Dependabot cannot write one: they may leave it out when they change no shipped file, and a maintainer adds the changeset when they do.
 - `bun run check:changesets` runs the same check as CI: it fails when the pull request adds no changeset, or changes a package's shipped files (anything but `test/`, `scripts/`, `*.test.ts`, `README.md` and `CHANGELOG.md`) without naming that package. It lists the bumps of seam packages for the reviewer.
 - Write what changed for the people who use the package, not how: "Recipients can rename a file before saving" rather than "Add nameField".
 
@@ -49,6 +49,23 @@ A seam is a contract between pieces built and deployed independently: a recipien
 
 ## Releases
 
-Releases happen on their own (`.github/workflows/release.yml`): when `checks` passes on a push to main and changesets are waiting, the release workflow runs `changeset version`, writes the notes (`bun run release:prepare`), commits `Release vX.Y.Z` to main with its tags, builds and smoke-tests the executables on every platform and both container architectures, and publishes the GitHub release. A push with only empty changesets releases nothing; their files go with the next release.
+Releases happen on their own, in two workflows. When `checks` passes on a push to main and changesets are waiting, `release.yml` runs `changeset version`, writes the notes into the root CHANGELOG.md (`bun run release:prepare`), and pushes `Release vX.Y.Z` to main with its tags. The push of the `vX.Y.Z` tag starts `publish.yml`, which builds and smoke-tests the executables on every platform and both container architectures from that tag, and publishes the GitHub release with the tag's section of CHANGELOG.md (`bun run release:notes`). Publishing from the tag's own push means no privileged workflow builds a commit it was handed as an input. To publish a tag again, run `publish` by hand on it. A push with only empty changesets releases nothing; their files go with the next release.
 
 The release commit is pushed by GitHub Actions, so it does not run `checks` again; it changes only versions and changelogs.
+
+## Release key
+
+Main accepts changes only through pull requests with passing checks (the `protect-main` ruleset), and a workflow's own token cannot be exempted, so the release workflow pushes its commit and tags with a deploy key that is on the ruleset's bypass list. The private key is the `RELEASE_DEPLOY_KEY` secret of the `release` environment, whose deployment branches are limited to main, so a workflow run for a pull request cannot read it. To set it up, or to replace a key:
+
+```sh
+# The environment, deployable from main only
+gh api -X PUT repos/phibkro/file-transfer/environments/release \
+  -F 'deployment_branch_policy[protected_branches]=false' -F 'deployment_branch_policy[custom_branch_policies]=true'
+gh api -X POST repos/phibkro/file-transfer/environments/release/deployment-branch-policies -f name=main -f type=branch
+# The key: public half as a deploy key with write access, private half as the environment's secret
+ssh-keygen -t ed25519 -N "" -C "file-transfer release" -f release-key
+gh repo deploy-key add release-key.pub --repo phibkro/file-transfer --allow-write --title release
+gh secret set RELEASE_DEPLOY_KEY --repo phibkro/file-transfer --env release < release-key && rm release-key release-key.pub
+```
+
+Then add the key under Deploy keys in the ruleset's bypass list. `gh secret set` does not create the environment, which is why it comes first. A release finds no key and stops with an error naming this section. Adding yourself as a required reviewer on the `release` environment makes every release wait for your approval.

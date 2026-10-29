@@ -1,14 +1,19 @@
 name: checks
 
-# Checks on every push and pull request; deploys after the checks pass:
+# Checks every pull request and every push to main; deploys after the checks pass:
 # - a pull request from a branch of this repository gets a Worker Preview (`pr-<number>`), commented on the pull request
 #   and verified end to end, updated on every push and destroyed when the pull request closes;
 # - a push to main deploys production (https://send.phibkro.org) and verifies it end to end.
-# Pull requests from forks never receive the deploy secrets (GitHub withholds them) and are only checked.
+# Pull requests from forks and from Dependabot never receive the deploy secrets (GitHub withholds them) and are only
+# checked.
 # Deploy jobs run only when the repository variable DEPLOYMENTS is "enabled" (platforms/cloudflare/README.md, CI).
 
 on:
+  # Pushes to main only. A pull request's own run checks its branch; a second run per push would report every job twice
+  # on the same commit, and the push run's skipped jobs (changesets, preview, the artifacts caller) would stand in for
+  # the real ones in main's required checks.
   push:
+    branches: [main]
   pull_request:
     types: [opened, synchronize, reopened, closed]
 
@@ -20,16 +25,16 @@ jobs:
     if: github.event.action != 'closed'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
       - run: bun install --frozen-lockfile
       # Vite+ check (format, lint, types), module graph, Effect profile (effx), tests (Vitest).
       - run: bun run check
       # Independent re-implementation of parcel v1 (Python, OpenSSL) must reproduce every test vector byte.
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
       - run: pip install cryptography==50.0.1 && bun run check:vectors
@@ -44,11 +49,11 @@ jobs:
     if: github.event.action != 'closed'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       # Reads .gitleaks.toml from the repository root.
-      - uses: gitleaks/gitleaks-action@v2
+      - uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -64,7 +69,7 @@ jobs:
     # result is informational until a real iPhone confirms the save path.
     continue-on-error: ${{ matrix.browser == 'webkit' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
       - run: bunx playwright install --with-deps ${{ matrix.browser }}
@@ -83,7 +88,7 @@ jobs:
     if: github.event_name == 'pull_request' && github.event.action != 'closed'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: oven-sh/setup-bun@v2
@@ -91,6 +96,7 @@ jobs:
       - run: bun run check:changesets
         env:
           CHANGESET_BASE: origin/${{ github.base_ref }}
+          CHANGESET_AUTHOR: ${{ github.event.pull_request.user.login }}
 
   artifacts:
     # The node executables on every platform and the web client, built and smoke-tested the way a release builds them.
@@ -108,9 +114,9 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
       # The runner's architecture, loaded for the tests below; main also publishes amd64 and arm64 (Dockerfile).
       - name: Build the self-hosted image
         run: docker buildx build --platform linux/amd64 --load -f platforms/self-hosted/Dockerfile -t file-transfer:ci .
@@ -157,7 +163,7 @@ jobs:
       group: deploy-bundle
       cancel-in-progress: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
       - run: bun run build:all && bun scripts/deployBundle.ts "$RUNNER_TEMP/bundle"
@@ -175,7 +181,7 @@ jobs:
 
   preview:
     needs: [check, secrets]
-    if: vars.DEPLOYMENTS == 'enabled' && github.event_name == 'pull_request' && github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository
+    if: vars.DEPLOYMENTS == 'enabled' && github.event_name == 'pull_request' && github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -187,7 +193,7 @@ jobs:
       group: preview-${{ github.event.pull_request.number }}
       cancel-in-progress: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
       - id: deploy
@@ -230,11 +236,11 @@ jobs:
           BASE_URL: ${{ steps.deploy.outputs.check_url }}
 
   preview-cleanup:
-    if: vars.DEPLOYMENTS == 'enabled' && github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.head.repo.full_name == github.repository
+    if: vars.DEPLOYMENTS == 'enabled' && github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]'
     runs-on: ubuntu-latest
     environment: preview
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
       - working-directory: platforms/cloudflare
@@ -254,7 +260,7 @@ jobs:
       group: production
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
       - id: deploy

@@ -32,6 +32,19 @@ declare module "cloudflare:workers" {
     readonly storage: DurableObjectStorage
     acceptWebSocket(socket: HibernatableWebSocket, tags?: readonly string[]): void
     getWebSockets(tag?: string): HibernatableWebSocket[]
+    /** Answers a text frame equal to the pair's request with its response, without waking the object. */
+    setWebSocketAutoResponse(pair?: WebSocketRequestResponsePair): void
+  }
+
+  /** A request and the response the runtime sends back for it on hibernatable sockets. */
+  export interface WebSocketRequestResponsePair {
+    readonly request: string
+    readonly response: string
+  }
+
+  /** The global `WebSocketRequestResponsePair` constructor. */
+  export interface WebSocketRequestResponsePairConstructor {
+    new (request: string, response: string): WebSocketRequestResponsePair
   }
 
   export abstract class DurableObject<Environment = unknown> {

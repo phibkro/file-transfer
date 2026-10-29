@@ -11,7 +11,7 @@
  *   BENCH_BROWSERS   chromium,firefox,webkit (default chromium)
  *   BENCH_SIZES      transfer sizes in MB (default 1,16,128)
  *   BENCH_REPEATS    transfers per size and path; the median is reported (default 3)
- *   BENCH_EXPONENTS  record size exponents for the crypto benchmark (default 12,14,16,18,20,22)
+ *   BENCH_EXPONENTS  record size exponents for the crypto benchmark (default 12,14,16,17,18,20,22)
  *   BENCH_OUTPUT     a file for the results as JSON lines (default: none)
  *   BASE_URL         a running self-hosted node instead of starting one
  *
@@ -24,7 +24,7 @@ import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import nodePath from "node:path"
 import { chromium, firefox, webkit } from "playwright"
-import type { Browser, BrowserType, LaunchOptions, Page } from "playwright"
+import type { Browser, BrowserContext, BrowserType, LaunchOptions, Page } from "playwright"
 import type { CryptoRow } from "./cryptoBenchmarkPage.ts"
 
 const appDirectory = nodePath.join(import.meta.dirname, "..")
@@ -33,7 +33,7 @@ const which = process.env.BENCH ?? "all"
 const browserNames = (process.env.BENCH_BROWSERS ?? "chromium").split(",").map((name) => name.trim())
 const sizesInMegabytes = (process.env.BENCH_SIZES ?? "1,16,128").split(",").map(Number)
 const repeats = Number(process.env.BENCH_REPEATS ?? 3)
-const exponents = (process.env.BENCH_EXPONENTS ?? "12,14,16,18,20,22").split(",").map(Number)
+const exponents = (process.env.BENCH_EXPONENTS ?? "12,14,16,17,18,20,22").split(",").map(Number)
 const output = process.env.BENCH_OUTPUT
 
 const browserTypes = new Map<string, BrowserType>([
@@ -166,9 +166,32 @@ const waitFor = async (page: Page, wanted: readonly string[], timeout: number) =
 }
 
 /** One transfer of `file` from a fresh sender page to a fresh recipient page; times are in seconds. */
-const transferOnce = async (browser: Browser, origin: string, file: string, bytes: number, direct: boolean) => {
+/**
+ * A fresh profile for one page. WebKit offers the origin-private file system only in a persistent profile (its
+ * ephemeral contexts count as private browsing), so it gets a temporary profile directory, as in endToEnd.ts.
+ */
+type ContextFactory = () => Promise<{ readonly context: BrowserContext; readonly dispose: () => void }>
+
+const contextFactoryFor =
+  (browser: Browser, browserType: BrowserType, name: string): ContextFactory =>
+  async () => {
+    if (name !== "webkit") {
+      return { context: await browser.newContext(), dispose: () => undefined }
+    }
+
+    const directory = mkdtempSync(nodePath.join(tmpdir(), "file-transfer-bench-webkit-"))
+
+    return {
+      context: await browserType.launchPersistentContext(directory, launchOptionsFor(name)),
+      dispose: () => {
+        rmSync(directory, { recursive: true, force: true })
+      },
+    }
+  }
+
+const transferOnce = async (newContext: ContextFactory, origin: string, file: string, bytes: number, direct: boolean) => {
   const openPage = async () => {
-    const context = await browser.newContext()
+    const { context, dispose } = await newContext()
 
     if (!direct) {
       await context.addInitScript(() => {
@@ -176,7 +199,7 @@ const transferOnce = async (browser: Browser, origin: string, file: string, byte
       })
     }
 
-    return { context, page: await context.newPage() }
+    return { context, dispose, page: await context.newPage() }
   }
 
   const sender = await openPage()
@@ -206,10 +229,12 @@ const transferOnce = async (browser: Browser, origin: string, file: string, byte
   } finally {
     await sender.context.close()
     await recipient.context.close()
+    sender.dispose()
+    recipient.dispose()
   }
 }
 
-const transfers = async (browser: Browser, name: string, origin: string, directory: string) => {
+const transfers = async (newContext: ContextFactory, name: string, origin: string, directory: string) => {
   for (const megabytes of sizesInMegabytes) {
     const bytes = Math.round(megabytes * 1e6)
     const file = nodePath.join(directory, `bench-${megabytes}mb.bin`)
@@ -219,7 +244,7 @@ const transfers = async (browser: Browser, name: string, origin: string, directo
       const runs = []
 
       for (let run = 0; run < repeats; run++) {
-        runs.push(await transferOnce(browser, origin, file, bytes, path === "direct"))
+        runs.push(await transferOnce(newContext, origin, file, bytes, path === "direct"))
       }
 
       const complete = runs.filter((run) => run.complete)
@@ -268,7 +293,7 @@ try {
       }
 
       if (which !== "crypto") {
-        await transfers(browser, engine, origin, directory)
+        await transfers(contextFactoryFor(browser, browserType, name), engine, origin, directory)
       }
     } finally {
       await browser.close()

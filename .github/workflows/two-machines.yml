@@ -1,0 +1,112 @@
+name: two-machines
+
+# A transfer between two GitHub runners, each behind its own cloud NAT, through a real node on the internet
+# (apps/web/scripts/remotePeer.ts): does the direct path open between separate machines, and how fast is each path?
+# Run by hand; the defaults send 256 MiB from one Linux runner to another through the production Worker's
+# workers.dev address (the zone answers GitHub's runners with 403). That spends about 330 Durable Object requests if
+# it goes through the relay, and none if it goes direct.
+#   gh workflow run two-machines.yml -f recipient_runner=windows-latest -f megabytes=1024
+# The sender hands the link to the recipient as an artifact that lives a day and is deleted as soon as it is read.
+
+on:
+  # Also on pull requests that change this test, with the defaults below at 64 MiB.
+  pull_request:
+    paths: [apps/web/scripts/remotePeer.ts, .github/workflows/two-machines.yml]
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: Node both sides use
+        default: https://file-transfer.philib-krogh-d23.workers.dev
+      sender_runner:
+        description: Sender's runner label
+        default: ubuntu-latest
+      recipient_runner:
+        description: Recipient's runner label
+        default: ubuntu-latest
+      browser:
+        description: chromium or firefox
+        default: chromium
+      megabytes:
+        description: Payload in MiB
+        default: "256"
+
+permissions:
+  contents: read
+
+jobs:
+  sender:
+    runs-on: ${{ inputs.sender_runner || 'ubuntu-latest' }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bunx playwright install --with-deps ${{ inputs.browser || 'chromium' }}
+        working-directory: apps/web
+      - name: Offer, in the background
+        working-directory: apps/web
+        env:
+          PEER_ROLE: sender
+          BASE_URL: ${{ inputs.base_url || 'https://file-transfer.philib-krogh-d23.workers.dev' }}
+          PEER_SEED: ${{ github.run_id }}
+          PEER_MEGABYTES: ${{ inputs.megabytes || '64' }}
+          PEER_LINK_FILE: ${{ runner.temp }}/link.txt
+          E2E_BROWSER: ${{ inputs.browser || 'chromium' }}
+        run: |
+          (bun scripts/remotePeer.ts; echo $? > "$RUNNER_TEMP/sender.exit") > "$RUNNER_TEMP/sender.log" 2>&1 &
+          for attempt in $(seq 1 120); do
+            if [ -s "$PEER_LINK_FILE" ]; then exit 0; fi
+            sleep 2
+          done
+          cat "$RUNNER_TEMP/sender.log"
+          exit 1
+      - uses: actions/upload-artifact@v7
+        with:
+          name: peer-link
+          path: ${{ runner.temp }}/link.txt
+          retention-days: 1
+      - name: Wait for the transfer
+        run: |
+          until [ -f "$RUNNER_TEMP/sender.exit" ]; do sleep 5; done
+          cat "$RUNNER_TEMP/sender.log"
+          exit "$(cat "$RUNNER_TEMP/sender.exit")"
+
+  recipient:
+    runs-on: ${{ inputs.recipient_runner || 'ubuntu-latest' }}
+    permissions:
+      actions: write
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bunx playwright install --with-deps ${{ inputs.browser || 'chromium' }}
+        working-directory: apps/web
+      - name: Fetch the link, then delete it
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for attempt in $(seq 1 180); do
+            id="$(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts?name=peer-link" -q '.artifacts[0].id // empty')"
+            if [ -n "$id" ]; then break; fi
+            sleep 5
+          done
+          test -n "$id"
+          gh api "repos/${{ github.repository }}/actions/artifacts/$id/zip" > "$RUNNER_TEMP/link.zip"
+          gh api -X DELETE "repos/${{ github.repository }}/actions/artifacts/$id"
+          (cd "$RUNNER_TEMP" && unzip -o -q link.zip)
+      - name: Receive
+        working-directory: apps/web
+        env:
+          PEER_ROLE: recipient
+          BASE_URL: ${{ inputs.base_url || 'https://file-transfer.philib-krogh-d23.workers.dev' }}
+          PEER_SEED: ${{ github.run_id }}
+          PEER_MEGABYTES: ${{ inputs.megabytes || '64' }}
+          PEER_LINK_FILE: ${{ runner.temp }}/link.txt
+          E2E_BROWSER: ${{ inputs.browser || 'chromium' }}
+        run: bun scripts/remotePeer.ts

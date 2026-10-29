@@ -93,6 +93,11 @@ export const reviewChangesets = (options: {
   readonly packages: readonly WorkspacePackage[]
   /** Packages that are never versioned (repository tools). */
   readonly ignored: readonly string[]
+  /**
+   * Whether a pull request that ships nothing must still add an empty changeset. False for automated dependency
+   * updates, which cannot write one: they still need a changeset when they change a shipped file.
+   */
+  readonly requireEmpty?: boolean
 }): ChangesetReview => {
   const violations: string[] = []
   const parsed = options.addedChangesets.filter((changeset): changeset is Changeset => typeof changeset !== "string")
@@ -101,7 +106,10 @@ export const reviewChangesets = (options: {
 
   violations.push(...options.addedChangesets.filter((changeset): changeset is string => typeof changeset === "string"))
 
-  if (options.addedChangesets.length === 0) {
+  const changed = new Set(options.changedFiles.flatMap((file) => shippedPackageOf(file, options.packages) ?? []))
+  const shipsSomething = [...changed].some((name) => !ignored.has(name))
+
+  if (options.addedChangesets.length === 0 && (options.requireEmpty !== false || shipsSomething)) {
     violations.push(
       "this pull request adds no changeset: run `bunx changeset` and pick a bump for each package you changed, or `bunx changeset --empty` if it ships nothing",
     )
@@ -122,7 +130,6 @@ export const reviewChangesets = (options: {
   }
 
   const released = new Set(parsed.flatMap((changeset) => changeset.releases.map((release) => release.name)))
-  const changed = new Set(options.changedFiles.flatMap((file) => shippedPackageOf(file, options.packages) ?? []))
 
   for (const name of [...changed].toSorted()) {
     if (!ignored.has(name) && !released.has(name)) {

@@ -1,5 +1,26 @@
 # @file-transfer/client
 
+## 0.1.3
+
+### Patch Changes
+
+- Updated dependencies [410c3e4]
+  - @file-transfer/transport@1.2.0
+
+## 0.1.2
+
+### Patch Changes
+
+- Updated dependencies [cc21d36]
+  - @file-transfer/transport@1.1.0
+
+## 0.1.1
+
+### Patch Changes
+
+- Updated dependencies [7ef4f07]
+  - @file-transfer/parcel@1.0.1
+
 ## 0.1.0
 
 ### Minor Changes

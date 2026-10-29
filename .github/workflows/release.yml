@@ -6,10 +6,17 @@ name: release
 #      CHANGELOG.md, then gathers the release notes into the root CHANGELOG.md (tools/quality/src/prepareRelease.ts);
 #   2. commits that as "Release vX.Y.Z" on main and tags it: `vX.Y.Z` for the product (apps, platforms and services
 #      share one version) and `<package>@<version>` for every package bumped, libraries included;
-#   3. builds the node executables and the web client (artifacts.yml), the container for amd64 and arm64, starts the
-#      arm64 image on an arm64 machine, and publishes the GitHub release with the notes and checksums.
+#   3. pushes the commit and the tags; the `vX.Y.Z` tag's push starts publish.yml, which builds what the tag points to
+#      and publishes the GitHub release. Publishing from the tag's own push means no workflow here checks out a commit
+#      it was handed as an input (CodeQL actions/cache-poisoning).
 # A push to main with no changesets waiting (or only empty ones) releases nothing. Started by hand, it does the same
 # for main's current commit.
+#
+# Main is protected by a ruleset (pull requests and passing checks), which the workflow's own token cannot bypass, so
+# the release commit and tags are pushed with a deploy key that is on the ruleset's bypass list. Its private key is the
+# secret RELEASE_DEPLOY_KEY of the `release` environment, which only main may use, so no pull request can read it
+# (docs/versioning.md, Release key). Unlike the workflow's token, a deploy key's push starts `checks`, so the release
+# commit is checked and deployed like any other; its own release run finds no changesets and stops.
 
 on:
   workflow_run:
@@ -26,34 +33,60 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  version:
+  pending:
+    # Whether there is anything to release, decided without the release environment, so the many pushes to main that
+    # release nothing never touch the key or wait for the environment's reviewers.
     if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     outputs:
-      version: ${{ steps.prepare.outputs.version }}
-      commit: ${{ steps.commit.outputs.commit }}
+      commit: ${{ steps.current.outputs.commit }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: main
-          fetch-depth: 0
-      - name: Release only the commit the checks passed on
+      - name: Release only the commit the checks passed on, when changesets wait
         id: current
         env:
           CHECKED: ${{ github.event.workflow_run.head_sha }}
         run: |
           if [ -n "$CHECKED" ] && [ "$(git rev-parse HEAD)" != "$CHECKED" ]; then
             echo "main moved on since the checked commit; the run for the newer commit releases it"
-            echo "skip=true" >> "$GITHUB_OUTPUT"
           elif [ -z "$(find .changeset -name '*.md' ! -name README.md -print -quit)" ]; then
             echo "no changesets waiting; nothing to release"
+          else
+            echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          fi
+
+  version:
+    needs: [pending]
+    if: needs.pending.outputs.commit != ''
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+          # Pushes go over SSH with this key (see the comment at the top); without it the push to main is refused.
+          ssh-key: ${{ secrets.RELEASE_DEPLOY_KEY }}
+      - name: Check the key and the commit
+        id: current
+        env:
+          PENDING: ${{ needs.pending.outputs.commit }}
+          HAS_KEY: ${{ secrets.RELEASE_DEPLOY_KEY != '' }}
+        run: |
+          if [ "$HAS_KEY" != true ]; then
+            echo "::error::the release environment has no RELEASE_DEPLOY_KEY secret, so the release cannot be pushed to main (docs/versioning.md, Release key)"
+            exit 1
+          elif [ "$(git rev-parse HEAD)" != "$PENDING" ]; then
+            echo "main moved on while waiting; the run for the newer commit releases it"
             echo "skip=true" >> "$GITHUB_OUTPUT"
           fi
       - uses: oven-sh/setup-bun@v2
         if: steps.current.outputs.skip != 'true'
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         if: steps.current.outputs.skip != 'true'
         with:
           node-version: 22
@@ -69,7 +102,6 @@ jobs:
           # Changesets writes the changelogs unformatted; the repository's formatter is the one that checks them.
           ./node_modules/.bin/vp fmt CHANGELOG.md '**/CHANGELOG.md'
       - name: Commit and tag the release
-        id: commit
         if: steps.current.outputs.skip != 'true' && steps.prepare.outputs.tags != ''
         env:
           VERSION: ${{ steps.prepare.outputs.version }}
@@ -83,82 +115,15 @@ jobs:
           git commit -q -m "$title" -m "Versions and changelogs from the changesets merged since the last release (docs/versioning.md)."
           for tag in $TAGS; do git tag -a "$tag" -m "$tag"; done
           git push origin HEAD:main
-          git push origin $TAGS
-          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-      - uses: actions/upload-artifact@v4
-        if: steps.commit.outputs.commit != ''
-        with:
-          name: release-notes
-          path: ${{ runner.temp }}/notes.md
-
-  artifacts:
-    needs: [version]
-    if: needs.version.outputs.version != ''
-    uses: ./.github/workflows/artifacts.yml
-    with:
-      ref: ${{ needs.version.outputs.commit }}
-      label: v${{ needs.version.outputs.version }}
-
-  container:
-    needs: [version]
-    if: needs.version.outputs.version != ''
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.version.outputs.commit }}
-      - uses: docker/setup-buildx-action@v3
-      - name: Build and publish for amd64 and arm64
-        env:
-          REGISTRY_TOKEN: ${{ github.token }}
-          VERSION: ${{ needs.version.outputs.version }}
-        run: |
-          echo "$REGISTRY_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-          image="ghcr.io/${{ github.repository }}"
-          docker buildx build --platform linux/amd64,linux/arm64 --push \
-            -f platforms/self-hosted/Dockerfile -t "$image:$VERSION" -t "$image:${VERSION%.*}" .
-
-  container-arm64:
-    # The arm64 image, started on an arm64 machine: the build above made it without running it.
-    needs: [version, container]
-    runs-on: ubuntu-24.04-arm
-    steps:
-      - name: Start the published image and ask it something
-        env:
-          VERSION: ${{ needs.version.outputs.version }}
-        run: |
-          docker run -d --name node -p 8080:8080 "ghcr.io/${{ github.repository }}:$VERSION"
-          for attempt in $(seq 1 30); do
-            if curl -sf http://127.0.0.1:8080/api/instance; then exit 0; fi
-            sleep 2
+          # GitHub creates no push events for tags when more than three are pushed at once, so the product tag, whose
+          # push starts publish.yml, goes on its own after the library tags.
+          product=""
+          libraries=""
+          for tag in $TAGS; do
+            case "$tag" in
+              v*) product="$tag" ;;
+              *) libraries="$libraries $tag" ;;
+            esac
           done
-          docker logs node
-          exit 1
-
-  publish:
-    needs: [version, artifacts, container-arm64]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: "{node-*,web-client}"
-          path: out
-          merge-multiple: true
-      - uses: actions/download-artifact@v4
-        with:
-          name: release-notes
-          path: notes
-      - name: Checksums
-        run: cd out && sha256sum * > SHA256SUMS
-      - name: Create the release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ needs.version.outputs.version }}
-        run: |
-          gh release create "v$VERSION" --repo "${{ github.repository }}" --title "v$VERSION" \
-            --notes-file notes/notes.md out/*
+          if [ -n "$libraries" ]; then git push origin $libraries; fi
+          if [ -n "$product" ]; then git push origin "$product"; fi

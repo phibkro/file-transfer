@@ -17,9 +17,15 @@
  * - The one invariant: tokens, control message bodies and frames are never logged or stored.
  */
 import { DurableObject } from "cloudflare:workers"
-import type { HibernatableWebSocket, UpgradeResponseInit, WebSocketPairConstructor } from "cloudflare:workers"
+import type {
+  DurableObjectState,
+  HibernatableWebSocket,
+  UpgradeResponseInit,
+  WebSocketPairConstructor,
+  WebSocketRequestResponsePairConstructor,
+} from "cloudflare:workers"
 import { fromHex, hashRoomToken } from "@file-transfer/parcel"
-import { decodeControlMessage, encodeControlMessage } from "@file-transfer/transport"
+import { decodeControlMessage, encodeControlMessage, pingFrame, pongFrame } from "@file-transfer/transport"
 import { megabytesFor, sizeBucketFor } from "@file-transfer/service-telemetry"
 import type { TelemetryEvent } from "@file-transfer/service-telemetry"
 import { askRelayBudget } from "./askRelayBudget.ts"
@@ -53,6 +59,7 @@ export const idleMilliseconds = 24 * 60 * 60 * 1000
 
 /** A global of the Workers runtime, absent from the DOM types this package compiles against. */
 declare const WebSocketPair: WebSocketPairConstructor
+declare const WebSocketRequestResponsePair: WebSocketRequestResponsePairConstructor
 
 const notAdmitted: Attachment = { admitted: false }
 
@@ -93,6 +100,13 @@ export class RoomObject extends DurableObject<LimitVariables & CountingEnvironme
   private sockets: Map<string, HibernatableWebSocket> | undefined
   private participants: readonly Participant[] = []
   private readonly attachments = new WeakMap<WebSocket, StoredAttachment>()
+
+  constructor(ctx: DurableObjectState, env: LimitVariables & CountingEnvironment & BudgetEnvironment) {
+    super(ctx, env)
+    // Liveness (docs/protocol.md, "Liveness"): the runtime answers an endpoint's ping itself, without waking the
+    // object, so a socket that went silent is noticed by the endpoint without costing the room anything.
+    ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair(pingFrame, pongFrame))
+  }
 
   override async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url)

@@ -100,6 +100,7 @@ describe("admission compares the token hash", () => {
       participantIdentifier: "new-participant",
       senderPresent: false,
       recipientCount: 1,
+      answersPings: true,
     })
   })
 
@@ -154,6 +155,7 @@ describe("one sender", () => {
       participantIdentifier: "new-participant",
       senderPresent: true,
       recipientCount: 1,
+      answersPings: true,
     })
   })
 
