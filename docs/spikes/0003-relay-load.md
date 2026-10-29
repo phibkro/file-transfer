@@ -15,7 +15,7 @@ The generator speaks the room protocol directly: create a room, join as sender a
 
 ## Setup and limits of the setup
 
-- A Preview of the production configuration (`bun run preview loadtest`), Workers Free plan account, deployed and destroyed by the workflow. Compatibility flag `no_web_socket_compression` on.
+- A Preview of the production configuration (`bun run preview loadtest`), deployed and destroyed by the workflow. Compatibility flag `no_web_socket_compression` on.
 - Sender and recipient run in one Node process on one GitHub-hosted runner, so both legs share the runner's network, its CPUs and the same Cloudflare location. A real transfer has two networks and often two locations; these numbers are the relay's ceiling from one well-connected client, not what users get.
 - Node with `ws` 8.18.3, because only `ws` can pause its socket (Bun's replacement cannot).
 - Each scenario ran once. Variance between rooms in one run is large (below), so treat single figures as indications.
@@ -76,7 +76,7 @@ Sending four records per WebSocket message would cut billed requests to about 22
 
 ## Decisions
 
-1. **Keep the default relay limit at 10 GB per room.** A full 10 GB transfer costs about 7,750 billed requests ($0.0012 at Paid prices, 8% of a Free day), and the load test found nothing that makes longer transfers through one object risky. The share of transfers that would hit 10, 25 or 50 GB needs real usage, which the opt-in counters will show; revisit then.
+1. **Keep the default relay limit at 10 GB per room.** (Changed the same day at the maintainer's request: 25 GB per room, about 19,400 billed requests or a fifth of a Free day, and 50 rooms per address per hour.) A full 10 GB transfer costs about 7,750 billed requests ($0.0012 at Paid prices, 8% of a Free day), and the load test found nothing that makes longer transfers through one object risky. The share of transfers that would hit 10, 25 or 50 GB needs real usage, which the opt-in counters will show; revisit then.
 2. **A per-room limit cannot protect a Free-plan instance's daily quota**: 100 rooms an hour from one address at 10 GB each is far beyond 120 GiB a day, and once the quota is spent every room on the instance fails until the next day. The protection that fits is an instance-wide daily relay budget (for example `LIMIT_RELAYED_BYTES_PER_DAY`), checked by rooms in large reservations so it adds a few requests per GiB. Proposed as the next limit; not built here.
 3. **Keep the 16 MiB credit window.** 41 stalled rooms, 32 at once, completed with nothing lost.
 4. **Retry Durable Object calls once when Cloudflare says they are retryable**, and answer JSON, never the platform's HTML page (done).

@@ -22,7 +22,7 @@ Startup phase: prove that people want this, then that some will pay, before stab
 - [x] Durable Object load test: sustained MB/s per object, slow-receiver behaviour, cost per GB (`docs/spikes/0003-relay-load.md`: 28 to 78 MB/s per room, stalled recipients safe, about $0.19 to $0.70 per TiB at list prices, 120 GiB a day on the free plan; Cloudflare's edge negotiates WebSocket compression regardless of the flag)
 - [ ] Lossy-link test (phone hotspot): reliable ordered data channel versus unordered with zero retransmits plus want lists (ADR 0013)
 - [ ] Choose the relay cap (10, 25 or 50 GB) from the load test: completion rate with resume, duration per object, cost per transfer, and the share of transfers that would hit each cap
-  - 10 GB kept for now (spike 0003); the share hitting each cap waits for opt-in counters. An instance-wide daily relay budget is what protects a free-plan quota
+  - 25 GB by default (2026-10-29, after spike 0003); the share hitting each cap waits for opt-in counters. An instance-wide daily relay budget is what protects a free-plan quota
 - [x] Run the same Worker and Durable Object code (hibernation included) on workerd; confirm Effect services run inside a Durable Object (`docs/spikes/0001-workerd-durable-object.md`: yes on both; loopback relay 235 to 456 MB/s; compression must be off)
 - [ ] Record results in `docs/spikes/` and decide record size, frame size, and direct-first versus relay-first for large files
 
@@ -93,7 +93,7 @@ Repeat senders cannot be counted without identifying devices, which counters exc
 
 - Positioning: consumer, or teams from the start (test a team offer as a fake door in phase 2)
 - Adoption thresholds for the phase 1 gate (ADR 0019)
-- Default limits for new instances: 100 rooms per address per hour and 10 GB per room for now (spike 0003); an instance-wide daily relay budget is proposed
+- Default limits for new instances: 50 rooms per address per hour and 25 GB per room (2026-10-29); an instance-wide daily relay budget is proposed
 - Who gives parcel v1 its human applied-crypto review before launch
 - Brand name, domain, trademark, and who holds them
 - Vite with plain TypeScript or Astro for the landing page

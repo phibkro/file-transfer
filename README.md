@@ -28,7 +28,21 @@ bunx wrangler login
 bunx wrangler deploy
 ```
 
-Limits are variables in `platforms/cloudflare/wrangler.jsonc`; the site's "Run your own" page explains them.
+Limits are variables in `platforms/cloudflare/wrangler.jsonc`; the site's "Run your own" page explains them. By default one network address may start 50 transfers an hour, and one transfer may relay up to 25 GB.
+
+### What Cloudflare's free plan carries
+
+Estimates from Cloudflare's list prices and our load test ([spike 0003](docs/spikes/0003-relay-load.md)), not from an invoice. Cloudflare charges nothing for bandwidth; the relay is billed by Durable Object requests (20 incoming WebSocket messages count as one) and by duration. Every transfer goes through the relay today, so this is the whole instance's budget.
+
+| Per day on Workers Free             | About                                                       |
+| ----------------------------------- | ----------------------------------------------------------- |
+| Durable Object requests included    | 100,000                                                     |
+| Requests per GB relayed             | 775                                                         |
+| Relayed in total                    | 125 GB                                                      |
+| Full-size transfers at the defaults | 5 of 25 GB, or 12 of 10 GB, or 1,200 of 100 MB              |
+| Duration (13,000 GB-s)              | runs out first only if transfers average below about 1 MB/s |
+
+When the day's requests are used up, rooms stop working for everyone on the instance until the allowance resets: new transfers cannot start, and transfers in progress stop. The per-address limits do not prevent this, since five full-size transfers from one person are enough; an instance-wide daily budget is planned. On Workers Paid ($5 a month), the included million requests relay about 1,300 GB a month, and more costs roughly $0.17 to $0.64 per TB.
 
 On your own machine, with Docker (behind a proxy that terminates TLS; see [`platforms/self-hosted`](platforms/self-hosted/README.md)):
 

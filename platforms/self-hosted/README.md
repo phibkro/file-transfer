@@ -25,8 +25,8 @@ Environment variables, all optional:
 
 | Variable                           | Default            | Meaning                                      |
 | ---------------------------------- | ------------------ | -------------------------------------------- |
-| `LIMIT_ROOMS_PER_ADDRESS_PER_HOUR` | 100                | Rooms one client address may create per hour |
-| `LIMIT_RELAYED_BYTES_PER_ROOM`     | 10000000000        | Bytes relayed for one transfer               |
+| `LIMIT_ROOMS_PER_ADDRESS_PER_HOUR` | 50                 | Rooms one client address may create per hour |
+| `LIMIT_RELAYED_BYTES_PER_ROOM`     | 25000000000        | Bytes relayed for one transfer               |
 | `CLIENT_ADDRESS_HEADER`            | `cf-connecting-ip` | Header holding the client's address          |
 | `COUNTERS`                         | off                | `on` keeps aggregate counts (ADR 0019)       |
 | `COUNTERS_RETENTION_DAYS`          | 90                 | Days of hourly counts to keep                |

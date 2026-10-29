@@ -21,10 +21,10 @@ export interface Limits {
 
 export const defaultLimits: Limits = {
   // Generous, because many people can share one address (mobile carriers, universities, offices). Each room costs about
-  // three storage writes, so one address at this rate uses about 7% of Workers Free's 100,000 daily writes.
-  roomsPerAddressPerHour: 100,
-  // 10 GB, the transfer size phase 0 set out to prove; about 8,000 billed Durable Object requests on Workers Free.
-  relayedBytesPerRoom: 10_000_000_000,
+  // three storage writes, so one address at this rate uses about 3.6% of Workers Free's 100,000 daily writes.
+  roomsPerAddressPerHour: 50,
+  // 25 GB: about 19,400 billed Durable Object requests, a fifth of Workers Free's daily 100,000 (docs/spikes/0003).
+  relayedBytesPerRoom: 25_000_000_000,
   clientAddressHeader: "cf-connecting-ip",
 }
 

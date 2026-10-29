@@ -68,12 +68,12 @@
           <tbody>
             <tr>
               <td><code>LIMIT_ROOMS_PER_ADDRESS_PER_HOUR</code></td>
-              <td>100</td>
+              <td>50</td>
               <td>Transfers one network address may start per hour</td>
             </tr>
             <tr>
               <td><code>LIMIT_RELAYED_BYTES_PER_ROOM</code></td>
-              <td>10000000000 (10 GB)</td>
+              <td>25000000000 (25 GB)</td>
               <td>Bytes relayed for one transfer</td>
             </tr>
             <tr>
@@ -87,6 +87,52 @@
       <p>
         On Cloudflare, set them in <code>platforms/cloudflare/wrangler.jsonc</code> before deploying, or in the dashboard afterwards. In the container, pass
         them as environment variables (<code>docker run -e COUNTERS=on ...</code>).
+      </p>
+
+      <h2>What Cloudflare's free plan carries</h2>
+      <p>
+        Cloudflare charges nothing for bandwidth. It bills the relay by Durable Object requests, counting 20 incoming WebSocket messages as one, and by the time
+        a room is busy. Every transfer goes through the relay today, so the free plan's daily allowance is shared by everyone using your instance. These are
+        estimates from Cloudflare's list prices and our
+        <a href="https://github.com/phibkro/file-transfer/blob/main/docs/spikes/0003-relay-load.md">load test</a>, not from an invoice:
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">Per day on Workers Free</th>
+              <th scope="col">About</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Durable Object requests included</td>
+              <td>100,000</td>
+            </tr>
+            <tr>
+              <td>Requests per GB relayed</td>
+              <td>775</td>
+            </tr>
+            <tr>
+              <td>Relayed in total</td>
+              <td>125 GB</td>
+            </tr>
+            <tr>
+              <td>Full-size transfers at the defaults</td>
+              <td>5 of 25 GB, or 12 of 10 GB, or 1,200 of 100 MB</td>
+            </tr>
+            <tr>
+              <td>Time rooms are busy (13,000 GB-s)</td>
+              <td>Runs out first only if transfers average below about 1 MB/s</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        When the day's requests are used up, transfers on your instance stop until the allowance resets, for everyone: new ones cannot start, and ones in
+        progress stop. The per-address limits cannot prevent this, because five full-size transfers from one person are enough; an instance-wide daily budget is
+        planned. On Workers Paid ($5 a month), the included million requests relay about 1,300 GB a month, and more costs roughly $0.17 to $0.64 per TB. Running
+        it on your own machine has no such allowance: the limit is your connection.
       </p>
 
       <h2>Counters, if you want them</h2>
