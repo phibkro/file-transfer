@@ -1,0 +1,10 @@
+# @file-transfer/service-room
+
+## 0.1.0
+
+### Patch Changes
+
+- Updated dependencies [6b50b85]
+  - @file-transfer/parcel@1.0.0
+  - @file-transfer/machine@0.1.0
+  - @file-transfer/conformance@0.1.0
