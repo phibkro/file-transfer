@@ -1,4 +1,5 @@
 ---
+"@file-transfer/web": patch
 ---
 
-docs/state-machines.md now includes the recipient life cycle, generated from its table like the room and relay. Nothing ships.
+The web app exports its recipient life cycle table so docs/state-machines.md can be generated from it. Nothing changes for people using the app.
