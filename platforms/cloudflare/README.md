@@ -39,7 +39,7 @@ One-time setup:
 1. `gh secret set CLOUDFLARE_API_TOKEN` (paste the token) and `gh secret set CLOUDFLARE_ACCOUNT_ID --body <account id>`.
 1. Optionally require a reviewer on the `production` environment (repository Settings, Environments).
 1. `gh variable set DEPLOYMENTS --body enabled` turns the deploy jobs on; delete the variable to turn them off.
-1. Optionally, `gh secret set ADMIN_TOKEN` (opens `/admin` and `/api/admin/*`) and `gh secret set ADDRESS_SALT` (salts address hashes). The production deploy passes them to `alchemy.run.ts`, which declares them as Worker secrets. Set them this way rather than with `wrangler secret put`: Alchemy uploads the Worker's whole set of bindings, so a secret set by hand disappears on the next deploy. Counting itself is the `COUNTERS` variable in `wrangler.jsonc`.
+1. Optionally, `gh secret set ADMIN_TOKEN` (opens `/admin` and `/api/admin/*`). The salt for address hashes is generated on first use and kept by the instance; `gh secret set ADDRESS_SALT` only if you want to choose it. The production deploy passes these to `alchemy.run.ts`, which declares them as Worker secrets. Set them this way rather than with `wrangler secret put`: Alchemy uploads the Worker's whole set of bindings, so a secret set by hand disappears on the next deploy. Counting itself is the `COUNTERS` variable in `wrangler.jsonc`.
 
 ## Not yet here
 

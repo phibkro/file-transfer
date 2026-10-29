@@ -18,6 +18,8 @@
       { "name": "COUNTER_STORE", "class_name": "CountersObject" },
       // One per instance: bytes relayed today, against LIMIT_RELAYED_BYTES_PER_DAY (src/relayBudgetObject.ts).
       { "name": "RELAY_BUDGET", "class_name": "RelayBudgetObject" },
+      // One per instance: the random salt for address hashes, generated on first use (src/addressSaltObject.ts).
+      { "name": "ADDRESS_SALT_STORE", "class_name": "AddressSaltObject" },
     ],
   },
   "migrations": [
@@ -25,9 +27,11 @@
     { "tag": "v2", "new_sqlite_classes": ["AdmissionObject"] },
     { "tag": "v3", "new_sqlite_classes": ["CountersObject"] },
     { "tag": "v4", "new_sqlite_classes": ["RelayBudgetObject"] },
+    { "tag": "v5", "new_sqlite_classes": ["AddressSaltObject"] },
   ],
   // The operator's limits (src/limits.ts, docs/decisions/0019-open-source-first.md). Change them here, in the
-  // Cloudflare dashboard, or at deploy time. Set ADDRESS_SALT as a secret (`wrangler secret put ADDRESS_SALT`).
+  // Cloudflare dashboard, or at deploy time. The salt for address hashes is generated on first use; set ADDRESS_SALT
+  // as a secret only to choose it yourself.
   "vars": {
     "LIMIT_ROOMS_PER_ADDRESS_PER_HOUR": "50",
     "LIMIT_RELAYED_BYTES_PER_ROOM": "25000000000",

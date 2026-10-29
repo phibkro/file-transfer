@@ -23,16 +23,16 @@ Put a TLS-terminating proxy in front (Caddy, Traefik, nginx): browsers only allo
 
 Environment variables, all optional:
 
-| Variable                           | Default            | Meaning                                      |
-| ---------------------------------- | ------------------ | -------------------------------------------- |
-| `LIMIT_ROOMS_PER_ADDRESS_PER_HOUR` | 50                 | Rooms one client address may create per hour |
-| `LIMIT_RELAYED_BYTES_PER_ROOM`     | 25000000000        | Bytes relayed for one transfer               |
-| `LIMIT_RELAYED_BYTES_PER_DAY`      | off                | Bytes the instance relays per UTC day        |
-| `CLIENT_ADDRESS_HEADER`            | `cf-connecting-ip` | Header holding the client's address          |
-| `COUNTERS`                         | off                | `on` keeps aggregate counts (ADR 0019)       |
-| `COUNTERS_RETENTION_DAYS`          | 90                 | Days of hourly counts to keep                |
-| `ADMIN_TOKEN`                      | unset              | Opens `/admin` and `/api/admin/*`            |
-| `ADDRESS_SALT`                     | unset              | Secret mixed into address hashes             |
+| Variable                           | Default            | Meaning                                                          |
+| ---------------------------------- | ------------------ | ---------------------------------------------------------------- |
+| `LIMIT_ROOMS_PER_ADDRESS_PER_HOUR` | 50                 | Rooms one client address may create per hour                     |
+| `LIMIT_RELAYED_BYTES_PER_ROOM`     | 25000000000        | Bytes relayed for one transfer                                   |
+| `LIMIT_RELAYED_BYTES_PER_DAY`      | off                | Bytes the instance relays per UTC day                            |
+| `CLIENT_ADDRESS_HEADER`            | `cf-connecting-ip` | Header holding the client's address                              |
+| `COUNTERS`                         | off                | `on` keeps aggregate counts (ADR 0019)                           |
+| `COUNTERS_RETENTION_DAYS`          | 90                 | Days of hourly counts to keep                                    |
+| `ADMIN_TOKEN`                      | unset              | Opens `/admin` and `/api/admin/*`                                |
+| `ADDRESS_SALT`                     | generated          | Secret mixed into address hashes; set only to choose it yourself |
 
 ## Without Docker
 

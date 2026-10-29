@@ -41,16 +41,10 @@ writeFileSync(
   `// Generated from platforms/cloudflare/wrangler.jsonc in ${sourceUrl}; change settings in "vars" or the dashboard.\n${JSON.stringify(bundleConfiguration, undefined, 2)}\n`,
 )
 
-// Secrets the button asks for (both optional); see the site's "Run your own" page.
+// The one secret the button asks for (optional); the address salt is generated on first use. See "Run your own".
 writeFileSync(
   nodePath.join(output, ".dev.vars.example"),
-  [
-    "# Opens /admin and /api/admin/* for you, the operator. Leave empty to keep them closed.",
-    "ADMIN_TOKEN=",
-    "# A random secret mixed into the hashes of client addresses used for rate limits.",
-    "ADDRESS_SALT=",
-    "",
-  ].join("\n"),
+  ["# Opens /admin and /api/admin/* for you, the operator. Leave empty to keep them closed.", "ADMIN_TOKEN=", ""].join("\n"),
 )
 
 writeFileSync(
@@ -69,7 +63,7 @@ writeFileSync(
           COUNTER_STORE: { description: "Opt-in aggregate counters; empty unless COUNTERS is on." },
           RELAY_BUDGET: { description: "Bytes relayed today, against LIMIT_RELAYED_BYTES_PER_DAY; resets at 00:00 UTC." },
           ADMIN_TOKEN: { description: "Optional. Opens the operator page at /admin. Leave empty to keep it closed." },
-          ADDRESS_SALT: { description: "Optional. Any random string; mixed into address hashes." },
+          ADDRESS_SALT_STORE: { description: "Keeps the random salt for address hashes, generated on first use." },
         },
       },
     },

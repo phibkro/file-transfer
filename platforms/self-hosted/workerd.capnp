@@ -29,6 +29,7 @@ const roomWorker :Workerd.Worker = (
     (className = "AdmissionObject", uniqueKey = "file-transfer-admission", enableSql = true),
     (className = "CountersObject", uniqueKey = "file-transfer-counters", enableSql = true),
     (className = "RelayBudgetObject", uniqueKey = "file-transfer-relay-budget", enableSql = true),
+    (className = "AddressSaltObject", uniqueKey = "file-transfer-address-salt", enableSql = true),
   ],
   durableObjectStorage = (localDisk = "storage"),
   bindings = [
@@ -36,6 +37,7 @@ const roomWorker :Workerd.Worker = (
     (name = "ADMISSION", durableObjectNamespace = "AdmissionObject"),
     (name = "COUNTER_STORE", durableObjectNamespace = "CountersObject"),
     (name = "RELAY_BUDGET", durableObjectNamespace = "RelayBudgetObject"),
+    (name = "ADDRESS_SALT_STORE", durableObjectNamespace = "AddressSaltObject"),
     (name = "ASSETS", service = "assets"),
     (name = "LIMIT_ROOMS_PER_ADDRESS_PER_HOUR", fromEnvironment = "LIMIT_ROOMS_PER_ADDRESS_PER_HOUR"),
     (name = "LIMIT_RELAYED_BYTES_PER_ROOM", fromEnvironment = "LIMIT_RELAYED_BYTES_PER_ROOM"),

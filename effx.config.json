@@ -54,7 +54,8 @@
           "platforms/cloudflare/src/room.ts",
           "platforms/cloudflare/src/limits.ts",
           "platforms/cloudflare/src/counters.ts",
-          "platforms/cloudflare/src/relayBudget.ts"
+          "platforms/cloudflare/src/relayBudget.ts",
+          "platforms/cloudflare/src/salt.ts"
         ],
         "role": "effect-library",
         "platform": "portable"

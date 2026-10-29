@@ -30,8 +30,8 @@
         </li>
         <li>Deploy: <code>bunx wrangler deploy</code>. Wrangler prints your instance's address on <code>workers.dev</code>.</li>
         <li>
-          Optionally, attach your own domain in the Cloudflare dashboard, and set a salt for address hashing:
-          <code>bunx wrangler secret put ADDRESS_SALT</code>.
+          Optionally, attach your own domain in the Cloudflare dashboard. The salt that keeps address hashes from being reversed is generated on first use;
+          there is nothing to set.
         </li>
       </ol>
 
@@ -41,7 +41,7 @@
       </p>
       <p>
         Cloudflare copies a prebuilt version of this software into a new repository in your GitHub account and deploys it to your account, without installing
-        anything. It asks for two optional secrets: an admin token for the operator page, and a salt for address hashes. The
+        anything. It asks for one optional secret, an admin token for the operator page; everything else has a default. The
         <a href="https://github.com/phibkro/file-transfer/tree/deploy">deploy branch</a> it copies is built by CI from the main branch.
       </p>
 

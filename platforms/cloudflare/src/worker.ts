@@ -15,6 +15,8 @@
  */
 import type { DurableObjectNamespace, ExecutionContext, Fetcher } from "cloudflare:workers"
 import { constantTimeEqual, toHex } from "@file-transfer/parcel"
+import { addressSaltOf } from "./addressSalt.ts"
+import type { SaltEnvironment } from "./addressSalt.ts"
 import { askRelayBudget } from "./askRelayBudget.ts"
 import type { BudgetEnvironment } from "./askRelayBudget.ts"
 import { countersEnabled } from "./counters.ts"
@@ -25,6 +27,8 @@ import { counterStore, recordEvents } from "./recordEvents.ts"
 import type { CountingEnvironment } from "./recordEvents.ts"
 import { decodeCreateRoom, encodeRoomIdentifier, roomIdentifierPattern } from "./room.ts"
 
+export { AddressSaltObject } from "./addressSaltObject.ts"
+
 export { AdmissionObject } from "./admissionObject.ts"
 
 export { CountersObject } from "./countersObject.ts"
@@ -33,12 +37,10 @@ export { RelayBudgetObject } from "./relayBudgetObject.ts"
 
 export { RoomObject } from "./roomObject.ts"
 
-export interface Environment extends LimitVariables, CountingEnvironment, BudgetEnvironment {
+export interface Environment extends LimitVariables, CountingEnvironment, BudgetEnvironment, SaltEnvironment {
   readonly ROOMS: DurableObjectNamespace
   readonly ADMISSION: DurableObjectNamespace
   readonly ASSETS: Fetcher
-  /** Optional secret mixed into client keys, so a key cannot be matched to an address by hashing every address. */
-  readonly ADDRESS_SALT?: string
   /** Secret that opens `/api/admin/*`; without it those paths do not exist. */
   readonly ADMIN_TOKEN?: string
 }
@@ -53,13 +55,13 @@ const json = (status: number, body: Readonly<Record<string, string>>) => Respons
 const socketPath = /^\/api\/rooms\/(?<roomIdentifier>[^/]+)\/socket$/u
 
 /**
- * The key a client's room creations are counted under: a salted SHA-256 of its address. The address itself is never
- * stored, and the key lives only as long as its window (admissionObject.ts). Requests without the header (local runs)
- * share one key.
+ * The key a client's room creations are counted under: a salted SHA-256 of its address, so a key cannot be matched to
+ * an address by hashing every address. The address itself is never stored, and the key lives only as long as its
+ * window (admissionObject.ts). Requests without the header (local runs) share one key.
  */
-const clientKeyOf = async (request: Request, environment: Environment, limits: Limits): Promise<string> => {
+const clientKeyOf = async (request: Request, salt: string, limits: Limits): Promise<string> => {
   const address = request.headers.get(limits.clientAddressHeader) ?? "unknown"
-  const material = new TextEncoder().encode(`file-transfer/admission/v1\u0000${environment.ADDRESS_SALT ?? ""}\u0000${address}`)
+  const material = new TextEncoder().encode(`file-transfer/admission/v1\u0000${salt}\u0000${address}`)
 
   return toHex(new Uint8Array(await crypto.subtle.digest("SHA-256", material)))
 }
@@ -73,7 +75,13 @@ const tooMany = (error: string, retryAfterMilliseconds: number): Response => {
 
 /** Asks the client key's admission object for one more room; a `Response` when refused or unreachable. */
 const admit = async (request: Request, environment: Environment, limits: Limits): Promise<Response | undefined> => {
-  const clientKey = await clientKeyOf(request, environment, limits)
+  const salt = await addressSaltOf(environment)
+
+  if (salt === undefined) {
+    return unavailable()
+  }
+
+  const clientKey = await clientKeyOf(request, salt, limits)
   const body = JSON.stringify({ maximumRoomsPerWindow: limits.roomsPerAddressPerHour, windowMilliseconds: hourMilliseconds })
 
   // A retry after a lost answer can count one room twice against the client; that errs on the strict side.
