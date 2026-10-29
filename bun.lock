@@ -21,8 +21,9 @@
     },
     "apps/web": {
       "name": "@file-transfer/web",
-      "version": "0.1.0",
+      "version": "0.3.0",
       "dependencies": {
+        "@file-transfer/machine": "workspace:*",
         "@file-transfer/parcel": "workspace:*",
         "@file-transfer/transport": "workspace:*",
         "uplot": "1.6.32",
@@ -36,7 +37,7 @@
     },
     "libraries/client": {
       "name": "@file-transfer/client",
-      "version": "0.1.0",
+      "version": "0.1.2",
       "dependencies": {
         "@file-transfer/parcel": "workspace:*",
         "@file-transfer/sink": "workspace:*",
@@ -56,7 +57,7 @@
     },
     "libraries/parcel": {
       "name": "@file-transfer/parcel",
-      "version": "1.0.0",
+      "version": "1.0.1",
     },
     "libraries/sink": {
       "name": "@file-transfer/sink",
@@ -67,7 +68,7 @@
     },
     "libraries/transport": {
       "name": "@file-transfer/transport",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "dependencies": {
         "effect": "^4.0.7",
         "valibot": "1.5.0",
@@ -75,7 +76,7 @@
     },
     "platforms/cloudflare": {
       "name": "@file-transfer/platform-cloudflare",
-      "version": "0.1.0",
+      "version": "0.3.0",
       "dependencies": {
         "@file-transfer/parcel": "workspace:*",
         "@file-transfer/service-quota": "workspace:*",
@@ -95,7 +96,7 @@
     },
     "platforms/self-hosted": {
       "name": "@file-transfer/platform-self-hosted",
-      "version": "0.1.0",
+      "version": "0.3.0",
       "devDependencies": {
         "esbuild": "^0.28.0",
         "workerd": "^1.20261028.1",
@@ -103,7 +104,7 @@
     },
     "services/abuse": {
       "name": "@file-transfer/service-abuse",
-      "version": "0.1.0",
+      "version": "0.3.0",
       "dependencies": {
         "@file-transfer/conformance": "workspace:*",
         "effect": "^4.0.7",
@@ -111,7 +112,7 @@
     },
     "services/quota": {
       "name": "@file-transfer/service-quota",
-      "version": "0.1.0",
+      "version": "0.3.0",
       "dependencies": {
         "@file-transfer/conformance": "workspace:*",
         "effect": "^4.0.7",
@@ -119,7 +120,7 @@
     },
     "services/relay": {
       "name": "@file-transfer/service-relay",
-      "version": "0.1.0",
+      "version": "0.3.0",
       "dependencies": {
         "@file-transfer/conformance": "workspace:*",
         "@file-transfer/machine": "workspace:*",
@@ -128,7 +129,7 @@
     },
     "services/room": {
       "name": "@file-transfer/service-room",
-      "version": "0.1.0",
+      "version": "0.3.0",
       "dependencies": {
         "@file-transfer/conformance": "workspace:*",
         "@file-transfer/machine": "workspace:*",
@@ -138,7 +139,7 @@
     },
     "services/telemetry": {
       "name": "@file-transfer/service-telemetry",
-      "version": "0.1.0",
+      "version": "0.3.0",
       "dependencies": {
         "@file-transfer/conformance": "workspace:*",
         "effect": "^4.0.7",

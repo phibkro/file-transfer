@@ -101,6 +101,7 @@
           "apps/web/src/credits.ts",
           "apps/web/src/selection.ts",
           "apps/web/src/sniff.ts",
+          "apps/web/src/recipientPhase.ts",
           "apps/web/scripts/faultPlan.ts"
         ],
         "role": "pure-library",

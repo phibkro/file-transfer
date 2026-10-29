@@ -29,6 +29,8 @@ import {
 import { setUnsavedFiles } from "./leaveGuard.ts"
 import { offerRemoval } from "./storagePanel.ts"
 import { previewButton } from "./preview.ts"
+import { isAccepted, isSettled, nextPhase } from "./recipientPhase.ts"
+import type { RecipientCommand, RecipientPhase } from "./recipientPhase.ts"
 import { nameField } from "./rename.ts"
 import { saveAllControl } from "./saveAll.ts"
 import { renameProblem } from "./selection.ts"
@@ -128,12 +130,13 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
   let received: RecordSet | undefined
   let fileSizes: readonly number[] = []
   let storage: ParcelStorage | undefined
-  let decision: "pending" | "accepted" | "declined" = "pending"
-  let finished = false
-  // Set once every file is committed. The recipient then stays connected for a while, repeating `complete` whenever
-  // the sender rejoins or offers the contract again, because a `complete` sent while the sender reconnects is lost.
-  let completed = false
+  // The life cycle (recipientPhase.ts). Once Completed, the recipient stays connected for a while, repeating `complete`
+  // whenever the sender rejoins or offers the contract again, because a `complete` sent while the sender reconnects is
+  // lost.
+  let phase: RecipientPhase = "Opening"
   let senderPresent = false
+  // Accept and Decline, while the offer is on screen; removed whenever the recipient leaves Reviewing.
+  let offerActions: HTMLElement | undefined
   let chain: Promise<void> = Promise.resolve()
   const dropped = new Set<number>()
   let wantTimer: ReturnType<typeof setTimeout> | undefined
@@ -203,13 +206,32 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
 
   const send = (message: ControlMessage) => connection?.sendControl(message)
 
-  /** Stops the transfer for `reason`; `fromSender` when the sender's abort carried it. */
-  const stop = async (reason: string, fromSender: boolean) => {
-    if (finished) {
-      return
+  /** Moves to the phase `command` leads to; false, and no move, when the table rejects `command` in this phase. */
+  const move = (command: RecipientCommand): boolean => {
+    const next = nextPhase(phase, command)
+
+    if (next === undefined) {
+      return false
     }
 
-    finished = true
+    phase = next
+
+    if (phase !== "Reviewing") {
+      offerActions?.remove()
+      offerActions = undefined
+    }
+
+    return true
+  }
+
+  /**
+   * Stops the transfer for `reason`: tells the sender (unless its abort carried the reason), discards what was stored
+   * and releases the storage lock. `command` is `commitFailed` when saving the files failed, and `fail` otherwise.
+   */
+  const stop = async (reason: string, fromSender: boolean, command: "fail" | "commitFailed" = "fail") => {
+    if (!move(command)) {
+      return
+    }
 
     if (!fromSender) {
       send({ type: "abort", reason })
@@ -223,7 +245,7 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
 
   const fail = async (cause: unknown) => {
     setFailureDetail(cause)
-    await stop(reasonOf(cause), false)
+    await stop(reasonOf(cause), false, phase === "Committing" ? "commitFailed" : "fail")
   }
 
   const topUp = () => {
@@ -260,14 +282,18 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
   }
 
   const finish = async () => {
-    if (receiver === undefined || storage === undefined || finished) {
+    if (receiver === undefined || storage === undefined || !move("lastRecordStored")) {
       return
     }
 
-    finished = true
     const { manifest } = receiver
+    // A failure here reaches fail through the unit chain, in Committing, so it leads to Failed (commitFailed).
     const files = await storage.commit()
-    completed = true
+
+    if (!move("commitSucceeded")) {
+      return
+    }
+
     announceCompletion()
     setTimeout(() => {
       connection?.close()
@@ -335,7 +361,7 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
   const flushWant = () => {
     wantTimer = undefined
 
-    if (finished || dropped.size === 0) {
+    if (phase !== "Receiving" || dropped.size === 0) {
       return
     }
 
@@ -344,20 +370,28 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
   }
 
   const onAccept = async () => {
-    if (receiver === undefined || decision !== "pending") {
+    if (receiver === undefined || !move("accept")) {
       return
     }
 
-    decision = "accepted"
+    let opened: ParcelStorage
 
     try {
-      storage = await openStorage(roomIdentifier, receiver.manifest.files.length)
+      opened = await openStorage(roomIdentifier, receiver.manifest.files.length)
     } catch {
       await fail(new TransferError("storage-unavailable"))
 
       return
     }
 
+    // The transfer may have failed while storage opened (an abort from the sender, say): give the storage back.
+    if (!move("storageOpened")) {
+      await opened.discard()
+
+      return
+    }
+
+    storage = opened
     setStatus("transferring")
     progress = progressBar("Receiving files")
     section.append(progress.node)
@@ -373,14 +407,15 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
     const accept = element("button", { type: "button", class: "primary" }, ["Accept"])
     const decline = element("button", { type: "button" }, ["Decline"])
     const actions = element("div", { class: "actions" }, [accept, decline])
+    offerActions = actions
     accept.addEventListener("click", () => {
-      actions.remove()
       void onAccept()
     })
     decline.addEventListener("click", () => {
-      actions.remove()
-      decision = "declined"
-      finished = true
+      if (!move("decline")) {
+        return
+      }
+
       send({ type: "decline", sequence })
       connection?.close()
       setStatus("declined")
@@ -431,7 +466,7 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
         throw new TransferError("contract-mismatch")
       }
 
-      if (decision === "accepted") {
+      if (isAccepted(phase)) {
         sendAcceptance(true)
       }
 
@@ -468,11 +503,14 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
     fileSizes = receiver.manifest.files.map((file) => file.size)
     manifestPlaintexts = []
     manifestRecords = []
-    showOffer(receiver.manifest)
+
+    if (move("contractOpened")) {
+      showOffer(receiver.manifest)
+    }
   }
 
   const onLabelPage = async (page: number, bytes: Uint8Array) => {
-    if (receiver === undefined || received === undefined || decision !== "accepted") {
+    if (receiver === undefined || received === undefined || !isAccepted(phase)) {
       return
     }
 
@@ -489,7 +527,7 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
   }
 
   const onDataRecord = async (index: number, bytes: Uint8Array, current: boolean) => {
-    if (receiver === undefined || received === undefined || storage === undefined || decision !== "accepted") {
+    if (receiver === undefined || received === undefined || storage === undefined || phase !== "Receiving") {
       return
     }
 
@@ -551,7 +589,7 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
   }
 
   const handleUnit = async (unit: Unit, epoch: number) => {
-    if (completed) {
+    if (phase === "Completed") {
       // The sender offering the contract again means it reconnected without hearing `complete`.
       if (unit.kind === "header") {
         announceCompletion()
@@ -560,7 +598,7 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
       return
     }
 
-    if (finished) {
+    if (isSettled(phase)) {
       return
     }
 
@@ -606,7 +644,7 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
   }
 
   const onControl = (message: ControlMessage) => {
-    if (completed) {
+    if (phase === "Completed") {
       const senderJoined =
         (message.type === "joined" && message.senderPresent) || (message.type === "peer" && message.role === "sender" && message.event === "joined")
 
@@ -620,7 +658,7 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
       return
     }
 
-    if (finished) {
+    if (isSettled(phase)) {
       return
     }
 
@@ -629,9 +667,9 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
         senderPresent = message.senderPresent
 
         if (!senderPresent) {
-          setStatus(decision === "accepted" ? "reconnecting" : "waiting-for-sender")
+          setStatus(isAccepted(phase) ? "reconnecting" : "waiting-for-sender")
           say("Waiting for the sender.")
-        } else if (decision !== "accepted") {
+        } else if (!isAccepted(phase)) {
           setStatus("waiting-for-sender")
         }
 
@@ -682,20 +720,20 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
   const onPath = (path: PathName) => {
     setPath(path)
 
-    if (path === "relay" && decision === "accepted" && !finished && !completed && senderPresent) {
+    if (path === "relay" && phase === "Receiving" && senderPresent) {
       sendAcceptance(true)
     }
   }
 
   // A stalled transfer (records missing, none arriving, sender present) asks for everything still missing.
   const stallCheck = setInterval(() => {
-    if (finished) {
+    if (isSettled(phase)) {
       clearInterval(stallCheck)
 
       return
     }
 
-    if (decision !== "accepted" || received === undefined || !senderPresent || connection?.isJoined() !== true) {
+    if (phase !== "Receiving" || received === undefined || !senderPresent || connection?.isJoined() !== true) {
       return
     }
 
@@ -721,14 +759,14 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
         onControl,
         onUnit,
         onState: (state) => {
-          if (finished) {
+          if (isSettled(phase)) {
             return
           }
 
           if (state === "reconnecting") {
             setStatus("reconnecting")
             say("Connection lost. Reconnecting.")
-          } else if (state === "joined" && decision === "accepted") {
+          } else if (state === "joined" && phase === "Receiving") {
             setStatus("transferring")
             say("Receiving.")
           }
