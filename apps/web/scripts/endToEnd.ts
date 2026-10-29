@@ -12,7 +12,8 @@
  * - decline: the sender sees the refusal;
  * - wrong key: a damaged link fails on the recipient, and a well-formed wrong key is refused by the room;
  * - recipient life cycle: a failure while reviewing removes Accept and Decline, an abort while storage opens gives the
- *   storage back, and a failure while saving the files tells the sender and releases the storage (docs/spikes/0006);
+ *   storage back, a rejoin while storage opens says it is receiving, and a failure while saving the files tells the
+ *   sender and releases the storage (docs/spikes/0006);
  * - invariant: no request URL and no socket frame either browser sends carries the link secret or a file name.
  *
  * Sockets are cut through Playwright's WebSocket routing (close code 1012, "service restart"), so the server needs no
@@ -976,7 +977,8 @@ const heldLocks = async (page: Page) =>
 
 /**
  * The recipient's life cycle (src/recipientPhase.ts) at the points spike 0006 found broken: R2, a failure while the offer
- * is on screen; R3, an abort while storage is opening; R1, saving the files fails. Faults come from the network (an
+ * is on screen; R3, an abort while storage is opening; a rejoin while storage is opening (found in review of #18); R1,
+ * saving the files fails. Faults come from the network (an
  * abort frame on the routed socket) and from the browser's storage API (an init script that delays or breaks it).
  */
 const recipientLifeCycle = async (browser: Browser, base: string) => {
