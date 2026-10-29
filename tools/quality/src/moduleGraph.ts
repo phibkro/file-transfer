@@ -23,7 +23,8 @@ export type KindRules = { readonly [K in Kind]: KindRule }
 
 /** The package-kind table of CLAUDE.md, as data. */
 export const kindRules: KindRules = {
-  library: { directory: "libraries", mayDependOn: ["library"], externals: ["effect"], runtimeModules: false },
+  // Valibot: wire contracts the browser decodes, as Standard Schema without Effect's size (docs/decisions/0020).
+  library: { directory: "libraries", mayDependOn: ["library"], externals: ["effect", "valibot"], runtimeModules: false },
   service: { directory: "services", mayDependOn: ["library"], externals: ["effect"], runtimeModules: false },
   platform: { directory: "platforms", mayDependOn: ["service", "library", "integration"], externals: "any", runtimeModules: true },
   integration: { directory: "integrations", mayDependOn: ["library"], externals: "any", runtimeModules: true },

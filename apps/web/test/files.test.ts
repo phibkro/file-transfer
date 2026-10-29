@@ -1,4 +1,3 @@
-import { Result } from "effect"
 import * as fc from "fast-check"
 import { describe, expect, it } from "vite-plus/test"
 import { fileStarts, spansFor } from "../src/files.ts"
@@ -7,11 +6,11 @@ import type { FileSpan } from "../src/files.ts"
 const spans = (sizes: readonly number[], offset: number, length: number): readonly FileSpan[] => {
   const result = spansFor(sizes, offset, length)
 
-  if (Result.isFailure(result)) {
+  if (!result.ok) {
     throw new Error(`unexpected failure for ${offset} + ${length}`)
   }
 
-  return result.success
+  return result.spans
 }
 
 /** The concatenated stream, then each file read back from the spans of every record. */
@@ -68,7 +67,7 @@ describe("offset mapping from the stream to files", () => {
       [0, 0.5],
     ] as const) {
       const result = spansFor([4], offset, length)
-      expect(Result.isFailure(result) ? result.failure._tag : "spans").toBe("SpanOutsideStream")
+      expect(result.ok ? "spans" : result.error._tag).toBe("SpanOutsideStream")
     }
   })
 })

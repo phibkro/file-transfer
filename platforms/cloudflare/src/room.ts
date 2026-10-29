@@ -141,7 +141,7 @@ export const joinTokenOf = (text: string): string | undefined => {
 
   const decoded = decodeControlMessage(text)
 
-  return Result.isSuccess(decoded) && decoded.success.type === "join" ? decoded.success.roomToken : undefined
+  return decoded.ok && decoded.value.type === "join" ? decoded.value.roomToken : undefined
 }
 
 /**
@@ -221,11 +221,11 @@ export const decide = (self: Attachment, participants: readonly Participant[], e
       if (!self.admitted) {
         const decoded = decodeControlMessage(event.text)
 
-        if (Result.isFailure(decoded) || decoded.success.type !== "join" || event.admission === undefined) {
+        if (!decoded.ok || decoded.value.type !== "join" || event.admission === undefined) {
           return violation(errorReasons.notAJoin)
         }
 
-        return join(participants, decoded.success.role, event.admission)
+        return join(participants, decoded.value.role, event.admission)
       }
 
       const type = messageType(event.text)

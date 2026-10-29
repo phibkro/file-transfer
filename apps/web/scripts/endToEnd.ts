@@ -326,7 +326,15 @@ const offer = async (sender: Page, base: string, files: readonly PayloadFile[]) 
   const link = await sender.inputValue("#link")
   check(new URL(link).hash.length > 32, "Show link reveals the full link")
   await sender.getByRole("button", { name: "Show QR code" }).click()
-  check(await sender.locator("#share-qr svg").isVisible(), "Show QR code draws the QR code")
+
+  // The encoder loads on first use (src/share.ts), so the code appears a moment after the click.
+  const qrDrawn = await sender
+    .locator("#share-qr svg")
+    .waitFor({ state: "visible", timeout: 10_000 })
+    .then(() => true)
+    .catch(() => false)
+
+  check(qrDrawn, "Show QR code draws the QR code")
   await sender.getByRole("button", { name: "Hide QR code" }).click()
   check(await sender.locator("#share-qr").isHidden(), "Hide QR code hides it again")
 

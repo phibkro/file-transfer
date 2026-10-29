@@ -1,53 +1,72 @@
 /**
  * The room and relay protocol (docs/protocol.md): control messages as JSON text frames, parcel units as binary
- * frames with a 9-byte prefix. Decoding never throws; it returns a Result.
+ * frames with a 9-byte prefix. Decoding never throws; it returns a `Decoded` value.
+ *
+ * The control messages are defined once, with Valibot, and the schema is a Standard Schema (standardschema.dev), so
+ * any consumer reads it through that interface: the browser directly, Effect code through `~standard.validate`. The
+ * browser imports this file only (`@file-transfer/transport/protocol`), never Effect: Valibot's validators for this
+ * contract weigh about 8 KB against about 76 KB of Effect Schema (docs/decisions/0020-wire-contracts-in-standard-schema.md).
  */
-import { Data, Result, Schema } from "effect"
+import * as v from "valibot"
 
-const hex64 = Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/u))
-const sequence = Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 0xff_ff_ff_ff }))
-const recordIndex = Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 0xff_ff_ff_ff }))
-const role = Schema.Literals(["sender", "recipient"])
+const hex64 = v.pipe(v.string(), v.regex(/^[0-9a-f]{64}$/u))
+const u32 = v.pipe(v.number(), v.safeInteger(), v.minValue(0), v.maxValue(0xff_ff_ff_ff))
+const role = v.picklist(["sender", "recipient"])
 
-export const Join = Schema.Struct({ type: Schema.Literal("join"), role, roomToken: hex64 })
+// `object`, not `strictObject`: unknown keys are dropped, so a newer peer may add fields an older one ignores.
+export const Join = v.object({ type: v.literal("join"), role, roomToken: hex64 })
 
-export const Joined = Schema.Struct({
-  type: Schema.Literal("joined"),
-  participantIdentifier: Schema.String,
-  senderPresent: Schema.Boolean,
-  recipientCount: Schema.Int,
+export const Joined = v.object({
+  type: v.literal("joined"),
+  participantIdentifier: v.string(),
+  senderPresent: v.boolean(),
+  recipientCount: v.pipe(v.number(), v.safeInteger()),
 })
 
-export const Peer = Schema.Struct({ type: Schema.Literal("peer"), event: Schema.Literals(["joined", "left"]), role })
-export const ErrorMessage = Schema.Struct({ type: Schema.Literal("error"), reason: Schema.String })
-export const Accept = Schema.Struct({ type: Schema.Literal("accept"), sequence, digest: hex64 })
-export const Decline = Schema.Struct({ type: Schema.Literal("decline"), sequence })
-export const Credit = Schema.Struct({ type: Schema.Literal("credit"), records: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 4096 })) })
+export const Peer = v.object({ type: v.literal("peer"), event: v.picklist(["joined", "left"]), role })
+export const ErrorMessage = v.object({ type: v.literal("error"), reason: v.string() })
+export const Accept = v.object({ type: v.literal("accept"), sequence: u32, digest: hex64 })
+export const Decline = v.object({ type: v.literal("decline"), sequence: u32 })
+export const Credit = v.object({ type: v.literal("credit"), records: v.pipe(v.number(), v.safeInteger(), v.minValue(1), v.maxValue(4096)) })
 
-export const Want = Schema.Struct({
-  type: Schema.Literal("want"),
-  sequence,
-  ranges: Schema.Array(Schema.Tuple([recordIndex, recordIndex])).check(Schema.isMaxLength(1024)),
+export const Want = v.object({
+  type: v.literal("want"),
+  sequence: u32,
+  ranges: v.pipe(v.array(v.pipe(v.tuple([u32, u32]), v.readonly())), v.maxLength(1024), v.readonly()),
 })
 
-export const Complete = Schema.Struct({ type: Schema.Literal("complete"), sequence })
-export const Abort = Schema.Struct({ type: Schema.Literal("abort"), reason: Schema.String.check(Schema.isMaxLength(200)) })
+export const Complete = v.object({ type: v.literal("complete"), sequence: u32 })
+export const Abort = v.object({ type: v.literal("abort"), reason: v.pipe(v.string(), v.maxLength(200)) })
 
-export const ControlMessage = Schema.Union([Join, Joined, Peer, ErrorMessage, Accept, Decline, Credit, Want, Complete, Abort])
+/** Every control message, as one schema; a Standard Schema through its `~standard` property. */
+export const ControlMessage = v.variant("type", [Join, Joined, Peer, ErrorMessage, Accept, Decline, Credit, Want, Complete, Abort])
 
-export type ControlMessage = typeof ControlMessage.Type
+export type ControlMessage = v.InferOutput<typeof ControlMessage>
 
-export type Role = typeof role.Type
+export type Role = v.InferOutput<typeof role>
 
 /** Messages a room relays from recipients to the sender without reading them. */
 export const recipientToSenderTypes: readonly ControlMessage["type"][] = ["accept", "decline", "credit", "want", "complete", "abort"]
 
-export class ProtocolError extends Data.TaggedError("ProtocolError")<{ readonly reason: string }> {}
+/** The outcome of decoding untrusted input: the value, or why it was refused. */
+export type Decoded<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly reason: string }
 
-const decodeControl = Schema.decodeUnknownResult(Schema.fromJsonString(ControlMessage))
+const refuse = <T>(reason: string): Decoded<T> => ({ ok: false, reason })
 
-export const decodeControlMessage = (text: string): Result.Result<ControlMessage, ProtocolError> =>
-  Result.mapError(decodeControl(text), (issue) => new ProtocolError({ reason: `not a control message: ${String(issue)}` }))
+/** Parses and validates one control message; anything else is refused with a reason, never thrown. */
+export const decodeControlMessage = (text: string): Decoded<ControlMessage> => {
+  let parsed: unknown
+
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    return refuse("not a control message: not JSON")
+  }
+
+  const result = v.safeParse(ControlMessage, parsed)
+
+  return result.success ? { ok: true, value: result.output } : refuse(`not a control message: ${result.issues[0].message}`)
+}
 
 export const encodeControlMessage = (message: ControlMessage): string => JSON.stringify(message)
 
@@ -78,17 +97,17 @@ export const encodeUnit = (unit: Unit): Uint8Array<ArrayBuffer> => {
   return frame
 }
 
-export const decodeUnit = (frame: Uint8Array): Result.Result<Unit, ProtocolError> => {
+export const decodeUnit = (frame: Uint8Array): Decoded<Unit> => {
   if (frame.length < unitPrefixLength) {
-    return Result.fail(new ProtocolError({ reason: "frame shorter than its prefix" }))
+    return refuse("frame shorter than its prefix")
   }
 
   const view = new DataView(frame.buffer, frame.byteOffset, frame.byteLength)
   const kind = kindByCode.get(view.getUint8(0))
 
   if (kind === undefined) {
-    return Result.fail(new ProtocolError({ reason: `unknown unit kind ${view.getUint8(0)}` }))
+    return refuse(`unknown unit kind ${view.getUint8(0)}`)
   }
 
-  return Result.succeed({ kind, sequence: view.getUint32(1), index: view.getUint32(5), bytes: frame.subarray(unitPrefixLength) })
+  return { ok: true, value: { kind, sequence: view.getUint32(1), index: view.getUint32(5), bytes: frame.subarray(unitPrefixLength) } }
 }

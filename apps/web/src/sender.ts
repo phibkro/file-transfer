@@ -22,7 +22,7 @@ import {
   toHex,
 } from "@file-transfer/parcel"
 import type { Contract, ManifestFile, ParcelSealer, RecordReader } from "@file-transfer/parcel"
-import type { ControlMessage } from "@file-transfer/transport"
+import type { ControlMessage } from "@file-transfer/transport/protocol"
 import { receiveCredit, spendCredit } from "./credits.ts"
 import type { CreditBalance } from "./credits.ts"
 import { openConnection } from "./connection.ts"

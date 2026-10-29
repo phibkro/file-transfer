@@ -10,7 +10,6 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import nodePath from "node:path"
 import { decodeControlMessage, encodeControlMessage, encodeUnit } from "@file-transfer/transport"
-import { Result } from "effect"
 import type { ControlMessage, Unit } from "@file-transfer/transport"
 
 const roomToken = "c123f8631c7587e150411d4221c44c682b288fdeb07bc3e0224b312b8d71ff35"
@@ -176,11 +175,11 @@ const nextControl = async (client: Client): Promise<ControlMessage> => {
 
   const decoded = decodeControlMessage(message)
 
-  if (Result.isFailure(decoded)) {
+  if (!decoded.ok) {
     throw new TypeError(`expected a control message, got ${message}`)
   }
 
-  return decoded.success
+  return decoded.value
 }
 
 const nextFrame = async (client: Client): Promise<Uint8Array> => {

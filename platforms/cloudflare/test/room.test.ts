@@ -4,7 +4,6 @@
  */
 import { decodeControlMessage, encodeControlMessage } from "@file-transfer/transport"
 import type { ControlMessage } from "@file-transfer/transport"
-import { Result } from "effect"
 import { describe, expect, it } from "vite-plus/test"
 import {
   decide,
@@ -42,11 +41,11 @@ const joinAs = (role: "sender" | "recipient", participants: readonly Participant
 const decoded = (text: string): ControlMessage => {
   const result = decodeControlMessage(text)
 
-  if (Result.isFailure(result)) {
+  if (!result.ok) {
     throw new Error(`not a control message: ${text}`)
   }
 
-  return result.success
+  return result.value
 }
 
 /** Asserts the room answered with an error naming `reason` and then closed the socket as a violation. */

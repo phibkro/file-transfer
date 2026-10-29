@@ -2,9 +2,8 @@
  * One endpoint's socket to its room (docs/protocol.md): joins on open, decodes control messages and parcel units,
  * and rejoins with backoff when the socket drops, until the room refuses or the caller closes.
  */
-import { decodeControlMessage, decodeUnit, encodeControlMessage, encodeUnit } from "@file-transfer/transport"
-import type { ControlMessage, Role, Unit } from "@file-transfer/transport"
-import { Result } from "effect"
+import { decodeControlMessage, decodeUnit, encodeControlMessage, encodeUnit } from "@file-transfer/transport/protocol"
+import type { ControlMessage, Role, Unit } from "@file-transfer/transport/protocol"
 
 /** Text frames carry control messages; binary frames carry parcel units. */
 const isTextFrame = (data: unknown): data is string => typeof data === "string"
@@ -68,11 +67,11 @@ export const openConnection = (options: ConnectionOptions): Connection => {
       if (isTextFrame(event.data)) {
         const decoded = decodeControlMessage(event.data)
 
-        if (Result.isFailure(decoded)) {
+        if (!decoded.ok) {
           return
         }
 
-        const message = decoded.success
+        const message = decoded.value
 
         if (message.type === "joined") {
           joined = true
@@ -94,8 +93,8 @@ export const openConnection = (options: ConnectionOptions): Connection => {
       if (event.data instanceof ArrayBuffer) {
         const decoded = decodeUnit(new Uint8Array(event.data))
 
-        if (Result.isSuccess(decoded)) {
-          handlers.onUnit(decoded.success, epoch)
+        if (decoded.ok) {
+          handlers.onUnit(decoded.value, epoch)
         }
       }
     })

@@ -6,13 +6,16 @@
  * matrix comes from uqr (MIT, unjs/uqr) and is drawn with DOM calls, never as markup. Nothing here sends the link
  * anywhere except where the person chooses to share it.
  */
-import { encode } from "uqr"
 import { element } from "./view.ts"
 
 const svgNamespace = "http://www.w3.org/2000/svg"
 
-/** The link as a QR code: one path of unit squares, with the standard four-module quiet zone. */
-const qrCode = (link: string): SVGSVGElement => {
+/**
+ * The link as a QR code: one path of unit squares, with the standard four-module quiet zone. The encoder is loaded on
+ * first use, so pages where nobody asks for a QR code never download it.
+ */
+const qrCode = async (link: string): Promise<SVGSVGElement> => {
+  const { encode } = await import("uqr")
   const { data, size } = encode(link, { ecc: "M", border: 4 })
   const path = data.flatMap((row, y) => row.flatMap((dark, x) => (dark ? [`M${x} ${y}h1v1h-1z`] : []))).join("")
   const svg = document.createElementNS(svgNamespace, "svg")
@@ -83,13 +86,21 @@ export const sharePanel = (link: string): HTMLElement => {
 
   const qrFigure = element("figure", { class: "share-qr", id: "share-qr", hidden: "" }, [element("figcaption", {}, ["Scan to open on a phone"])])
 
-  const revealQr = toggleButton("Show QR code", "Hide QR code", "share-qr", (shown) => {
+  const showQr = async () => {
     // Drawn on first use only, so the secret is never rendered unless asked for.
-    if (shown && qrFigure.querySelector("svg") === null) {
-      qrFigure.prepend(qrCode(link))
+    if (qrFigure.querySelector("svg") === null) {
+      qrFigure.prepend(await qrCode(link))
     }
 
-    qrFigure.hidden = !shown
+    qrFigure.hidden = false
+  }
+
+  const revealQr = toggleButton("Show QR code", "Hide QR code", "share-qr", (shown) => {
+    if (shown) {
+      void showQr()
+    } else {
+      qrFigure.hidden = true
+    }
   })
 
   const actions = element("div", { class: "share-actions" }, [copy])

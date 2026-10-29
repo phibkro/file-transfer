@@ -12,7 +12,7 @@ Every package belongs to exactly one kind. Put new code in the right one.
 
 | Kind        | Directory        | What belongs here                                                                                                                                                           | May import                                              |
 | ----------- | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
-| Library     | `libraries/*`    | Developer-facing reusable source code for any client (parcel, transport, sink, client SDK)                                                                                  | other libraries, `effect`                               |
+| Library     | `libraries/*`    | Developer-facing reusable source code for any client (parcel, transport, sink, client SDK)                                                                                  | other libraries, `effect`, `valibot` (ADR 0020)         |
 | Service     | `services/*`     | Implementation-independent subdomain models: an Effect service declaration (tag + interface), domain types, pure logic, an in-memory reference layer, and conformance tests | libraries, `effect` only; never a runtime or vendor API |
 | Platform    | `platforms/*`    | Layers implementing every declared service on one runtime (`cloudflare`, `self-hosted`)                                                                                     | services, libraries, integrations, runtime APIs         |
 | Integration | `integrations/*` | Adapters to external runtime systems behind ports that services declare (TURN, captcha, analytics, later object storage, payments, email)                                   | libraries, `effect`, vendor SDKs                        |
@@ -27,7 +27,8 @@ Platforms are isomorphic: `cloudflare` and `self-hosted` provide a Layer for the
 
 - TypeScript 7, strict mode, ES modules, Bun workspaces, Vite+ (`vp`) for formatting, linting, type checking, tests and builds (docs/decisions/0010). Effect 4 for services, layers, streams and errors.
 - Names use full words: `RoomIdentifier`, not `RoomId`; `createRoom`, not `mkRoom`. Abbreviations only when unambiguous and universal (`url`, `http`, `id` inside compound protocol field names defined in `docs/parcel.md`).
-- Errors are typed (`Data.TaggedError`), never thrown strings.
+- Errors are typed (`Data.TaggedError`), never thrown strings. Code the browser loads returns plain data instead (`Decoded<T>`) and never imports Effect (ADR 0020).
+- Wire contracts are Valibot schemas exposed as Standard Schema, defined once and decoded at the boundary (ADR 0020).
 - Services and libraries take capabilities (`Clock`, `Crypto`, project services) from the environment; never reach for `crypto`, `Date`, `console` or runtime modules directly. `effx check` enforces this per file role, declared in `effx.config.json`.
 - Life cycles are transition tables from `libraries/machine` (docs/decisions/0008).
 - `AGENTS.fragment.md` (installed by `effx init`) is the Effect profile the lint enforces; read it before writing Effect code.

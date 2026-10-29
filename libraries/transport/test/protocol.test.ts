@@ -1,8 +1,7 @@
-import { Result } from "effect"
 import * as fc from "fast-check"
 import { describe, expect, it } from "vite-plus/test"
-import { decodeControlMessage, decodeUnit, encodeControlMessage, encodeUnit, unitKind } from "../src/index.ts"
-import type { ControlMessage, UnitKind } from "../src/index.ts"
+import { ControlMessage, decodeControlMessage, decodeUnit, encodeControlMessage, encodeUnit, unitKind } from "../src/index.ts"
+import type { UnitKind } from "../src/index.ts"
 
 const hex = "ab".repeat(32)
 
@@ -30,8 +29,32 @@ describe("control messages", () => {
 
     for (const message of messages) {
       const decoded = decodeControlMessage(encodeControlMessage(message))
-      expect(Result.isSuccess(decoded) ? decoded.success : decoded.failure).toEqual(message)
+      expect(decoded.ok ? decoded.value : decoded.reason).toEqual(message)
     }
+  })
+
+  it("drops unknown keys, so newer peers may add fields", () => {
+    const decoded = decodeControlMessage(JSON.stringify({ type: "credit", records: 8, priority: "high" }))
+    expect(decoded.ok ? decoded.value : decoded.reason).toEqual({ type: "credit", records: 8 })
+  })
+
+  it("refuses integers JavaScript cannot represent exactly", () => {
+    expect(decodeControlMessage('{"type":"joined","participantIdentifier":"p","senderPresent":false,"recipientCount":-9007199254740992}').ok).toBe(false)
+  })
+
+  it("is a Standard Schema, so any consumer can validate through `~standard`", async () => {
+    const standard = ControlMessage["~standard"]
+    expect(standard.version).toBe(1)
+    expect(await standard.validate({ type: "decline", sequence: 2 })).toMatchObject({ value: { type: "decline", sequence: 2 } })
+    expect("issues" in (await standard.validate({ type: "decline", sequence: -1 }))).toBe(true)
+  })
+
+  it("never throws on arbitrary text", () => {
+    fc.assert(
+      fc.property(fc.oneof(fc.string(), fc.json()), (text) => {
+        expect(() => decodeControlMessage(text)).not.toThrow()
+      }),
+    )
   })
 
   it("rejects malformed messages instead of throwing", () => {
@@ -45,7 +68,7 @@ describe("control messages", () => {
       '{"type":"credit","records":1.5}',
       '{"type":"accept","sequence":-1,"digest":"ab"}',
     ]) {
-      expect(Result.isFailure(decodeControlMessage(text))).toBe(true)
+      expect(decodeControlMessage(text).ok).toBe(false)
     }
   })
 })
@@ -63,10 +86,10 @@ describe("parcel units", () => {
         fc.uint8Array({ maxLength: 300 }),
         (kind, sequence, index, bytes) => {
           const decoded = decodeUnit(encodeUnit({ kind, sequence, index, bytes }))
-          expect(Result.isSuccess(decoded)).toBe(true)
+          expect(decoded.ok).toBe(true)
 
-          if (Result.isSuccess(decoded)) {
-            expect({ ...decoded.success, bytes: Array.from(decoded.success.bytes) }).toEqual({ kind, sequence, index, bytes: Array.from(bytes) })
+          if (decoded.ok) {
+            expect({ ...decoded.value, bytes: Array.from(decoded.value.bytes) }).toEqual({ kind, sequence, index, bytes: Array.from(bytes) })
           }
         },
       ),
@@ -74,10 +97,10 @@ describe("parcel units", () => {
   })
 
   it("rejects short frames and unknown kinds", () => {
-    expect(Result.isFailure(decodeUnit(new Uint8Array(8)))).toBe(true)
-    expect(Result.isFailure(decodeUnit(new Uint8Array(9)))).toBe(true)
+    expect(decodeUnit(new Uint8Array(8)).ok).toBe(false)
+    expect(decodeUnit(new Uint8Array(9)).ok).toBe(false)
     const frame = encodeUnit({ kind: "header", sequence: 0, index: 0, bytes: new Uint8Array(3) })
     frame[0] = 9
-    expect(Result.isFailure(decodeUnit(frame))).toBe(true)
+    expect(decodeUnit(frame).ok).toBe(false)
   })
 })

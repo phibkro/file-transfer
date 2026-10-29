@@ -2,13 +2,15 @@
  * The parcel's plaintext is the manifest's files concatenated in order. A data record covers a span of that stream,
  * which may cross file boundaries; these functions map a stream span to the file pieces it covers.
  */
-import { Data, Result } from "effect"
-
-export class SpanOutsideStream extends Data.TaggedError("SpanOutsideStream")<{
+/** A span that does not lie inside the stream; plain data, so the browser bundle needs no Effect. */
+export interface SpanOutsideStream {
+  readonly _tag: "SpanOutsideStream"
   readonly streamOffset: number
   readonly length: number
   readonly total: number
-}> {}
+}
+
+export type Spans = { readonly ok: true; readonly spans: readonly FileSpan[] } | { readonly ok: false; readonly error: SpanOutsideStream }
 
 export interface FileSpan {
   /** Position of the file in the manifest. */
@@ -59,14 +61,14 @@ const fileAt = (starts: readonly number[], sizes: readonly number[], offset: num
  * The pieces of the files that bytes `streamOffset` to `streamOffset + length - 1` of the stream cover, in order.
  * Empty files never get a piece; a span outside the stream fails with `SpanOutsideStream`.
  */
-export const spansFor = (sizes: readonly number[], streamOffset: number, length: number): Result.Result<readonly FileSpan[], SpanOutsideStream> => {
+export const spansFor = (sizes: readonly number[], streamOffset: number, length: number): Spans => {
   const total = sizes.reduce((sum, size) => sum + size, 0)
 
   if (!Number.isSafeInteger(streamOffset) || !Number.isSafeInteger(length) || streamOffset < 0 || length < 0 || streamOffset + length > total) {
-    return Result.fail(new SpanOutsideStream({ streamOffset, length, total }))
+    return { ok: false, error: { _tag: "SpanOutsideStream", streamOffset, length, total } }
   }
 
-  return Result.succeed(length === 0 ? [] : collectSpans(sizes, streamOffset, length))
+  return { ok: true, spans: length === 0 ? [] : collectSpans(sizes, streamOffset, length) }
 }
 
 const collectSpans = (sizes: readonly number[], streamOffset: number, length: number): readonly FileSpan[] => {

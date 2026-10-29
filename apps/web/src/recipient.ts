@@ -7,8 +7,7 @@
  */
 import { bytesEqual, decodeLinkSecret, deriveRoomToken, isParcelError, labelsPerPage, openHeader, toHex } from "@file-transfer/parcel"
 import type { Manifest, ParcelOpener, ParcelReceiver } from "@file-transfer/parcel"
-import type { ControlMessage, Unit } from "@file-transfer/transport"
-import { Result } from "effect"
+import type { ControlMessage, Unit } from "@file-transfer/transport/protocol"
 import { consume, createCreditWindow, grantDue, resetCredits } from "./credits.ts"
 import { openConnection } from "./connection.ts"
 import type { Connection } from "./connection.ts"
@@ -505,11 +504,11 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
       if (plaintext !== undefined) {
         const spans = spansFor(fileSizes, index * receiver.recordSize, plaintext.length)
 
-        if (Result.isFailure(spans)) {
+        if (!spans.ok) {
           throw new TransferError("invalid-record-index")
         }
 
-        for (const span of spans.success) {
+        for (const span of spans.spans) {
           await storage.write(span.fileIndex, span.fileOffset, plaintext.subarray(span.spanOffset, span.spanOffset + span.length))
         }
 

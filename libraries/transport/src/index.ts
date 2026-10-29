@@ -80,11 +80,10 @@ export {
   Join,
   Joined,
   Peer,
-  ProtocolError,
   recipientToSenderTypes,
   unitKind,
   unitPrefixLength,
   Want,
 } from "./protocol.ts"
 
-export type { Role, Unit, UnitKind } from "./protocol.ts"
+export type { Decoded, Role, Unit, UnitKind } from "./protocol.ts"

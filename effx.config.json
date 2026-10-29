@@ -19,12 +19,20 @@
         "reason": "workspace package of plain guarantee declarations, governed by its own group below; tools/quality checks the edge"
       },
       {
+        "specifier": "valibot",
+        "reason": "pure schema validation for wire contracts the browser decodes (docs/decisions/0020); no I/O, no eval"
+      },
+      {
         "specifier": "@file-transfer/parcel",
         "reason": "workspace package governed by its own group below; tools/quality checks the edge"
       },
       {
         "specifier": "@file-transfer/transport",
         "reason": "workspace package governed by its own group below; tools/quality checks the edge"
+      },
+      {
+        "specifier": "@file-transfer/transport/protocol",
+        "reason": "the transport package's protocol entry, without Effect, for the browser (docs/decisions/0020); tools/quality checks the edge"
       },
       {
         "specifier": "@file-transfer/machine",
@@ -87,15 +95,14 @@
           "apps/web/src/preview.ts",
           "apps/web/src/previewFrame.ts",
           "apps/web/src/rename.ts",
-          "apps/web/src/serverLimits.ts",
-          "apps/web/src/site.ts"
+          "apps/web/src/serverLimits.ts"
         ],
         "role": "runtime-adapter",
         "platform": "browser",
         "adapterDependencies": ["uqr"]
       },
       {
-        "files": ["apps/web/src/main.ts", "apps/web/src/page.ts"],
+        "files": ["apps/web/src/main.ts"],
         "role": "composition-root",
         "platform": "browser"
       },
