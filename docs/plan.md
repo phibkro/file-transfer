@@ -16,7 +16,9 @@ Startup phase: prove that people want this and that some will pay, before stabil
 
 - [x] Scaffold the monorepo (this commit)
 - [ ] Throughput harness: 10 GB synthetic stream, direct WebRTC versus Durable Object relay, MB/s against RTT
+  - Relay half done (spike 0002): 10 GB completes through the local Worker and Durable Object; with a 16 MiB credit window throughput holds from 0 to 300 ms round trips. Direct WebRTC not started
 - [ ] Save-tier test (picker, service worker, OPFS) on Chrome, Firefox, Safari desktop, Android Chrome, iOS Safari
+  - OPFS output passes in Chromium, Firefox and WebKit on Linux (CI); Save all uses the folder picker where it exists. Real Safari, Android and iPhone (large files out of OPFS) not yet tested
 - [ ] Durable Object load test: sustained MB/s per object, slow-receiver behaviour, cost per GB from billing
 - [ ] Lossy-link test (phone hotspot): reliable ordered data channel versus unordered with zero retransmits plus want lists (ADR 0013)
 - [ ] Choose the relay cap (10, 25 or 50 GB) from the load test: completion rate with resume, duration per object, cost per transfer, and the share of transfers that would hit each cap
@@ -45,12 +47,17 @@ Startup phase: prove that people want this and that some will pay, before stabil
   - Platforms serve `apps/web/dist` with `/r/*` answered by `index.html`
 - [x] Deploys with Alchemy from `wrangler.jsonc`: production at send.phibkro.org, Worker Previews per pull request, both verified end to end by CI once `DEPLOYMENTS` is enabled (`platforms/cloudflare/README.md`)
 - [x] Share panel (Copy, Share sheet, link and QR code hidden until asked for), files added in batches, completion report for network testing
+- [x] Recipient safeguards: storage check before Accept, mobile-data confirmation, Save all, asking before leaving with something to lose
+- [x] Storage hygiene: received files do not outlive their page (Web Locks and a sweep on load); "Storage in this browser" shows and clears them
+- [x] Renaming (senders until sealing, recipients for what they save) and previews in a sandboxed, opaque-origin frame (ADR 0018)
 - [ ] Network matrix: home broadband, mobile data, corporate Wi-Fi, two browsers per side (paste the completion reports)
+  - Three sender reports so far (home, Tailscale, cellular; Firefox; a few MB each, spike 0002). Needs recipient reports and transfers of 100 MB or more
 
 ## M3 Launch readiness (week 5)
 
 - [ ] Landing page answering: Firefox Send's abuse problem, when TURN or the relay sees traffic, how to trust the served JavaScript
 - [ ] Turnstile on room creation, per-IP limits in `services/quota`, `/abuse` form, privacy policy, terms
+  - Production has none of these yet: `services/quota`, `services/abuse` and `services/telemetry` exist as reference layers but no platform wires them in, so room creation and relaying are unlimited
 - [ ] Aggregate counters in `services/telemetry`, Umami on the landing page
 - [ ] Fake doors after a completed transfer (offline recipients, faster relayed transfers, private network), waitlist, Van Westendorp survey
 - [ ] `platforms/self-hosted` on workerd (Bun layers only if M0 rules workerd out), Docker image, Nix module
