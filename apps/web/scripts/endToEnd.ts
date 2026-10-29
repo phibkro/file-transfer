@@ -1189,6 +1189,88 @@ const recipientLifeCycle = async (browser: Browser, base: string) => {
       await recipient.close()
     }
   }
+
+  // Storage that fails to open (the disk is full when the second file is created): the recipient fails, tells the
+  // sender, and leaves neither the lock nor the half-made directory behind.
+  {
+    const sender = await openPage(browser, false)
+    const recipient = await openPage(browser, false)
+
+    try {
+      await recipient.page.addInitScript(() => {
+        // Wraps each handle on the way down to a transfer's directory, so creating its second file fails as a full disk
+        // would, after the first file's writable is already open. Files are stored by position.
+        const failingFile = "1"
+
+        const failSecondFile = (directory: FileSystemDirectoryHandle) => {
+          const getFileHandle = directory.getFileHandle.bind(directory)
+          directory.getFileHandle = async (name, options) => {
+            if (name === failingFile) {
+              throw new DOMException("verification: the disk is full", "QuotaExceededError")
+            }
+
+            return await getFileHandle(name, options)
+          }
+
+          return directory
+        }
+
+        const wrapTransfers = (transfers: FileSystemDirectoryHandle) => {
+          const getDirectoryHandle = transfers.getDirectoryHandle.bind(transfers)
+          transfers.getDirectoryHandle = async (name, options) => failSecondFile(await getDirectoryHandle(name, options))
+
+          return transfers
+        }
+
+        const manager = navigator.storage
+        const getDirectory = manager.getDirectory.bind(manager)
+        manager.getDirectory = async () => {
+          const root = await getDirectory()
+          const getDirectoryHandle = root.getDirectoryHandle.bind(root)
+          root.getDirectoryHandle = async (name, options) => {
+            const directory = await getDirectoryHandle(name, options)
+
+            return name === "transfers" ? wrapTransfers(directory) : directory
+          }
+
+          return root
+        }
+      })
+
+      const link = await offer(
+        sender.page,
+        base,
+        payload([
+          ["kilo-open-one.bin", 10_000],
+          ["kilo-open-two.bin", 10_000],
+        ]),
+      )
+
+      await recipient.page.goto(link)
+      await waitForStatus(recipient.page, ["reviewing", "failed"])
+      await recipient.page.getByRole("button", { name: /^Accept/u }).click()
+
+      const recipientEnd = await waitForStatus(recipient.page, ["failed", "complete"], 15_000)
+        .then(async () => await status(recipient.page))
+        .catch(async () => await status(recipient.page))
+
+      const senderEnd = await waitForStatus(sender.page, ["failed", "complete"], 15_000)
+        .then(async () => await status(sender.page))
+        .catch(async () => await status(sender.page))
+
+      const locks = await heldLocks(recipient.page)
+      const leftovers = await storedTransfers(recipient.page)
+
+      check(
+        recipientEnd === "failed" && senderEnd === "failed" && locks === 0 && leftovers.length === 0,
+        "life cycle: storage that fails to open fails both sides and leaves no lock or files behind",
+        { recipient: recipientEnd, sender: senderEnd, locks, leftovers: leftovers.join(", ") },
+      )
+    } finally {
+      await sender.close()
+      await recipient.close()
+    }
+  }
 }
 
 const decline = async (browser: Browser, base: string) => {

@@ -165,21 +165,47 @@ const removeQuietly = async (directory: FileSystemDirectoryHandle, name: string)
   }
 }
 
+/** Aborts every writable, ignoring ones that already closed or failed. */
+const abortAll = async (writables: readonly FileSystemWritableFileStream[]) => {
+  await Promise.allSettled(
+    writables.map(async (writable) => {
+      await writable.abort()
+    }),
+  )
+}
+
 export const openStorage = async (roomIdentifier: string, fileCount: number): Promise<ParcelStorage> => {
   const releaseLock = await holdLock(roomIdentifier)
-  const root = await navigator.storage.getDirectory()
-  const transfers = await root.getDirectoryHandle(transfersDirectory, { create: true })
-  await removeQuietly(transfers, roomIdentifier)
-  const directory = await transfers.getDirectoryHandle(roomIdentifier, { create: true })
   const handles: FileSystemFileHandle[] = []
   const writables: FileSystemWritableFileStream[] = []
+  let transfers: FileSystemDirectoryHandle | undefined
 
-  for (let index = 0; index < fileCount; index++) {
-    // Files are stored by position: manifest names may hold folders and characters this file system refuses.
-    const handle = await directory.getFileHandle(String(index), { create: true })
-    handles.push(handle)
-    writables.push(await handle.createWritable({ keepExistingData: false }))
+  try {
+    const root = await navigator.storage.getDirectory()
+    transfers = await root.getDirectoryHandle(transfersDirectory, { create: true })
+    await removeQuietly(transfers, roomIdentifier)
+    const directory = await transfers.getDirectoryHandle(roomIdentifier, { create: true })
+
+    for (let index = 0; index < fileCount; index++) {
+      // Files are stored by position: manifest names may hold folders and characters this file system refuses.
+      const handle = await directory.getFileHandle(String(index), { create: true })
+      handles.push(handle)
+      writables.push(await handle.createWritable({ keepExistingData: false }))
+    }
+  } catch (error) {
+    // Opening failed part way (the disk is full, say): nobody will call discard, so undo what was made here and give
+    // the lock back, or the half-made directory outlives the transfer and no sweep may remove it.
+    await abortAll(writables)
+
+    if (transfers !== undefined) {
+      await removeQuietly(transfers, roomIdentifier)
+    }
+
+    releaseLock()
+    throw error
   }
+
+  const opened = transfers
 
   return {
     write: async (fileIndex, position, bytes) => {
@@ -202,16 +228,12 @@ export const openStorage = async (roomIdentifier: string, fileCount: number): Pr
       return await Promise.all(handles.map(async (handle) => await handle.getFile()))
     },
     discard: async () => {
-      await Promise.allSettled(
-        writables.map(async (writable) => {
-          await writable.abort()
-        }),
-      )
-      await removeQuietly(transfers, roomIdentifier)
+      await abortAll(writables)
+      await removeQuietly(opened, roomIdentifier)
       releaseLock()
     },
     remove: async () => {
-      await removeQuietly(transfers, roomIdentifier)
+      await removeQuietly(opened, roomIdentifier)
       releaseLock()
     },
   }
