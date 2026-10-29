@@ -3,7 +3,7 @@ name: release
 # Releases from main, automatically (docs/versioning.md, docs/decisions/0023). When `checks` passes on a push to main
 # and changesets are waiting in .changeset/, this:
 #   1. runs `changeset version`, which bumps each named package by its declared semantic version and writes its
-#      CHANGELOG.md, then gathers the release notes into the root CHANGELOG.md (tools/quality/src/prepareRelease.ts);
+#      CHANGELOG.md, refreshes bun.lock (which records each workspace's version), then gathers the release notes into the root CHANGELOG.md (tools/quality/src/prepareRelease.ts);
 #   2. commits that as "Release vX.Y.Z" on main and tags it: `vX.Y.Z` for the product (apps, platforms and services
 #      share one version) and `<package>@<version>` for every package bumped, libraries included;
 #   3. pushes the commit and the tags; the `vX.Y.Z` tag's push starts publish.yml, which builds what the tag points to
@@ -97,6 +97,9 @@ jobs:
         if: steps.current.outputs.skip != 'true'
         run: |
           bunx changeset version
+          # Changesets bumps the manifests but not bun.lock, which records each workspace's version; refresh it so the
+          # release commit leaves nothing for the next install to rewrite (tools/quality/test/lockfile.test.ts).
+          bun install --lockfile-only
           bun run release:prepare "$RUNNER_TEMP/notes.md" | tee "$RUNNER_TEMP/prepare.txt"
           grep -E '^(version|tags)=' "$RUNNER_TEMP/prepare.txt" >> "$GITHUB_OUTPUT"
           # Changesets writes the changelogs unformatted; the repository's formatter is the one that checks them.
