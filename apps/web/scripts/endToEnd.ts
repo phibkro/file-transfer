@@ -1029,6 +1029,24 @@ const heldLocks = async (page: Page) =>
   })
 
 /**
+ * Storage locks the page holds once its cleanup has had time to run. A failing recipient shows "failed" before it awaits
+ * the storage's discard, which aborts the writables and removes the directory before releasing the lock, so a check
+ * that reads the locks at once can race it (seen in Firefox on CI). A lock that is really leaked is still held after
+ * the wait.
+ */
+const settledLocks = async (page: Page, limitMilliseconds = 5000) => {
+  const deadline = Date.now() + limitMilliseconds
+  let held = await heldLocks(page)
+
+  while (held > 0 && Date.now() < deadline) {
+    await page.waitForTimeout(100)
+    held = await heldLocks(page)
+  }
+
+  return held
+}
+
+/**
  * The recipient's life cycle (src/recipientPhase.ts) at the points spike 0006 found broken: R2, a failure while the offer
  * is on screen; R3, an abort while storage is opening; a rejoin while storage is opening (found in review of #18); R1,
  * saving the files fails. Faults come from the network (an
@@ -1091,14 +1109,11 @@ const recipientLifeCycle = async (browser: Browser, base: string) => {
       await recipient.page.waitForTimeout(500)
       abortRecipient(recipient.observed)
       await recipient.page.waitForTimeout(4000)
-      check(
-        (await status(recipient.page)) === "failed" && (await heldLocks(recipient.page)) === 0,
-        "life cycle: an abort while storage opens stays failed and releases the storage (R3)",
-        {
-          status: await status(recipient.page),
-          locks: await heldLocks(recipient.page),
-        },
-      )
+      const locks = await settledLocks(recipient.page)
+      check((await status(recipient.page)) === "failed" && locks === 0, "life cycle: an abort while storage opens stays failed and releases the storage (R3)", {
+        status: await status(recipient.page),
+        locks,
+      })
     } finally {
       await sender.close()
       await recipient.close()
@@ -1175,15 +1190,12 @@ const recipientLifeCycle = async (browser: Browser, base: string) => {
         .then(async () => await status(sender.page))
         .catch(async () => await status(sender.page))
 
-      check(
-        recipientEnd === "failed" && senderEnd === "failed" && (await heldLocks(recipient.page)) === 0,
-        "life cycle: a failed save fails both sides and releases the storage (R1)",
-        {
-          recipient: recipientEnd,
-          sender: senderEnd,
-          locks: await heldLocks(recipient.page),
-        },
-      )
+      const locks = await settledLocks(recipient.page)
+      check(recipientEnd === "failed" && senderEnd === "failed" && locks === 0, "life cycle: a failed save fails both sides and releases the storage (R1)", {
+        recipient: recipientEnd,
+        sender: senderEnd,
+        locks,
+      })
     } finally {
       await sender.close()
       await recipient.close()
@@ -1258,7 +1270,7 @@ const recipientLifeCycle = async (browser: Browser, base: string) => {
         .then(async () => await status(sender.page))
         .catch(async () => await status(sender.page))
 
-      const locks = await heldLocks(recipient.page)
+      const locks = await settledLocks(recipient.page)
       const leftovers = await storedTransfers(recipient.page)
 
       check(
