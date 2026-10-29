@@ -47,6 +47,13 @@ import { outcome, outcomeOf } from "./support.ts"
 
 const textEncoder = new TextEncoder()
 
+/** isWindowsDeviceName as it was before the linear scan, the reference its replacement must agree with. */
+const previousIsWindowsDeviceName = (segment: string): boolean => {
+  const stem = (segment.split(".")[0] ?? "").replace(/ +$/u, "").replaceAll(/[A-Z]/gu, (letter) => letter.toLowerCase())
+
+  return ["con", "prn", "aux", "nul"].includes(stem) || /^(?:com|lpt)[1-9¹²³]$/u.test(stem)
+}
+
 describe("constants", () => {
   it("the header layout adds up to the documented 58 bytes", () => {
     expect(headerMagic.length + 1 + 1 + 4 + saltLength + keyCommitmentLength).toBe(headerLength)
@@ -213,6 +220,33 @@ describe("name profile", () => {
   it("treats device names as Windows does: the part before the first dot, trailing spaces removed", () => {
     expect(["aux", "AUX.tar.gz", "prn ", "com9", "LPT²"].every(isWindowsDeviceName)).toBe(true)
     expect(["auxiliary", "com", "com10", "lpt0", "x.con"].some(isWindowsDeviceName)).toBe(false)
+  })
+
+  it("decides device names exactly as the regular expression it replaced did", () => {
+    const pieces = fc.constantFrom("aux", "AUX", "Com1", "lpt²", "nul", " ", "  ", ".", "x", "\t", "\u00A0", "\u3000")
+
+    fc.assert(
+      fc.property(fc.array(pieces, { maxLength: 8 }), (parts) => {
+        const segment = parts.join("")
+
+        expect(isWindowsDeviceName(segment)).toBe(previousIsWindowsDeviceName(segment))
+      }),
+      { numRuns: 2000 },
+    )
+    fc.assert(
+      fc.property(fc.string({ unit: "binary", maxLength: 40 }), (segment) => {
+        expect(isWindowsDeviceName(segment)).toBe(previousIsWindowsDeviceName(segment))
+      }),
+    )
+  })
+
+  it("takes linear time on a long run of spaces", () => {
+    const started = performance.now()
+
+    expect(isWindowsDeviceName(`aux${" ".repeat(200_000)}x`)).toBe(false)
+    expect(isWindowsDeviceName(`aux${" ".repeat(200_000)}`)).toBe(true)
+    // The regular expression took 6.6 s for 100,000 spaces, growing with the square of the length.
+    expect(performance.now() - started).toBeLessThan(1000)
   })
 
   it("compares names after full case folding and NFC, and forbids a file that is also a folder", () => {

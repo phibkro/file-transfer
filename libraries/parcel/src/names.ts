@@ -49,9 +49,24 @@ const isForbiddenCodePoint = (codePoint: number): boolean => {
 const deviceStems = new Set(["con", "prn", "aux", "nul"])
 const numberedDevice = /^(?:com|lpt)[1-9¹²³]$/u
 
+/**
+ * The text without its trailing spaces (U+0020 only, as Windows strips them), in linear time. The regular expression
+ * `/ +$/` it replaces backtracks quadratically on a long run of spaces followed by anything else (CodeQL
+ * js/polynomial-redos; 1.8 s for 50,000 spaces), which matters to callers that pass strings longer than a segment.
+ */
+const withoutTrailingSpaces = (text: string): string => {
+  let end = text.length
+
+  while (end > 0 && text.charCodeAt(end - 1) === 0x20) {
+    end -= 1
+  }
+
+  return text.slice(0, end)
+}
+
 /** Whether Windows reads a segment as a device: its part before the first dot, trailing spaces removed, ASCII lowercased. */
 export const isWindowsDeviceName = (segment: string): boolean => {
-  const stem = (segment.split(".")[0] ?? "").replace(/ +$/u, "").replaceAll(/[A-Z]/gu, (letter) => letter.toLowerCase())
+  const stem = withoutTrailingSpaces(segment.split(".")[0] ?? "").replaceAll(/[A-Z]/gu, (letter) => letter.toLowerCase())
 
   return deviceStems.has(stem) || numberedDevice.test(stem)
 }

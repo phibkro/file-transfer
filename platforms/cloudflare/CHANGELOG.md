@@ -1,5 +1,14 @@
 # @file-transfer/platform-cloudflare
 
+## 0.1.1
+
+### Patch Changes
+
+- Updated dependencies [7ef4f07]
+  - @file-transfer/parcel@1.0.1
+  - @file-transfer/service-quota@0.1.1
+  - @file-transfer/service-telemetry@0.1.1
+
 ## 0.1.0
 
 ### Patch Changes
