@@ -20,5 +20,5 @@ The parcel already sends its header and manifest before any data, but nothing ma
 - The first piece waits for the labelling pass: about 21 s per 10 GB at the 481 MB/s sealing rate measured on a Ryzen 9 5950X (an estimate without disk reads; phones are unmeasured and belong in the M0 save-tier test). Small transfers are unaffected in practice.
 - Labels cost 32 bytes per 64 KiB piece (0.05 %): about 4.9 MB for 10 GB and 24 MB for 50 GB. The contract carries the root; labels travel in pages ahead of the pieces they cover, each page checked against the root. The page layout is a parcel specification detail and must respect the manifest stream's size bound.
 - Resume becomes "I hold pieces 0 to i-1 of contract X", and both sides can check that claim.
-- Stores and seeds (phase 2 and 4) verify pieces against the same root without keys.
+- Stores and seeds (phase 2 and 4) check pieces against label pages without keys, but only a key holder can tie those pages' root to the contract, because the root is sealed (corrected 2026-10-29, ADR 0024).
 - Open: whether a "live" mode without the labelling pass is ever needed (only if M0 shows the pass is too slow on phones).

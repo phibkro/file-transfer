@@ -1,6 +1,6 @@
 {
   "name": "@file-transfer/web",
-  "version": "0.3.0",
+  "version": "0.4.1",
   "private": true,
   "license": "AGPL-3.0-only",
   "type": "module",
@@ -11,6 +11,7 @@
     "e2e": "bun scripts/endToEnd.ts"
   },
   "dependencies": {
+    "@file-transfer/machine": "workspace:*",
     "@file-transfer/parcel": "workspace:*",
     "@file-transfer/transport": "workspace:*",
     "uplot": "1.6.32",

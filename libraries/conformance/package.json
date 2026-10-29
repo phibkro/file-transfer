@@ -1,6 +1,6 @@
 {
   "name": "@file-transfer/conformance",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "license": "AGPL-3.0-only",
   "type": "module",
@@ -9,6 +9,7 @@
     "./guarantee": "./src/guarantee.ts"
   },
   "dependencies": {
+    "@file-transfer/machine": "workspace:*",
     "effect": "^4.0.7"
   },
   "fileTransfer": {

@@ -12,7 +12,8 @@
  * A socket can also go silent without closing, when a NAT forgets the connection or a phone changes networks; the
  * browser may not notice for many minutes. When the room answers pings (docs/protocol.md, "Liveness"), a socket that
  * has been silent for `pingAfterMilliseconds` gets a ping, and one silent for `silentLimitMilliseconds` is given up
- * and replaced, as if it had closed.
+ * and replaced, as if it had closed. Before `joined` there is nothing to ping yet, so a socket that has not opened and
+ * been answered with `joined` within `joinLimitMilliseconds` is given up and replaced the same way.
  */
 import { decodeControlMessage, decodeUnit, encodeControlMessage, encodeUnit, pingFrame } from "@file-transfer/transport/protocol"
 import type { ControlMessage, Role, Unit } from "@file-transfer/transport/protocol"
@@ -72,6 +73,19 @@ export const pingAfterMilliseconds = 10_000
 export const silentLimitMilliseconds = 20_000
 
 const livenessCheckMilliseconds = 2500
+
+/**
+ * Time a new socket has to open and be answered with `joined` before it is given up and replaced. Without it a join
+ * lost on a silent connection waits for the browser's own timeout, which can take minutes (docs/spikes/0006, C1).
+ */
+export const joinLimitMilliseconds = 15_000
+
+/**
+ * Close codes an endpoint sends (docs/protocol.md, Liveness). They are part of the room protocol seam, so a code keeps
+ * its meaning: `silent` stays 4001 although the room also closes with 4001 for its relay limit, and codes added from
+ * now on start at 4100, clear of the room's 4000 to 4099. The room ignores them; they name the reason in traces.
+ */
+const closeCodes = { silent: 4001, noAnswerToJoin: 4100 } as const
 
 export const openConnection = (options: ConnectionOptions): Connection => {
   const { handlers } = options
@@ -175,6 +189,7 @@ export const openConnection = (options: ConnectionOptions): Connection => {
     }
 
     clearInterval(liveness)
+    clearTimeout(joinDeadline)
     joined = false
     socket = undefined
     stopDirect()
@@ -191,6 +206,7 @@ export const openConnection = (options: ConnectionOptions): Connection => {
   }
 
   let liveness: ReturnType<typeof setInterval> | undefined
+  let joinDeadline: ReturnType<typeof setTimeout> | undefined
 
   const connect = () => {
     if (stopped) {
@@ -203,6 +219,13 @@ export const openConnection = (options: ConnectionOptions): Connection => {
     socket = current
     let lastHeard = Date.now()
     let pinged = false
+    clearTimeout(joinDeadline)
+    joinDeadline = setTimeout(() => {
+      if (socket === current && !joined) {
+        dropSocket(current)
+        current.close(closeCodes.noAnswerToJoin, "no answer to join")
+      }
+    }, joinLimitMilliseconds)
     current.addEventListener("open", () => {
       current.send(encodeControlMessage({ type: "join", role: options.role, roomToken: options.roomToken }))
     })
@@ -224,6 +247,7 @@ export const openConnection = (options: ConnectionOptions): Connection => {
         const message = decoded.value
 
         if (message.type === "joined") {
+          clearTimeout(joinDeadline)
           joined = true
           attempts = 0
           epoch++
@@ -236,7 +260,7 @@ export const openConnection = (options: ConnectionOptions): Connection => {
 
               if (silence >= silentLimitMilliseconds) {
                 dropSocket(current)
-                current.close(4001, "silent")
+                current.close(closeCodes.silent, "silent")
               } else if (silence >= pingAfterMilliseconds && !pinged) {
                 pinged = true
                 current.send(pingFrame)
@@ -294,6 +318,7 @@ export const openConnection = (options: ConnectionOptions): Connection => {
       stopped = true
       joined = false
       clearInterval(liveness)
+      clearTimeout(joinDeadline)
       stopDirect()
       socket?.close(1000)
     },

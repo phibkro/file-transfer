@@ -12,6 +12,9 @@
  * - decline: the sender sees the refusal;
  * - complete in flight: a sender whose socket drops with the recipient's `complete` in flight rejoins and completes;
  * - wrong key: a damaged link fails on the recipient, and a well-formed wrong key is refused by the room;
+ * - recipient life cycle: a failure while reviewing removes Accept and Decline, an abort while storage opens gives the
+ *   storage back, a rejoin while storage opens says it is receiving, and a failure while saving the files tells the
+ *   sender and releases the storage (docs/spikes/0006);
  * - invariant: no request URL and no socket frame either browser sends carries the link secret or a file name.
  *
  * Sockets are cut through Playwright's WebSocket routing (close code 1012, "service restart"), so the server needs no
@@ -24,12 +27,14 @@
  * - `large`: one transfer of `E2E_LARGE_GB` gigabytes (default 10) from a sparse file with random markers every GiB,
  *   checked by size and by sampling the markers and the zeros between them, since a browser cannot hash 10 GB in
  *   memory; the parcel's labels already check every record's contents. Set `E2E_TIMEOUT_MS` to a few hours;
- * - `chaos`: transfers under seeded faults (faultPlan.ts): sockets cut cleanly or half-open, stalled, blackholed or
- *   slowed, records replayed by the relay, direct paths killed; `E2E_SEED` and `E2E_RUNS` choose the plans;
+ * - `chaos`: a join the room never answers, then transfers under seeded faults (faultPlan.ts): sockets cut cleanly or
+ *   half-open, stalled, blackholed or slowed, records replayed by the relay, direct paths killed; `E2E_SEED` and
+ *   `E2E_RUNS` choose the plans;
  * - `lab`: transfers between two homes behind emulated routers in Linux network namespaces (networkLab.ts): open,
  *   symmetric and UDP-blocking NATs, slow and lossy links, a router that drops everything or moves address; needs root,
  *   coturn's `turnserver`, and chromium or firefox; `E2E_LAB_ONLY` picks scenarios by name;
  * - `completion`: only the complete-in-flight check (also part of `standard`);
+ * - `life-cycle`: only the recipient life cycle checks (also part of `standard`);
  * - `scenario`: one transfer scenario (`E2E_SCENARIO`, default half-open) `E2E_REPEAT` times (default 10), to chase a
  *   failure that shows up in a few runs out of many.
  */
@@ -68,6 +73,8 @@ interface Observed {
   readonly sockets: RoutedSocket[]
   /** When set, the first text frame from the server containing this is held back and the socket is cut cleanly instead. */
   cutBeforeText: string | undefined
+  /** How many of the page's next sockets start blackholed, so their join is never answered. */
+  silentSockets: number
 }
 
 /** What the chaos suite does to one routed socket (faultPlan.ts); untouched, frames pass straight through. */
@@ -375,7 +382,7 @@ const openPage = async (browser: Browser, routed = true, persistent = false, dir
     }
   })
   const page = await context.newPage()
-  const observed: Observed = { urls: [], frames: [], sockets: [], cutBeforeText: undefined }
+  const observed: Observed = { urls: [], frames: [], sockets: [], cutBeforeText: undefined, silentSockets: 0 }
   const errors: string[] = []
   page.on("request", (request) => observed.urls.push(request.url()))
   page.on("pageerror", (error) => {
@@ -388,7 +395,8 @@ const openPage = async (browser: Browser, routed = true, persistent = false, dir
     await page.routeWebSocket(/\/api\/rooms\/.+\/socket/u, (socket) => {
       observed.urls.push(socket.url())
       const server = socket.connectToServer()
-      const faults: SocketFaults = { pausedUntil: 0, latency: 0, blackholed: false, due: { toServer: 0, toPage: 0 } }
+      const faults: SocketFaults = { pausedUntil: 0, latency: 0, blackholed: observed.silentSockets > 0, due: { toServer: 0, toPage: 0 } }
+      observed.silentSockets = Math.max(0, observed.silentSockets - 1)
       const fromServer: Buffer[] = []
       observed.sockets.push({ page: socket, server, faults, fromServer })
       socket.onMessage((message) => {
@@ -1002,6 +1010,187 @@ const completeInFlight = async (browser: Browser, base: string) => {
   }
 }
 
+/** Abort control frame the "room" sends a recipient, as the sender's abort would arrive. */
+const abortFrame = JSON.stringify({ type: "abort", reason: "verification-abort" })
+
+/** Sends `abortFrame` to the recipient page on its current routed socket. */
+const abortRecipient = (observed: Observed) => {
+  const socket = observed.sockets.at(-1)
+  check(socket !== undefined, "the recipient has a routed socket to inject an abort into")
+  socket?.page.send(abortFrame)
+}
+
+/** Storage locks the page still holds; a finished or failed transfer holds none. */
+const heldLocks = async (page: Page) =>
+  await page.evaluate(async () => {
+    const snapshot = await navigator.locks.query()
+
+    return (snapshot.held ?? []).filter((lock) => lock.name?.startsWith("file-transfer:transfer:") === true).length
+  })
+
+/**
+ * The recipient's life cycle (src/recipientPhase.ts) at the points spike 0006 found broken: R2, a failure while the offer
+ * is on screen; R3, an abort while storage is opening; a rejoin while storage is opening (found in review of #18); R1,
+ * saving the files fails. Faults come from the network (an
+ * abort frame on the routed socket) and from the browser's storage API (an init script that delays or breaks it).
+ */
+const recipientLifeCycle = async (browser: Browser, base: string) => {
+  // R2: after an abort while reviewing, Accept and Decline are gone and the page stays failed.
+  {
+    const sender = await openPage(browser, false)
+    const recipient = await openPage(browser)
+
+    try {
+      const link = await offer(sender.page, base, payload([["golf-review.bin", 10_000]]))
+      await recipient.page.goto(link)
+      await waitForStatus(recipient.page, ["reviewing", "failed"])
+      abortRecipient(recipient.observed)
+      await waitForStatus(recipient.page, ["failed"], 10_000)
+      const accept = recipient.page.getByRole("button", { name: /^Accept/u })
+      const buttons = (await accept.count()) + (await recipient.page.getByRole("button", { name: "Decline", exact: true }).count())
+
+      if ((await accept.count()) > 0) {
+        await accept.click()
+        await recipient.page.waitForTimeout(1500)
+      }
+
+      check(buttons === 0 && (await status(recipient.page)) === "failed", "life cycle: after a failure while reviewing, Accept and Decline are gone (R2)", {
+        buttons,
+        status: await status(recipient.page),
+      })
+    } finally {
+      await sender.close()
+      await recipient.close()
+    }
+  }
+
+  // R3: an abort while storage opens leaves the page failed and gives the storage lock back.
+  {
+    const sender = await openPage(browser, false)
+    const recipient = await openPage(browser)
+
+    try {
+      await recipient.page.addInitScript(() => {
+        const manager = navigator.storage
+        const original = manager.getDirectory.bind(manager)
+        manager.getDirectory = async () => {
+          if (Reflect.has(globalThis, "delayStorage")) {
+            await new Promise((resolve) => {
+              setTimeout(resolve, 3000)
+            })
+          }
+
+          return await original()
+        }
+      })
+      const link = await offer(sender.page, base, payload([["hotel-storage.bin", 10_000]]))
+      await recipient.page.goto(link)
+      await waitForStatus(recipient.page, ["reviewing", "failed"])
+      await recipient.page.evaluate(() => Reflect.set(globalThis, "delayStorage", true))
+      await recipient.page.getByRole("button", { name: /^Accept/u }).click()
+      await recipient.page.waitForTimeout(500)
+      abortRecipient(recipient.observed)
+      await recipient.page.waitForTimeout(4000)
+      check(
+        (await status(recipient.page)) === "failed" && (await heldLocks(recipient.page)) === 0,
+        "life cycle: an abort while storage opens stays failed and releases the storage (R3)",
+        {
+          status: await status(recipient.page),
+          locks: await heldLocks(recipient.page),
+        },
+      )
+    } finally {
+      await sender.close()
+      await recipient.close()
+    }
+  }
+
+  // A rejoin while storage opens: once joined again, the page says it is receiving, not reconnecting (review of #18).
+  {
+    const sender = await openPage(browser, false, false, false)
+    const recipient = await openPage(browser, true, false, false)
+
+    try {
+      await recipient.page.addInitScript(() => {
+        const manager = navigator.storage
+        const original = manager.getDirectory.bind(manager)
+        manager.getDirectory = async () => {
+          if (Reflect.has(globalThis, "delayStorage")) {
+            await new Promise((resolve) => {
+              setTimeout(resolve, 6000)
+            })
+          }
+
+          return await original()
+        }
+      })
+      const link = await offer(sender.page, base, payload([["juliet-rejoin.bin", 10_000]]))
+      await recipient.page.goto(link)
+      await waitForStatus(recipient.page, ["reviewing", "failed"])
+      await recipient.page.evaluate(() => Reflect.set(globalThis, "delayStorage", true))
+      await recipient.page.getByRole("button", { name: /^Accept/u }).click()
+      await recipient.page.waitForTimeout(500)
+      await cutSocket(recipient.observed, "clean")
+      await recipient.page.waitForTimeout(3000)
+      const whileOpening = await status(recipient.page)
+      check(
+        recipient.observed.sockets.length >= 2 && whileOpening === "transferring",
+        "life cycle: rejoined while storage opens, the page says it is receiving",
+        {
+          status: whileOpening,
+          sockets: recipient.observed.sockets.length,
+        },
+      )
+      await waitForStatus(recipient.page, ["complete", "failed"])
+      check((await status(recipient.page)) === "complete", "life cycle: and the transfer then completes", await status(recipient.page))
+    } finally {
+      await sender.close()
+      await recipient.close()
+    }
+  }
+
+  // R1: when saving the files fails, the recipient fails, tells the sender, and releases the storage.
+  {
+    const sender = await openPage(browser, false)
+    const recipient = await openPage(browser, false)
+
+    try {
+      await recipient.page.addInitScript(() => {
+        FileSystemWritableFileStream.prototype.close = async () => {
+          throw new DOMException("verification: the disk is full", "QuotaExceededError")
+        }
+      })
+      const link = await offer(sender.page, base, payload([["india-commit.bin", 10_000]]))
+      await recipient.page.goto(link)
+      await waitForStatus(recipient.page, ["reviewing", "failed"])
+      await recipient.page.getByRole("button", { name: /^Accept/u }).click()
+
+      const recipientEnd = await recipient.page
+        .waitForFunction(() => ["complete", "failed"].includes(window.fileTransferTest?.status() ?? ""), undefined, { timeout: 15_000 })
+        .then(async () => await status(recipient.page))
+        .catch(async () => await status(recipient.page))
+
+      const senderEnd = await sender.page
+        .waitForFunction(() => ["complete", "failed"].includes(window.fileTransferTest?.status() ?? ""), undefined, { timeout: 15_000 })
+        .then(async () => await status(sender.page))
+        .catch(async () => await status(sender.page))
+
+      check(
+        recipientEnd === "failed" && senderEnd === "failed" && (await heldLocks(recipient.page)) === 0,
+        "life cycle: a failed save fails both sides and releases the storage (R1)",
+        {
+          recipient: recipientEnd,
+          sender: senderEnd,
+          locks: await heldLocks(recipient.page),
+        },
+      )
+    } finally {
+      await sender.close()
+      await recipient.close()
+    }
+  }
+}
+
 const decline = async (browser: Browser, base: string) => {
   const sender = await openPage(browser)
   const recipient = await openPage(browser)
@@ -1255,7 +1444,35 @@ const chaosRun = async (browser: Browser, base: string, plan: FaultPlan) => {
 }
 
 /** `E2E_RUNS` chaos runs (default 6) from seed `E2E_SEED` onwards (default random, printed). */
+/** connection.ts's `joinLimitMilliseconds`; the script does not import browser code. */
+const joinLimitMilliseconds = 15_000
+
+/**
+ * A recipient whose first socket opens but whose join the network loses (the socket starts blackholed) gives it up
+ * after `joinLimitMilliseconds` and joins on a new socket, so it still reaches the offer (docs/spikes/0006, C1).
+ */
+const unansweredJoin = async (browser: Browser, base: string) => {
+  const sender = await openPage(browser, false)
+  const recipient = await openPage(browser, true)
+
+  try {
+    const link = await offer(sender.page, base, payload([["mike-join.txt", 4000]]))
+    recipient.observed.silentSockets = 1
+    await recipient.page.goto(link)
+    await waitForStatus(recipient.page, ["reviewing", "failed"], joinLimitMilliseconds + 20_000).catch(() => undefined)
+    check((await status(recipient.page)) === "reviewing", "a join the room never answers is given up, and the recipient joins again and sees the offer", {
+      status: await status(recipient.page),
+      sockets: recipient.observed.sockets.length,
+    })
+    check(recipient.observed.sockets.length >= 2, "the unanswered socket was replaced by a new one", `${recipient.observed.sockets.length} sockets`)
+  } finally {
+    await sender.close()
+    await recipient.close()
+  }
+}
+
 const chaos = async (browser: Browser, base: string) => {
+  await unansweredJoin(browser, base)
   const seed = Number(process.env.E2E_SEED ?? Math.floor(Math.random() * 2 ** 31))
   const runs = Number(process.env.E2E_RUNS ?? 6)
   console.log(`chaos: seeds ${seed} to ${seed + runs - 1}`)
@@ -1581,6 +1798,8 @@ try {
     await chaos(browser, base)
   } else if (suite === "completion") {
     await completeInFlight(browser, base)
+  } else if (suite === "life-cycle") {
+    await recipientLifeCycle(browser, base)
   } else if (suite === "scenario") {
     const scenario = process.env.E2E_SCENARIO ?? "half-open"
     const repeats = Number(process.env.E2E_REPEAT ?? 10)
@@ -1612,6 +1831,7 @@ try {
     await transfer(browser, base, "throughput")
     await decline(browser, base)
     await completeInFlight(browser, base)
+    await recipientLifeCycle(browser, base)
     await wrongKey(browser, base)
 
     if (local !== undefined) {
