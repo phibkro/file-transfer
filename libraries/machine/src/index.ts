@@ -77,6 +77,66 @@ export const next = <State extends string, Command extends string, Context>(
   context: Context,
 ): State | Boundary | undefined => available(machine, command, state, context)[0]?.to
 
+/**
+ * What applying a command in a state does, read from the table alone. `guarded` means the outcome depends on the
+ * context, so a test must supply one; `rejected` means the command may not run there and must leave the state as it was.
+ */
+export type Outcome<State extends string> =
+  | { readonly kind: "moves"; readonly to: State | Boundary; readonly when?: string }
+  | { readonly kind: "guarded"; readonly branches: readonly { readonly to: State | Boundary; readonly when?: string }[] }
+  | { readonly kind: "rejected" }
+
+/** One pair of the state × command matrix. */
+export interface Cell<State extends string, Command extends string> {
+  readonly state: State | Boundary
+  readonly command: Command
+  readonly outcome: Outcome<State>
+}
+
+/** The machine's states with the boundary first, the rows of its state × command matrix. */
+const rowsOf = <State extends string, Command extends string, Context>(machine: Machine<State, Command, Context>): readonly (State | Boundary)[] => [
+  boundary,
+  ...machine.states,
+]
+
+/** The transitions of `command` that start from `state`, whatever their guards say. */
+const declared = <State extends string, Command extends string, Context>(
+  machine: Machine<State, Command, Context>,
+  command: Command,
+  state: State | Boundary,
+): readonly Transition<State, Command, Context>[] =>
+  machine.transitions.filter((transition) => transition.command === command && transition.from.includes(state))
+
+/**
+ * Every (state, command) pair, the boundary included, with what the table says happens. The rejected pairs are the
+ * illegal inputs a test must try: a table that only lists its transitions says nothing about the rest unless something
+ * checks them (Binder's "sneak paths").
+ */
+export const matrix = <State extends string, Command extends string, Context>(machine: Machine<State, Command, Context>): readonly Cell<State, Command>[] =>
+  rowsOf(machine).flatMap((state) =>
+    machine.commands.map((command): Cell<State, Command> => {
+      const matching = declared(machine, command, state)
+      const [only] = matching
+
+      if (only === undefined) {
+        return { state, command, outcome: { kind: "rejected" } }
+      }
+
+      if (matching.length === 1 && only.guard === undefined) {
+        return { state, command, outcome: only.when === undefined ? { kind: "moves", to: only.to } : { kind: "moves", to: only.to, when: only.when } }
+      }
+
+      return {
+        state,
+        command,
+        outcome: {
+          kind: "guarded",
+          branches: matching.map((transition) => (transition.when === undefined ? { to: transition.to } : { to: transition.to, when: transition.when })),
+        },
+      }
+    }),
+  )
+
 /** What makes a declaration incomplete or contradictory; an empty list means the machine is well formed. */
 export const problems = <State extends string, Command extends string, Context>(machine: Machine<State, Command, Context>): readonly string[] => {
   const found: string[] = []
@@ -122,6 +182,14 @@ export const problems = <State extends string, Command extends string, Context>(
     if (!machine.transitions.some((transition) => transition.command === command)) {
       found.push(`command ${command} has no transition`)
     }
+
+    for (const state of rowsOf(machine)) {
+      const matching = declared(machine, command, state)
+
+      if (matching.length > 1 && matching.some((transition) => transition.guard === undefined)) {
+        found.push(`command ${command} in state ${state} has ${matching.length} transitions and not every one has a guard`)
+      }
+    }
   }
 
   return found
@@ -148,4 +216,43 @@ export const toMermaid = <State extends string, Command extends string, Context>
   }
 
   return lines.join("\n")
+}
+
+const describeOutcome = <State extends string>(outcome: Outcome<State>): string => {
+  if (outcome.kind === "rejected") {
+    return "rejected"
+  }
+
+  if (outcome.kind === "moves") {
+    return outcome.when === undefined ? outcome.to : `${outcome.to} (${outcome.when})`
+  }
+
+  const branches = outcome.branches.map((branch) => `${branch.to} if ${branch.when ?? "its guard holds"}`)
+
+  return `${branches.join(", ")}, else rejected`
+}
+
+/**
+ * The full state × command matrix as a Markdown table: one row per state (the boundary first), one column per command,
+ * each cell naming the state the command leaves the resource in or saying that it is rejected. The diagram shows the
+ * transitions; this table also shows every illegal input, so it is the one a specification cites. Columns are padded
+ * to equal width, as a Markdown formatter would leave them, so a generated document survives formatting unchanged.
+ */
+export const toTable = <State extends string, Command extends string, Context>(machine: Machine<State, Command, Context>): string => {
+  const cells = matrix(machine)
+
+  const rows: readonly (readonly string[])[] = rowsOf(machine).map((state) => [
+    state,
+    ...machine.commands.map((command) => {
+      const cell = cells.find((candidate) => candidate.state === state && candidate.command === command)
+
+      return cell === undefined ? "rejected" : describeOutcome(cell.outcome)
+    }),
+  ])
+
+  const header = ["State", ...machine.commands]
+  const widths = header.map((title, column) => Math.max(3, title.length, ...rows.map((row) => row[column]?.length ?? 0)))
+  const line = (row: readonly string[]) => `| ${row.map((text, column) => text.padEnd(widths[column] ?? 0)).join(" | ")} |`
+
+  return [line(header), `| ${widths.map((width) => "-".repeat(width)).join(" | ")} |`, ...rows.map(line)].join("\n")
 }
