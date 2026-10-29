@@ -78,6 +78,40 @@ export default defineConfig({
     },
     overrides: [
       {
+        // The link secret lives in the URL fragment (docs/invariants.md, C1). Shipped browser code reads the page's
+        // address only through apps/web/src/address.ts, so the fragment cannot reach a log, a request or a report from
+        // anywhere else by accident. The common routes to the URL below are closed too; this guards against a mistake,
+        // not a determined read (a form's action, a prototype getter); the end-to-end leak check catches one sent in a URL,
+        // a socket frame or a request body Playwright can see (Blob bodies only in Firefox).
+        files: ["apps/web/src/**/*.ts", "libraries/*/src/**/*.ts"],
+        rules: {
+          "eslint/no-restricted-globals": [
+            "error",
+            {
+              name: "location",
+              message: "Read the page's address through apps/web/src/address.ts: the fragment holds the link secret.",
+            },
+            { name: "navigation", message: "The Navigation API exposes the page's URL, fragment included; use apps/web/src/address.ts." },
+          ],
+          // Any object's property, not only window's or document's: `w.location` after `const w = window`,
+          // `document.body.baseURI`, `window.navigation`, a navigation timing entry and `hashchange` all carry the URL.
+          "eslint/no-restricted-properties": [
+            "error",
+            ...["location", "URL", "documentURI", "baseURI", "navigation", "newURL", "oldURL", "getEntries", "getEntriesByType", "getEntriesByName"].map(
+              (property) => ({
+                property,
+                message:
+                  "May expose the page's URL, link secret included: read the address through apps/web/src/address.ts. Bare `URL` and `performance.now()` are fine; for an unrelated object's property of this name, disable the line with a reason.",
+              }),
+            ),
+          ],
+        },
+      },
+      {
+        files: ["apps/web/src/address.ts"],
+        rules: { "eslint/no-restricted-globals": "off", "eslint/no-restricted-properties": "off" },
+      },
+      {
         files: effectFiles,
         // Ultracite wants `async` on every Promise-returning function; effx forbids native async in Effect code.
         rules: { "typescript/promise-function-async": "off" },

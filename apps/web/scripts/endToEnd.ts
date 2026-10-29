@@ -70,6 +70,11 @@ interface PayloadFile {
 
 interface Observed {
   readonly urls: string[]
+  /**
+   * Request bodies the page sent (round 3 review of #27: a body can carry the URL too). Playwright reports string and
+   * buffer bodies in every browser, but Blob and File bodies only in Firefox (round 4 review of #27).
+   */
+  readonly bodies: Buffer[]
   readonly frames: Buffer[]
   readonly sockets: RoutedSocket[]
   /** When set, the first text frame from the server containing this is held back and the socket is cut cleanly instead. */
@@ -383,9 +388,16 @@ const openPage = async (browser: Browser, routed = true, persistent = false, dir
     }
   })
   const page = await context.newPage()
-  const observed: Observed = { urls: [], frames: [], sockets: [], cutBeforeText: undefined, silentSockets: 0 }
+  const observed: Observed = { urls: [], bodies: [], frames: [], sockets: [], cutBeforeText: undefined, silentSockets: 0 }
   const errors: string[] = []
-  page.on("request", (request) => observed.urls.push(request.url()))
+  page.on("request", (request) => {
+    observed.urls.push(request.url())
+    const body = request.postDataBuffer()
+
+    if (body !== null) {
+      observed.bodies.push(body)
+    }
+  })
   page.on("pageerror", (error) => {
     if (!isWebKitSendFailure(error.message)) {
       errors.push(error.message)
@@ -547,7 +559,10 @@ const offer = async (sender: Page, base: string, files: readonly PayloadFile[]) 
   return link
 }
 
-/** The invariant from CLAUDE.md, as seen from the browsers: nothing they send carries the secret or a file name. */
+/**
+ * The invariant from CLAUDE.md, as seen from the browsers: no request URL, socket frame or visible request body they
+ * send carries the secret or a file name (Blob and File bodies are visible in Firefox only; see Observed.bodies).
+ */
 const checkNothingLeaks = (link: string, files: readonly PayloadFile[], observedList: readonly Observed[]) => {
   const secret = new URL(link).hash.slice(1)
   check(secret.length >= 32, "the link carries its secret in the fragment")
@@ -570,9 +585,17 @@ const checkNothingLeaks = (link: string, files: readonly PayloadFile[], observed
         }
       }
     }
+
+    for (const body of observed.bodies) {
+      for (const needle of needles) {
+        if (body.includes(Buffer.from(needle))) {
+          leaks.push(`request body contains ${needle === secret ? "the secret" : needle}`)
+        }
+      }
+    }
   }
 
-  check(leaks.length === 0, "no request URL or socket frame carries the secret or a file name", leaks.slice(0, 5))
+  check(leaks.length === 0, "no request URL, request body or socket frame carries the secret or a file name", leaks.slice(0, 5))
 }
 
 const transferScenarios = ["basic", "resume", "half-open", "throughput", "latency"] as const

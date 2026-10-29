@@ -8,6 +8,7 @@
 import { bytesEqual, decodeLinkSecret, deriveRoomToken, isParcelError, labelsPerPage, openHeader, toHex } from "@file-transfer/parcel"
 import type { Manifest, ParcelOpener, ParcelReceiver } from "@file-transfer/parcel"
 import type { ControlMessage, Unit } from "@file-transfer/transport/protocol"
+import { linkFragment } from "./address.ts"
 import { consume, createCreditWindow, grantDue, resetCredits } from "./credits.ts"
 import { openConnection } from "./connection.ts"
 import type { Connection, PathName } from "./connection.ts"
@@ -111,7 +112,7 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
   let linkSecret: Uint8Array
 
   try {
-    linkSecret = decodeLinkSecret(location.hash)
+    linkSecret = decodeLinkSecret(linkFragment())
   } catch (error) {
     const reason = reasonOf(error)
     setStatus("failed", reason)

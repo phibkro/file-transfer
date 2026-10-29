@@ -124,6 +124,7 @@
       },
       {
         "files": [
+          "apps/web/src/address.ts",
           "apps/web/src/connection.ts",
           "apps/web/src/storage.ts",
           "apps/web/src/report.ts",
