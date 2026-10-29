@@ -1,0 +1,92 @@
+name: publish
+
+# Publishes a product release (docs/versioning.md, docs/decisions/0023) when its tag `vX.Y.Z` is pushed: release.yml
+# versions main, commits `Release vX.Y.Z` and pushes the tag with the release deploy key, and that push starts this.
+# It builds and smoke-tests what the tag points to and nothing else: the node executables and the web client
+# (artifacts.yml), the container for amd64 and arm64 (and starts the arm64 image on an arm64 machine), then publishes
+# the GitHub release with the tag's notes from CHANGELOG.md and checksums. Library tags (`<package>@<version>`) publish
+# nothing here. To publish a tag again, run this workflow by hand on the tag.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  artifacts:
+    if: startsWith(github.ref, 'refs/tags/v')
+    uses: ./.github/workflows/artifacts.yml
+    with:
+      label: ${{ github.ref_name }}
+
+  container:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - name: Build and publish for amd64 and arm64
+        env:
+          REGISTRY_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          version="${TAG#v}"
+          echo "$REGISTRY_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          image="ghcr.io/${{ github.repository }}"
+          docker buildx build --platform linux/amd64,linux/arm64 --push \
+            -f platforms/self-hosted/Dockerfile -t "$image:$version" -t "$image:${version%.*}" .
+
+  container-arm64:
+    # The arm64 image, started on an arm64 machine: the build above made it without running it.
+    needs: [container]
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Start the published image and ask it something
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          docker run -d --name node -p 8080:8080 "ghcr.io/${{ github.repository }}:${TAG#v}"
+          for attempt in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:8080/api/instance; then exit 0; fi
+            sleep 2
+          done
+          docker logs node
+          exit 1
+
+  publish:
+    needs: [artifacts, container-arm64]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - name: Notes from the tag's section of CHANGELOG.md
+        env:
+          TAG: ${{ github.ref_name }}
+        run: bun run release:notes "$TAG" "$RUNNER_TEMP/notes.md"
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: "{node-*,web-client}"
+          path: out
+          merge-multiple: true
+      - name: Checksums
+        run: cd out && sha256sum * > SHA256SUMS
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" --repo "${{ github.repository }}" --verify-tag --title "$TAG" \
+            --notes-file "$RUNNER_TEMP/notes.md" out/*

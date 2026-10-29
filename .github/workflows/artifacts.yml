@@ -2,17 +2,15 @@ name: artifacts
 
 # Builds what a release ships, without publishing it (docs/decisions/0021): the server node as one executable per
 # platform, each smoke-tested on its own platform, and the web client's static files. Called by `checks` on every pull
-# request and push, so a change that breaks an executable fails before it merges, and by `release`, which publishes
-# what it built. `workerd compile` attaches the configuration to the workerd binary that runs it, so each executable is
-# built on a runner of its own platform.
+# request and push to main, so a change that breaks an executable fails before it merges, and by `publish` on a
+# release tag's push, which publishes what it built. It always builds the commit of the run that called it, never a
+# commit handed in as an input, so no caller can make it run code its own event did not name (CodeQL
+# actions/cache-poisoning). `workerd compile` attaches the configuration to the workerd binary that runs it, so each
+# executable is built on a runner of its own platform.
 
 on:
   workflow_call:
     inputs:
-      ref:
-        description: The commit to build (defaults to the calling run's)
-        type: string
-        default: ""
       label:
         description: Goes into the file names, for example v0.1.0
         type: string
@@ -39,8 +37,6 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v7
-        with:
-          ref: ${{ inputs.ref }}
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
       - run: bun run compile
@@ -85,8 +81,6 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v7
-        with:
-          ref: ${{ inputs.ref }}
       - uses: oven-sh/setup-bun@v2
       - uses: actions/download-artifact@v8
         with:
@@ -103,8 +97,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-        with:
-          ref: ${{ inputs.ref }}
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
       - run: bun run build

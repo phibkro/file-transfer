@@ -85,7 +85,12 @@
         "adapterDependencies": ["node:fs", "node:path", "node:child_process", "oxc-parser"]
       },
       {
-        "files": ["tools/quality/src/checkModuleGraph.ts", "tools/quality/src/checkChangesets.ts", "tools/quality/src/prepareRelease.ts"],
+        "files": [
+          "tools/quality/src/checkModuleGraph.ts",
+          "tools/quality/src/checkChangesets.ts",
+          "tools/quality/src/prepareRelease.ts",
+          "tools/quality/src/releaseNotesFor.ts"
+        ],
         "role": "composition-root",
         "platform": "node"
       },

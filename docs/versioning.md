@@ -49,7 +49,7 @@ A seam is a contract between pieces built and deployed independently: a recipien
 
 ## Releases
 
-Releases happen on their own (`.github/workflows/release.yml`): when `checks` passes on a push to main and changesets are waiting, the release workflow runs `changeset version`, writes the notes (`bun run release:prepare`), commits `Release vX.Y.Z` to main with its tags, builds and smoke-tests the executables on every platform and both container architectures, and publishes the GitHub release. A push with only empty changesets releases nothing; their files go with the next release.
+Releases happen on their own, in two workflows. When `checks` passes on a push to main and changesets are waiting, `release.yml` runs `changeset version`, writes the notes into the root CHANGELOG.md (`bun run release:prepare`), and pushes `Release vX.Y.Z` to main with its tags. The push of the `vX.Y.Z` tag starts `publish.yml`, which builds and smoke-tests the executables on every platform and both container architectures from that tag, and publishes the GitHub release with the tag's section of CHANGELOG.md (`bun run release:notes`). Publishing from the tag's own push means no privileged workflow builds a commit it was handed as an input. To publish a tag again, run `publish` by hand on it. A push with only empty changesets releases nothing; their files go with the next release.
 
 The release commit is pushed by GitHub Actions, so it does not run `checks` again; it changes only versions and changelogs.
 

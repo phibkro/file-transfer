@@ -18,7 +18,8 @@
     "check": "vp check --deny-warnings && bun run check:graph && bun run check:effect && vp test run",
     "check:vectors": "python3 -I libraries/parcel/test/vectors/verify.py",
     "check:changesets": "bun tools/quality/src/checkChangesets.ts",
-    "release:prepare": "bun tools/quality/src/prepareRelease.ts"
+    "release:prepare": "bun tools/quality/src/prepareRelease.ts",
+    "release:notes": "bun tools/quality/src/releaseNotesFor.ts"
   },
   "dependencies": {
     "effect": "^4.0.7"
