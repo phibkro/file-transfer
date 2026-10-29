@@ -10,6 +10,7 @@
  * ADR 0014), same author.
  */
 import { describe, expect, it } from "vite-plus/test"
+import * as Machine from "@file-transfer/machine"
 import { Crypto, Effect, Layer } from "effect"
 import type { Guarantee } from "./guarantee.ts"
 
@@ -59,6 +60,86 @@ const isProgrammingError = (cause: unknown): boolean => {
 
   return false
 }
+
+/**
+ * How a check drives one service through its machine's table. `Handle` names one resource (a room identifier and its
+ * token, say).
+ */
+export interface TableDriver<Service, State extends string, Command extends string, Handle> {
+  /** A fresh resource in `state`; for the boundary, a handle naming a resource that does not exist. */
+  readonly arrange: (state: State | Machine.Boundary) => Effect.Effect<Handle, never, Service>
+  /** Applies one command and returns the handle of the resource it acted on (a creation returns the new one). */
+  readonly apply: { readonly [Key in Command]: (handle: Handle) => Effect.Effect<Handle, { readonly _tag: string }, Service> }
+  /** The resource's state, or the boundary when it does not exist. */
+  readonly observe: (handle: Handle) => Effect.Effect<State | Machine.Boundary, never, Service>
+  /**
+   * Pairs the service's interface cannot express (creating a room that already exists, say), with the reason. The
+   * table must reject each one; the check confirms that and does not run it.
+   */
+  readonly inexpressible?: readonly { readonly state: State | Machine.Boundary; readonly command: Command; readonly reason: string }[]
+}
+
+/**
+ * A check that the service behaves as its machine's table says in every state × command pair: a pair the table allows
+ * succeeds and leaves the resource in the declared state, and a pair the table rejects fails with a typed error and
+ * leaves the state as it was. Guarded pairs need a context the driver cannot choose, so a table with guards is refused
+ * here rather than half checked.
+ */
+export const transitionTableCheck =
+  <Service, State extends string, Command extends string, Context, Handle>(
+    machine: Machine.Machine<State, Command, Context>,
+    driver: TableDriver<Service, State, Command, Handle>,
+  ): Check<Service> =>
+  async (layer) => {
+    const mismatches: string[] = []
+
+    for (const cell of Machine.matrix(machine)) {
+      const label = `${cell.command} in ${cell.state}`
+      const inexpressible = driver.inexpressible?.find((entry) => entry.state === cell.state && entry.command === cell.command)
+
+      if (inexpressible !== undefined) {
+        if (cell.outcome.kind !== "rejected") {
+          mismatches.push(`${label}: the table allows it but the driver says the interface cannot express it (${inexpressible.reason})`)
+        }
+
+        continue
+      }
+
+      if (cell.outcome.kind === "guarded") {
+        mismatches.push(`${label}: guarded pairs need a context, which this check cannot supply`)
+        continue
+      }
+
+      const { outcome } = cell
+
+      const observed = await Effect.runPromise(
+        Effect.provide(
+          Effect.gen(function* () {
+            const handle = yield* driver.arrange(cell.state)
+            const result = yield* Effect.result(driver.apply[cell.command](handle))
+            const after = yield* driver.observe(result._tag === "Success" ? result.success : handle)
+
+            return { succeeded: result._tag === "Success", after, error: result._tag === "Failure" ? result.failure._tag : undefined }
+          }),
+          layer,
+        ),
+      )
+
+      if (outcome.kind === "moves" && !(observed.succeeded && observed.after === outcome.to)) {
+        mismatches.push(
+          `${label}: expected success in ${outcome.to}, got ${observed.succeeded ? "success" : `failure ${observed.error ?? ""}`} in ${observed.after}`,
+        )
+      }
+
+      if (outcome.kind === "rejected" && !(!observed.succeeded && observed.after === cell.state)) {
+        mismatches.push(
+          `${label}: expected a typed rejection with the state left at ${cell.state}, got ${observed.succeeded ? "success" : `failure ${observed.error ?? ""}`} in ${observed.after}`,
+        )
+      }
+    }
+
+    expect(mismatches).toEqual([])
+  }
 
 export const conformanceSuite = <Service, Identifier extends string>(definition: {
   readonly service: string

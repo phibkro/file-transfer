@@ -21,6 +21,11 @@ export const relayGuarantees = declareGuarantees([
   { identifier: "relay/exact-metering", property: "the meter counts exactly the frames and bytes delivered", strength: "port-enforced" },
   { identifier: "relay/close-stops-writes", property: "a closed session rejects pushes and grants but lets the recipient drain", strength: "port-enforced" },
   { identifier: "relay/unknown-not-found", property: "an unknown session identifier is reported as not found", strength: "port-enforced" },
+  {
+    identifier: "relay/follows-machine",
+    property: "every command in every state, the illegal ones included, does what the relay session machine's table says",
+    strength: "port-enforced",
+  },
 ])
 
 export type RelayGuarantee = (typeof relayGuarantees)[number]["identifier"]
@@ -44,6 +49,7 @@ export const relaySessionMachine = Machine.make({
 export type RelaySessionState = (typeof relaySessionMachine.states)[number]
 
 export interface RelayMeter {
+  readonly state: RelaySessionState
   readonly framesForwarded: number
   readonly bytesForwarded: number
   readonly framesQueued: number
@@ -182,13 +188,16 @@ export const makeRelayReference = (faults: ReadonlySet<RelayGuarantee> = new Set
           withSession(sessionIdentifier, (record) => {
             const next = Machine.next(relaySessionMachine, "closeSession", record.state, undefined)
 
-            return Effect.succeed([undefined, { ...record, state: next === "Closed" ? "Closed" : record.state }] as const)
+            const state = next === "Closed" && !faults.has("relay/follows-machine") ? "Closed" : record.state
+
+            return Effect.succeed([undefined, { ...record, state }] as const)
           }),
 
         meter: (sessionIdentifier) =>
           withSession(sessionIdentifier, (record) =>
             Effect.succeed([
               {
+                state: record.state,
                 framesForwarded: record.framesForwarded,
                 bytesForwarded: record.bytesForwarded,
                 framesQueued: record.queue.length,
