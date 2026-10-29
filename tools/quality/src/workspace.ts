@@ -2,7 +2,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs"
 import nodePath from "node:path"
 import { parseSync } from "oxc-parser"
-import { kindRules } from "./moduleGraph.ts"
+import { computedImportSpecifier, kindRules } from "./moduleGraph.ts"
 import type { Kind, PackageFacts } from "./moduleGraph.ts"
 
 interface Manifest {
@@ -37,8 +37,11 @@ const sourceFiles = (directory: string): string[] =>
     return path.endsWith(".ts") && !path.endsWith(".d.ts") ? [path] : []
   })
 
-/** Every module a file imports or re-exports, statically or through `import("literal")`. */
-const importSpecifiers = (path: string, source: string): string[] => {
+/**
+ * Every module a file imports or re-exports, statically or through `import("literal")`; an `import(expression)` whose
+ * module is not a plain string is recorded as `computedImportSpecifier`, so the graph check sees it rather than nothing.
+ */
+export const importSpecifiers = (path: string, source: string): string[] => {
   const { module, errors } = parseSync(path, source)
 
   if (errors.length > 0) {
@@ -48,7 +51,11 @@ const importSpecifiers = (path: string, source: string): string[] => {
   const dynamic = module.dynamicImports.flatMap(({ moduleRequest }) => {
     const text = source.slice(moduleRequest.start, moduleRequest.end)
 
-    return /^(?<quote>["'])[^"']*\k<quote>$/u.test(text) ? [text.slice(1, -1)] : []
+    if (/^(?<quote>["'])[^"']*\k<quote>$/u.test(text) || /^`[^`$]*`$/u.test(text)) {
+      return [text.slice(1, -1)]
+    }
+
+    return [computedImportSpecifier]
   })
 
   return [
