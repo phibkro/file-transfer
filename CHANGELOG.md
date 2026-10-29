@@ -2,6 +2,21 @@
 
 Every release of this repository, newest first, written from the changesets each pull request adds (docs/versioning.md). Each package also keeps its own CHANGELOG.md.
 
+## v0.4.3
+
+### @file-transfer/web 0.4.3
+
+#### Patch Changes
+
+- a89b246: A recipient that has received every file now stays connected for its whole linger when the sender leaves, so a sender whose connection dropped before it heard "complete" rejoins and finishes instead of waiting forever. The end-to-end suite's clean socket cut now really closes the server's end, which is how this was found.
+
+### @file-transfer/platform-cloudflare 0.4.3
+
+#### Patch Changes
+
+- @file-transfer/service-quota@0.4.3
+  - @file-transfer/service-telemetry@0.4.3
+
 ## v0.4.2
 
 ### @file-transfer/web 0.4.2
