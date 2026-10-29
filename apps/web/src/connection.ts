@@ -80,6 +80,12 @@ const livenessCheckMilliseconds = 2500
  */
 export const joinLimitMilliseconds = 15_000
 
+/**
+ * Close codes an endpoint sends, from 4100 up so they never share a number with the room's own (4000 to 4002,
+ * platforms/cloudflare/src/room.ts). The room ignores them; they name the reason in logs and traces.
+ */
+const closeCodes = { silent: 4100, noAnswerToJoin: 4101 } as const
+
 export const openConnection = (options: ConnectionOptions): Connection => {
   const { handlers } = options
   let socket: WebSocket | undefined
@@ -216,7 +222,7 @@ export const openConnection = (options: ConnectionOptions): Connection => {
     joinDeadline = setTimeout(() => {
       if (socket === current && !joined) {
         dropSocket(current)
-        current.close(4002, "no answer to join")
+        current.close(closeCodes.noAnswerToJoin, "no answer to join")
       }
     }, joinLimitMilliseconds)
     current.addEventListener("open", () => {
@@ -253,7 +259,7 @@ export const openConnection = (options: ConnectionOptions): Connection => {
 
               if (silence >= silentLimitMilliseconds) {
                 dropSocket(current)
-                current.close(4001, "silent")
+                current.close(closeCodes.silent, "silent")
               } else if (silence >= pingAfterMilliseconds && !pinged) {
                 pinged = true
                 current.send(pingFrame)
