@@ -322,7 +322,7 @@ const openPage = async (browser: Browser, routed = true, persistent = false, dir
   const trace = traceDirectory === undefined ? undefined : nodePath.join(traceDirectory, `page-${String(pagesOpened).padStart(3, "0")}.zip`)
 
   if (trace !== undefined) {
-    await context.tracing.start({ screenshots: true, snapshots: true, title: `page ${pagesOpened}` })
+    await context.tracing.start({ screenshots: process.env.E2E_TRACE_SCREENSHOTS !== "0", snapshots: process.env.E2E_TRACE_SNAPSHOTS !== "0", title: `page ${pagesOpened}` })
   }
 
   if (chaos) {
@@ -459,8 +459,16 @@ const openPage = async (browser: Browser, routed = true, persistent = false, dir
   }
 
   const close = async () => {
-    if (trace !== undefined) {
-      await context.tracing.stop({ path: trace })
+    // A browser that crashed cannot write its trace, and stopping fails; the check's own error is the one to report,
+    // and the context still has to close (found in review of #25).
+    const saved =
+      trace !== undefined &&
+      (await context.tracing.stop({ path: trace }).then(
+        () => true,
+        () => false,
+      ))
+
+    if (saved) {
       savedTraces.push(trace)
 
       for (const old of savedTraces.splice(0, Math.max(0, savedTraces.length - tracesKept))) {
@@ -842,9 +850,8 @@ const localAdminToken = "end-to-end-admin-token"
  * right one shows the counts and draws the chart, and the page ships nothing that identifies a transfer.
  */
 const operatorPage = async (browser: Browser, base: string) => {
-  const page = await browser.newPage()
-  const errors: string[] = []
-  page.on("pageerror", (error) => errors.push(error.message))
+  // Through openPage, so the page is traced like every other (E2E_TRACE_DIRECTORY); it records page errors itself.
+  const { page, errors, close } = await openPage(browser, false)
 
   try {
     await page.goto(`${base}/admin`)
@@ -860,7 +867,7 @@ const operatorPage = async (browser: Browser, base: string) => {
     check(/rooms created\s*[1-9]/iu.test(totals ?? ""), "operator: the right token shows the counts and draws the chart", totals ?? "")
     check(errors.length === 0, "operator: no uncaught page errors", errors)
   } finally {
-    await page.close()
+    await close()
   }
 }
 
@@ -1941,10 +1948,10 @@ try {
     check(local !== undefined, "the latency suite runs against the local server only")
     await latency(browser, base)
   } else {
-    const page = await browser.newPage()
-    const response = await page.goto(`${base}/r/some-room`)
+    const recipientPath = await openPage(browser, false)
+    const response = await recipientPath.page.goto(`${base}/r/some-room`)
+    await recipientPath.close()
     check(response?.ok() === true, "a recipient link path serves the app", `status ${response?.status() ?? "none"}`)
-    await page.close()
     await transfer(browser, base, "basic")
     await previewsAndNames(browser, base)
     await transfer(browser, base, "resume")
