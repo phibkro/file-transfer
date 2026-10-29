@@ -8,8 +8,13 @@
  * `signal` messages, and sends parcel units over it once it opens; control messages always go through the room. The
  * sender offers whenever a recipient joins; a dropped socket, or the other side leaving, closes the direct path, and
  * the next join sets it up again.
+ *
+ * A socket can also go silent without closing, when a NAT forgets the connection or a phone changes networks; the
+ * browser may not notice for many minutes. When the room answers pings (docs/protocol.md, "Liveness"), a socket that
+ * has been silent for `pingAfterMilliseconds` gets a ping, and one silent for `silentLimitMilliseconds` is given up
+ * and replaced, as if it had closed.
  */
-import { decodeControlMessage, decodeUnit, encodeControlMessage, encodeUnit } from "@file-transfer/transport/protocol"
+import { decodeControlMessage, decodeUnit, encodeControlMessage, encodeUnit, pingFrame } from "@file-transfer/transport/protocol"
 import type { ControlMessage, Role, Unit } from "@file-transfer/transport/protocol"
 import { openDirectPath } from "./direct.ts"
 import type { DirectPath } from "./direct.ts"
@@ -59,6 +64,14 @@ const socketUrl = (roomIdentifier: string): string =>
   `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/api/rooms/${encodeURIComponent(roomIdentifier)}/socket`
 
 const maximumBackoffMilliseconds = 5000
+
+/** Silence after which the socket is pinged. */
+export const pingAfterMilliseconds = 10_000
+
+/** Silence after which the socket is given up and replaced: a ping and its answer had ten seconds to pass. */
+export const silentLimitMilliseconds = 20_000
+
+const livenessCheckMilliseconds = 2500
 
 export const openConnection = (options: ConnectionOptions): Connection => {
   const { handlers } = options
@@ -155,6 +168,30 @@ export const openConnection = (options: ConnectionOptions): Connection => {
     return false
   }
 
+  /** Forgets the current socket and joins again after a backoff; `current` may still be closing. */
+  const dropSocket = (current: WebSocket) => {
+    if (socket !== current) {
+      return
+    }
+
+    clearInterval(liveness)
+    joined = false
+    socket = undefined
+    stopDirect()
+
+    if (stopped) {
+      handlers.onState("closed")
+
+      return
+    }
+
+    attempts++
+    handlers.onState("reconnecting")
+    setTimeout(connect, Math.min(maximumBackoffMilliseconds, 250 * 2 ** attempts))
+  }
+
+  let liveness: ReturnType<typeof setInterval> | undefined
+
   const connect = () => {
     if (stopped) {
       return
@@ -164,6 +201,8 @@ export const openConnection = (options: ConnectionOptions): Connection => {
     const current = new WebSocket(socketUrl(options.roomIdentifier))
     current.binaryType = "arraybuffer"
     socket = current
+    let lastHeard = Date.now()
+    let pinged = false
     current.addEventListener("open", () => {
       current.send(encodeControlMessage({ type: "join", role: options.role, roomToken: options.roomToken }))
     })
@@ -171,6 +210,9 @@ export const openConnection = (options: ConnectionOptions): Connection => {
       if (socket !== current) {
         return
       }
+
+      lastHeard = Date.now()
+      pinged = false
 
       if (isTextFrame(event.data)) {
         const decoded = decodeControlMessage(event.data)
@@ -186,6 +228,21 @@ export const openConnection = (options: ConnectionOptions): Connection => {
           attempts = 0
           epoch++
           handlers.onState("joined")
+
+          if (message.answersPings === true) {
+            clearInterval(liveness)
+            liveness = setInterval(() => {
+              const silence = Date.now() - lastHeard
+
+              if (silence >= silentLimitMilliseconds) {
+                dropSocket(current)
+                current.close(4001, "silent")
+              } else if (silence >= pingAfterMilliseconds && !pinged) {
+                pinged = true
+                current.send(pingFrame)
+              }
+            }, livenessCheckMilliseconds)
+          }
         }
 
         // The room closes the socket after an error; rejoining would only be refused again.
@@ -211,23 +268,7 @@ export const openConnection = (options: ConnectionOptions): Connection => {
       }
     })
     current.addEventListener("close", () => {
-      if (socket !== current) {
-        return
-      }
-
-      joined = false
-      socket = undefined
-      stopDirect()
-
-      if (stopped) {
-        handlers.onState("closed")
-
-        return
-      }
-
-      attempts++
-      handlers.onState("reconnecting")
-      setTimeout(connect, Math.min(maximumBackoffMilliseconds, 250 * 2 ** attempts))
+      dropSocket(current)
     })
   }
 
@@ -252,6 +293,7 @@ export const openConnection = (options: ConnectionOptions): Connection => {
     close: () => {
       stopped = true
       joined = false
+      clearInterval(liveness)
       stopDirect()
       socket?.close(1000)
     },

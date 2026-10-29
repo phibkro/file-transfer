@@ -80,6 +80,8 @@ export {
   Join,
   Joined,
   Peer,
+  pingFrame,
+  pongFrame,
   recipientToSenderTypes,
   senderToRecipientTypes,
   unitKind,

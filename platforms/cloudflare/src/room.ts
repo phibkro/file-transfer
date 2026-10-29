@@ -179,6 +179,7 @@ const join = (participants: readonly Participant[], role: Role, admission: Admis
         participantIdentifier,
         senderPresent: senderPresent || role === "sender",
         recipientCount: recipientCount + (role === "recipient" ? 1 : 0),
+        answersPings: true,
       }),
     },
   ]

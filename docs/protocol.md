@@ -14,19 +14,19 @@ Status: draft for the MVP. Codec in `libraries/transport/src/protocol.ts`.
 
 Text frames are JSON control messages; binary frames are parcel units. The first message on a socket must be `join`; the room answers `joined` or closes the socket with `error`.
 
-| Message    | Direction           | Fields                                                             | Meaning                                                                                        |
-| ---------- | ------------------- | ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
-| `join`     | endpoint to room    | `role` (`sender` or `recipient`), `roomToken` (64 hex)             | Admission: the room compares SHA-256 of the 32 token bytes with the stored hash, constant time |
-| `joined`   | room to endpoint    | `participantIdentifier`, `senderPresent`, `recipientCount`         | Admitted                                                                                       |
-| `peer`     | room to endpoint    | `event` (`joined` or `left`), `role`                               | Presence changes                                                                               |
-| `error`    | room to endpoint    | `reason`                                                           | Then the room closes the socket                                                                |
-| `accept`   | recipient to sender | `sequence`, `digest` (64 hex)                                      | Acceptance of exactly this contract (ADR 0012)                                                 |
-| `decline`  | recipient to sender | `sequence`                                                         | Refusal; no content follows                                                                    |
-| `credit`   | recipient to sender | `records` (1..4096)                                                | Permission for that many more data records                                                     |
-| `want`     | recipient to sender | `sequence`, `ranges` (`[start, end)` pairs of data record indexes) | Missing records (ADR 0013); the sender answers each range with the covering label pages first  |
-| `complete` | recipient to sender | `sequence`, optional `path` (`relay` or `direct`)                  | Every record matched the contract; `path` says whether any came over a direct path             |
-| `abort`    | either              | `reason`                                                           | The transfer stops; the recipient discards provisional output                                  |
-| `signal`   | either              | `description` (`type` offer or answer, `sdp`) or `candidate`       | Sets up the direct path (below)                                                                |
+| Message    | Direction           | Fields                                                                              | Meaning                                                                                        |
+| ---------- | ------------------- | ----------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `join`     | endpoint to room    | `role` (`sender` or `recipient`), `roomToken` (64 hex)                              | Admission: the room compares SHA-256 of the 32 token bytes with the stored hash, constant time |
+| `joined`   | room to endpoint    | `participantIdentifier`, `senderPresent`, `recipientCount`, optional `answersPings` | Admitted; `answersPings` means the room answers liveness pings (below)                         |
+| `peer`     | room to endpoint    | `event` (`joined` or `left`), `role`                                                | Presence changes                                                                               |
+| `error`    | room to endpoint    | `reason`                                                                            | Then the room closes the socket                                                                |
+| `accept`   | recipient to sender | `sequence`, `digest` (64 hex)                                                       | Acceptance of exactly this contract (ADR 0012)                                                 |
+| `decline`  | recipient to sender | `sequence`                                                                          | Refusal; no content follows                                                                    |
+| `credit`   | recipient to sender | `records` (1..4096)                                                                 | Permission for that many more data records                                                     |
+| `want`     | recipient to sender | `sequence`, `ranges` (`[start, end)` pairs of data record indexes)                  | Missing records (ADR 0013); the sender answers each range with the covering label pages first  |
+| `complete` | recipient to sender | `sequence`, optional `path` (`relay` or `direct`)                                   | Every record matched the contract; `path` says whether any came over a direct path             |
+| `abort`    | either              | `reason`                                                                            | The transfer stops; the recipient discards provisional output                                  |
+| `signal`   | either              | `description` (`type` offer or answer, `sdp`) or `candidate`                        | Sets up the direct path (below)                                                                |
 
 The room relays `accept`, `decline`, `credit`, `want` and `complete` from recipients to the sender, and `abort` and `signal` both ways, without reading them, except that a `complete` with `path` is counted when the operator turned counting on. Binary frames on the socket flow only from the sender to recipients.
 
@@ -47,6 +47,15 @@ A reconnecting endpoint usually joins before the room has noticed its old socket
 - An endpoint that receives `error` stops rejoining, so two live tabs holding the same link cannot evict each other in a loop; the older tab simply stops.
 - This grants nothing new: every holder of the link holds the room token and can join as either role. Rooms with several recipients will need recipient identities (a later phase) so that a new recipient does not evict another one.
 - Close code 1012 (service restart) and any close without `error` mean "rejoin and resume". `scripts/endToEnd.ts` in `apps/web` cuts sockets both cleanly and half-open mid-transfer and checks the files still arrive byte-identical.
+
+### Liveness
+
+A socket can go silent without closing: a NAT forgets the connection, a phone moves from Wi-Fi to mobile data, a laptop sleeps. TCP may take many minutes to notice, and until then a transfer simply stops. So a room that says `answersPings: true` in `joined` answers the bare text frame `ping` (not JSON) with `pong`, and an endpoint:
+
+- sends `ping` after 10 seconds without hearing anything on the socket, once per silence;
+- after 20 seconds without hearing anything, gives the socket up (closing it with code 4001, which may never arrive) and rejoins as after any drop, then resumes from what is missing.
+
+On Cloudflare and workerd the runtime answers pings itself (`setWebSocketAutoResponse`), without waking the room's Durable Object. An endpoint ignores `pong` like any text frame it cannot decode, and does not ping a room that did not say `answersPings`, so older rooms and older endpoints work as before. `scripts/endToEnd.ts` in `apps/web` blackholes sockets mid-transfer in its chaos suite and checks the transfer recovers.
 
 ### Limits
 

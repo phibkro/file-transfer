@@ -23,6 +23,8 @@
  * - `large`: one transfer of `E2E_LARGE_GB` gigabytes (default 10) from a sparse file with random markers every GiB,
  *   checked by size and by sampling the markers and the zeros between them, since a browser cannot hash 10 GB in
  *   memory; the parcel's labels already check every record's contents. Set `E2E_TIMEOUT_MS` to a few hours;
+ * - `chaos`: transfers under seeded faults (faultPlan.ts): sockets cut cleanly or half-open, stalled, blackholed or
+ *   slowed, records replayed by the relay, direct paths killed; `E2E_SEED` and `E2E_RUNS` choose the plans;
  * - `scenario`: one transfer scenario (`E2E_SCENARIO`, default half-open) `E2E_REPEAT` times (default 10), to chase a
  *   failure that shows up in a few runs out of many.
  */
@@ -32,12 +34,16 @@ import { tmpdir } from "node:os"
 import nodePath from "node:path"
 import { chromium, firefox, webkit } from "playwright"
 import type { Browser, BrowserContext, LaunchOptions, Page, WebSocketRoute } from "playwright"
+import { describePlan, faultPlan } from "./faultPlan.ts"
+import type { Fault, FaultPlan, Side } from "./faultPlan.ts"
 import { startLatencyProxy } from "./latencyProxy.ts"
 
 declare global {
   interface Window {
     /** Set by the init script below: the extensions each socket negotiated. */
     negotiatedSocketExtensions?: string[]
+    /** Set by the chaos init script: kills every data channel and peer connection on the page. */
+    chaosDropDirect?: () => number
   }
 }
 
@@ -50,7 +56,54 @@ interface PayloadFile {
 interface Observed {
   readonly urls: string[]
   readonly frames: Buffer[]
-  readonly sockets: { readonly page: WebSocketRoute; readonly server: WebSocketRoute }[]
+  readonly sockets: RoutedSocket[]
+}
+
+/** What the chaos suite does to one routed socket (faultPlan.ts); untouched, frames pass straight through. */
+interface SocketFaults {
+  /** Frames wait until this time (milliseconds since the epoch) before passing. */
+  pausedUntil: number
+  /** Frames wait this long before passing, in order. */
+  latency: number
+  /** Nothing passes again, and the socket stays open. */
+  blackholed: boolean
+  /** When the last frame in each direction is due, so frames never overtake one another. */
+  readonly due: { toServer: number; toPage: number }
+}
+
+interface RoutedSocket {
+  readonly page: WebSocketRoute
+  readonly server: WebSocketRoute
+  readonly faults: SocketFaults
+  /** The latest binary frames the server sent this page, for replaying them. */
+  readonly fromServer: Buffer[]
+}
+
+/** Passes a frame on now, or later when a stall or latency holds it, or never once the socket is blackholed. */
+const forward = (faults: SocketFaults, direction: "toServer" | "toPage", deliver: () => void) => {
+  if (faults.blackholed) {
+    return
+  }
+
+  const now = Date.now()
+  const due = Math.max(now + faults.latency, faults.pausedUntil, faults.due[direction])
+  faults.due[direction] = due
+
+  const send = () => {
+    if (!faults.blackholed) {
+      try {
+        deliver()
+      } catch {
+        // The other end closed meanwhile; a real network drops the frame too.
+      }
+    }
+  }
+
+  if (due <= now) {
+    send()
+  } else {
+    setTimeout(send, due - now)
+  }
 }
 
 const appDirectory = new URL("..", import.meta.url).pathname
@@ -116,10 +169,17 @@ const startLocalServer = async () => {
   const port = 20_000 + Math.floor(Math.random() * 20_000)
   const scratch = mkdtempSync(nodePath.join(tmpdir(), "file-transfer-e2e-"))
   const environment = { ...process.env, NO_PROXY: "127.0.0.1,localhost", no_proxy: "127.0.0.1,localhost", WRANGLER_SEND_METRICS: "false" }
-  const build = Bun.spawnSync(["bun", "run", "build"], { cwd: platformDirectory, env: environment, stdout: "ignore", stderr: "pipe" })
 
-  if (build.exitCode !== 0) {
-    throw new Error(`platform build failed:\n${build.stderr.toString()}`)
+  // The app too, so a local run never serves a stale apps/web/dist.
+  for (const [label, directory] of [
+    ["app", appDirectory],
+    ["platform", platformDirectory],
+  ] as const) {
+    const build = Bun.spawnSync(["bun", "run", "build"], { cwd: directory, env: environment, stdout: "ignore", stderr: "pipe" })
+
+    if (build.exitCode !== 0) {
+      throw new Error(`${label} build failed:\n${build.stderr.toString()}`)
+    }
   }
 
   const wrangler = Bun.spawn(
@@ -221,8 +281,44 @@ const newContext = async (browser: Browser, persistent: boolean): Promise<{ read
  * A page in its own profile. `persistent` gives it a normal on-disk profile; ephemeral contexts count as private
  * windows, whose storage quota (about 2.1 GB in headless Chromium) is too small for the large suite.
  */
-const openPage = async (browser: Browser, routed = true, persistent = false, direct = true) => {
+const openPage = async (browser: Browser, routed = true, persistent = false, direct = true, chaos = false) => {
   const { context, dispose } = await newContext(browser, persistent)
+
+  if (chaos) {
+    // Keeps every peer connection and data channel the page makes, so a fault can kill its direct path.
+    await context.addInitScript(() => {
+      const connections: RTCPeerConnection[] = []
+      const channels: RTCDataChannel[] = []
+      const Native = window.RTCPeerConnection
+      window.RTCPeerConnection = class extends Native {
+        constructor(configuration?: RTCConfiguration) {
+          super(configuration)
+          connections.push(this)
+          this.addEventListener("datachannel", (event) => {
+            channels.push(event.channel)
+          })
+        }
+
+        override createDataChannel(label: string, init?: RTCDataChannelInit) {
+          const channel = super.createDataChannel(label, init)
+          channels.push(channel)
+
+          return channel
+        }
+      }
+      window.chaosDropDirect = () => {
+        for (const channel of channels) {
+          channel.close()
+        }
+
+        for (const connection of connections) {
+          connection.close()
+        }
+
+        return channels.length
+      }
+    })
+  }
 
   if (!direct) {
     // The setting a person turns off under "Direct connections" (apps/web/src/directSettings.ts).
@@ -259,13 +355,24 @@ const openPage = async (browser: Browser, routed = true, persistent = false, dir
     await page.routeWebSocket(/\/api\/rooms\/.+\/socket/u, (socket) => {
       observed.urls.push(socket.url())
       const server = socket.connectToServer()
-      observed.sockets.push({ page: socket, server })
+      const faults: SocketFaults = { pausedUntil: 0, latency: 0, blackholed: false, due: { toServer: 0, toPage: 0 } }
+      const fromServer: Buffer[] = []
+      observed.sockets.push({ page: socket, server, faults, fromServer })
       socket.onMessage((message) => {
         observed.frames.push(Buffer.isBuffer(message) ? message : Buffer.from(message))
-        server.send(message)
+        forward(faults, "toServer", () => {
+          server.send(message)
+        })
       })
       server.onMessage((message) => {
-        socket.send(message)
+        if (Buffer.isBuffer(message)) {
+          fromServer.push(message)
+          fromServer.splice(0, Math.max(0, fromServer.length - 64))
+        }
+
+        forward(faults, "toPage", () => {
+          socket.send(message)
+        })
       })
 
       socket.onClose(async (code, reason) => {
@@ -961,6 +1068,125 @@ const latency = async (browser: Browser, origin: string) => {
   console.log(`   latency results (128 MB, credit window from apps/web/src/recipient.ts): ${rows.join(", ")}`)
 }
 
+/** Strikes one planned fault on a side's current socket or direct path. */
+const applyFault = async (page: Page, observed: Observed, fault: Fault) => {
+  const socket = observed.sockets.at(-1)
+
+  if (socket === undefined) {
+    throw new Error("no socket to fault")
+  }
+
+  switch (fault.kind) {
+    case "cut-clean":
+    case "cut-half-open": {
+      await cutSocket(observed, fault.kind === "cut-clean" ? "clean" : "half-open")
+      break
+    }
+
+    case "stall": {
+      socket.faults.pausedUntil = Date.now() + fault.milliseconds
+      break
+    }
+
+    case "blackhole": {
+      socket.faults.blackholed = true
+      break
+    }
+
+    case "latency": {
+      socket.faults.latency = fault.milliseconds
+      break
+    }
+
+    case "replay": {
+      for (let index = 0; index < fault.frames && socket.fromServer.length > 0; index++) {
+        const frame = socket.fromServer[Math.floor(Math.random() * socket.fromServer.length)]
+
+        if (frame !== undefined) {
+          socket.page.send(frame)
+        }
+      }
+
+      break
+    }
+
+    case "direct-drop": {
+      await page.evaluate(() => window.chaosDropDirect?.())
+      break
+    }
+  }
+}
+
+/** Time a chaos run may take: a silent socket has to be noticed and replaced, which takes tens of seconds. */
+const chaosTimeoutMilliseconds = Number(process.env.E2E_CHAOS_TIMEOUT_MS ?? 120_000)
+
+/**
+ * One chaos run (faultPlan.ts): a transfer of 24 MB in two files, with the plan's faults struck as the recipient's
+ * progress passes each point. It must still end with both sides complete, every file byte-identical, and no page
+ * error; a failure prints the plan, whose seed replays it.
+ */
+const chaosRun = async (browser: Browser, base: string, plan: FaultPlan) => {
+  console.log(describePlan(plan))
+
+  const files = payload([
+    ["kilo-dataset.bin", 24 * 1024 * 1024 + 7],
+    ["lima-notes.txt", 7000],
+  ])
+
+  const sender = await openPage(browser, true, false, plan.direct, true)
+  const recipient = await openPage(browser, true, false, plan.direct, true)
+  const sides: Readonly<Record<Side, typeof sender>> = { sender, recipient }
+  const label = `chaos seed ${plan.seed}`
+
+  try {
+    const link = await offer(sender.page, base, files)
+    await recipient.page.goto(link)
+    await waitForStatus(recipient.page, ["reviewing", "failed"], chaosTimeoutMilliseconds)
+    await recipient.page.getByRole("button", { name: /^Accept/u }).click()
+
+    for (const { at, side, fault } of plan.faults) {
+      await recipient.page.waitForFunction(
+        (wanted) => {
+          const progress = window.fileTransferTest?.progress()
+
+          return window.fileTransferTest?.status() === "complete" || (progress !== undefined && progress.total > 0 && progress.done / progress.total >= wanted)
+        },
+        at,
+        { timeout: chaosTimeoutMilliseconds },
+      )
+      await applyFault(sides[side].page, sides[side].observed, fault)
+    }
+
+    await waitForStatus(recipient.page, ["complete", "failed"], chaosTimeoutMilliseconds)
+    await waitForStatus(sender.page, ["complete", "failed"], chaosTimeoutMilliseconds)
+    check((await status(recipient.page)) === "complete" && (await status(sender.page)) === "complete", `${label}: both sides complete`, {
+      recipient: await recipient.page.evaluate(() => window.fileTransferTest?.failure()),
+      sender: await sender.page.evaluate(() => window.fileTransferTest?.failure()),
+    })
+    const hashes = await recipient.page.evaluate(async () => await window.fileTransferTest?.fileHashes())
+    check(JSON.stringify(hashes) === JSON.stringify(files.map((file) => sha256(file.buffer))), `${label}: every file arrives byte-identical`, hashes)
+    check(sender.errors.length === 0 && recipient.errors.length === 0, `${label}: no uncaught page errors`, [...sender.errors, ...recipient.errors])
+  } catch (error) {
+    console.log(`   ${label} failed; replay it with E2E_SUITE=chaos E2E_SEED=${plan.seed} E2E_RUNS=1`)
+    console.log(`   ${await describe("sender", sender.page, sender.observed)}\n   ${await describe("recipient", recipient.page, recipient.observed)}`)
+    throw error
+  } finally {
+    await sender.close()
+    await recipient.close()
+  }
+}
+
+/** `E2E_RUNS` chaos runs (default 6) from seed `E2E_SEED` onwards (default random, printed). */
+const chaos = async (browser: Browser, base: string) => {
+  const seed = Number(process.env.E2E_SEED ?? Math.floor(Math.random() * 2 ** 31))
+  const runs = Number(process.env.E2E_RUNS ?? 6)
+  console.log(`chaos: seeds ${seed} to ${seed + runs - 1}`)
+
+  for (let index = 0; index < runs; index++) {
+    await chaosRun(browser, base, faultPlan(seed + index))
+  }
+}
+
 const local = configuredBase === undefined ? await startLocalServer() : undefined
 const base = configuredBase ?? local?.origin ?? ""
 
@@ -971,6 +1197,8 @@ const browser = await browserType.launch(launchOptions)
 try {
   if (suite === "large") {
     await large(browser, base)
+  } else if (suite === "chaos") {
+    await chaos(browser, base)
   } else if (suite === "scenario") {
     const scenario = process.env.E2E_SCENARIO ?? "half-open"
     const repeats = Number(process.env.E2E_REPEAT ?? 10)
