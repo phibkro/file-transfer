@@ -81,7 +81,8 @@ const openProfile = async (label: string) => {
       sent.push({ page: label, kind: "frame", text: Buffer.from(frame.payload).toString("latin1") })
     })
     socket.on("framereceived", (frame) => {
-      if (typeof frame.payload === "string") {
+      // Control messages travel as text frames; parcel units are binary and carry nothing these checks read.
+      if (!Buffer.isBuffer(frame.payload)) {
         controlReceived.push({ page: label, at: Date.now(), text: frame.payload })
       }
     })
