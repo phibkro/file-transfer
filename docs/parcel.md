@@ -16,7 +16,7 @@ Design references: the age STREAM construction (counter nonce, final flag), synt
 - Key commitment, so one ciphertext cannot decrypt validly under two keys ("invisible salamanders").
 - No nonce reuse even when a sender reseals a record whose plaintext changed: nonces are synthetic.
 - One accept set: every conforming receiver accepts and rejects exactly the same bytes, checked by shared positive and negative test vectors.
-- The same bytes work for live, relayed and (phase 2) stored transfers; stores and seeds verify pieces against the root without keys.
+- The same bytes work for live, relayed and (phase 2) stored transfers. Stores and seeds can check without keys that each piece matches its label and that every label page proves to one root; that this root is the contract's is known only to a key holder, because the root is sealed in the manifest (ADR 0024).
 
 ## Notation
 

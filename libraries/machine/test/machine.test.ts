@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test"
-import { boundary, can, make, next, problems, toMermaid } from "../src/index.ts"
+import { boundary, can, make, matrix, next, problems, toMermaid, toTable } from "../src/index.ts"
 
 const door = make({
   name: "Door",
@@ -50,6 +50,45 @@ describe("machine", () => {
         "terminal state Done has a transition to another state",
       ].toSorted(),
     )
+  })
+
+  it("lists every state × command pair, the boundary included, with what the table says", () => {
+    const cells = matrix(door)
+    const outcomeOf = (state: string, command: string) => cells.find((cell) => cell.state === state && cell.command === command)?.outcome
+
+    expect(cells).toHaveLength(4 * 4)
+    expect(outcomeOf(boundary, "install")).toEqual({ kind: "moves", to: "Open" })
+    expect(outcomeOf(boundary, "close")).toEqual({ kind: "rejected" })
+    expect(outcomeOf("Open", "install")).toEqual({ kind: "rejected" })
+    expect(outcomeOf("Closed", "open")).toEqual({ kind: "guarded", branches: [{ to: "Open" }] })
+    expect(outcomeOf("Removed", "open")).toEqual({ kind: "rejected" })
+  })
+
+  it("reports a command whose transitions from one state cannot be told apart", () => {
+    const ambiguous = make({
+      name: "Ambiguous",
+      states: ["A", "B", "Done"],
+      commands: ["start", "go"],
+      terminal: ["Done"],
+      transitions: [
+        { command: "start", from: [boundary], to: "A" },
+        { command: "go", from: ["A"], to: "B" },
+        { command: "go", from: ["A", "B"], to: "Done" },
+      ],
+    })
+
+    expect(problems(ambiguous)).toEqual(["command go in state A has 2 transitions and not every one has a guard"])
+  })
+
+  it("renders the full matrix as a table, illegal inputs included", () => {
+    expect(toTable(door).split("\n")).toEqual([
+      "| State   | install  | close    | open                                   | remove   |",
+      "| ------- | -------- | -------- | -------------------------------------- | -------- |",
+      "| [*]     | Open     | rejected | rejected                               | rejected |",
+      "| Open    | rejected | Closed   | rejected                               | Removed  |",
+      "| Closed  | rejected | rejected | Open if its guard holds, else rejected | Removed  |",
+      "| Removed | rejected | rejected | rejected                               | rejected |",
+    ])
   })
 
   it("renders a top-to-bottom diagram", () => {

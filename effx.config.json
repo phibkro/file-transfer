@@ -39,6 +39,14 @@
         "reason": "workspace service package; the platform imports its pure event kinds and buckets, governed by the services group; tools/quality checks the edge"
       },
       {
+        "specifier": "@file-transfer/service-room",
+        "reason": "workspace service package; tools/quality reads its machine table to generate docs/state-machines.md, and the services group governs it; tools/quality checks the edge"
+      },
+      {
+        "specifier": "@file-transfer/service-relay",
+        "reason": "workspace service package; tools/quality reads its machine table to generate docs/state-machines.md, and the services group governs it; tools/quality checks the edge"
+      },
+      {
         "specifier": "@file-transfer/machine",
         "reason": "workspace package governed by its own group below; tools/quality checks the edge"
       }
@@ -66,6 +74,7 @@
           "tools/quality/src/moduleGraph.ts",
           "tools/quality/src/changesets.ts",
           "tools/quality/src/releaseNotes.ts",
+          "tools/quality/src/stateMachines.ts",
           "platforms/self-hosted/src/assetRouting.ts",
           "platforms/cloudflare/src/durableObjectCalls.ts",
           "platforms/cloudflare/src/directSettings.ts"
@@ -89,7 +98,8 @@
           "tools/quality/src/checkModuleGraph.ts",
           "tools/quality/src/checkChangesets.ts",
           "tools/quality/src/prepareRelease.ts",
-          "tools/quality/src/releaseNotesFor.ts"
+          "tools/quality/src/releaseNotesFor.ts",
+          "tools/quality/src/writeStateMachines.ts"
         ],
         "role": "composition-root",
         "platform": "node"

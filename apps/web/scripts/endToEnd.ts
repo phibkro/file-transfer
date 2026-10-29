@@ -26,8 +26,9 @@
  * - `large`: one transfer of `E2E_LARGE_GB` gigabytes (default 10) from a sparse file with random markers every GiB,
  *   checked by size and by sampling the markers and the zeros between them, since a browser cannot hash 10 GB in
  *   memory; the parcel's labels already check every record's contents. Set `E2E_TIMEOUT_MS` to a few hours;
- * - `chaos`: transfers under seeded faults (faultPlan.ts): sockets cut cleanly or half-open, stalled, blackholed or
- *   slowed, records replayed by the relay, direct paths killed; `E2E_SEED` and `E2E_RUNS` choose the plans;
+ * - `chaos`: a join the room never answers, then transfers under seeded faults (faultPlan.ts): sockets cut cleanly or
+ *   half-open, stalled, blackholed or slowed, records replayed by the relay, direct paths killed; `E2E_SEED` and
+ *   `E2E_RUNS` choose the plans;
  * - `lab`: transfers between two homes behind emulated routers in Linux network namespaces (networkLab.ts): open,
  *   symmetric and UDP-blocking NATs, slow and lossy links, a router that drops everything or moves address; needs root,
  *   coturn's `turnserver`, and chromium or firefox; `E2E_LAB_ONLY` picks scenarios by name;
@@ -68,6 +69,8 @@ interface Observed {
   readonly urls: string[]
   readonly frames: Buffer[]
   readonly sockets: RoutedSocket[]
+  /** How many of the page's next sockets start blackholed, so their join is never answered. */
+  silentSockets: number
 }
 
 /** What the chaos suite does to one routed socket (faultPlan.ts); untouched, frames pass straight through. */
@@ -375,7 +378,7 @@ const openPage = async (browser: Browser, routed = true, persistent = false, dir
     }
   })
   const page = await context.newPage()
-  const observed: Observed = { urls: [], frames: [], sockets: [] }
+  const observed: Observed = { urls: [], frames: [], sockets: [], silentSockets: 0 }
   const errors: string[] = []
   page.on("request", (request) => observed.urls.push(request.url()))
   page.on("pageerror", (error) => {
@@ -388,7 +391,8 @@ const openPage = async (browser: Browser, routed = true, persistent = false, dir
     await page.routeWebSocket(/\/api\/rooms\/.+\/socket/u, (socket) => {
       observed.urls.push(socket.url())
       const server = socket.connectToServer()
-      const faults: SocketFaults = { pausedUntil: 0, latency: 0, blackholed: false, due: { toServer: 0, toPage: 0 } }
+      const faults: SocketFaults = { pausedUntil: 0, latency: 0, blackholed: observed.silentSockets > 0, due: { toServer: 0, toPage: 0 } }
+      observed.silentSockets = Math.max(0, observed.silentSockets - 1)
       const fromServer: Buffer[] = []
       observed.sockets.push({ page: socket, server, faults, fromServer })
       socket.onMessage((message) => {
@@ -1391,7 +1395,35 @@ const chaosRun = async (browser: Browser, base: string, plan: FaultPlan) => {
 }
 
 /** `E2E_RUNS` chaos runs (default 6) from seed `E2E_SEED` onwards (default random, printed). */
+/** connection.ts's `joinLimitMilliseconds`; the script does not import browser code. */
+const joinLimitMilliseconds = 15_000
+
+/**
+ * A recipient whose first socket opens but whose join the network loses (the socket starts blackholed) gives it up
+ * after `joinLimitMilliseconds` and joins on a new socket, so it still reaches the offer (docs/spikes/0006, C1).
+ */
+const unansweredJoin = async (browser: Browser, base: string) => {
+  const sender = await openPage(browser, false)
+  const recipient = await openPage(browser, true)
+
+  try {
+    const link = await offer(sender.page, base, payload([["mike-join.txt", 4000]]))
+    recipient.observed.silentSockets = 1
+    await recipient.page.goto(link)
+    await waitForStatus(recipient.page, ["reviewing", "failed"], joinLimitMilliseconds + 20_000).catch(() => undefined)
+    check((await status(recipient.page)) === "reviewing", "a join the room never answers is given up, and the recipient joins again and sees the offer", {
+      status: await status(recipient.page),
+      sockets: recipient.observed.sockets.length,
+    })
+    check(recipient.observed.sockets.length >= 2, "the unanswered socket was replaced by a new one", `${recipient.observed.sockets.length} sockets`)
+  } finally {
+    await sender.close()
+    await recipient.close()
+  }
+}
+
 const chaos = async (browser: Browser, base: string) => {
+  await unansweredJoin(browser, base)
   const seed = Number(process.env.E2E_SEED ?? Math.floor(Math.random() * 2 ** 31))
   const runs = Number(process.env.E2E_RUNS ?? 6)
   console.log(`chaos: seeds ${seed} to ${seed + runs - 1}`)

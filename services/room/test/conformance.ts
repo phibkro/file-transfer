@@ -2,14 +2,15 @@
  * The Room service's conformance suite: one check per guarantee in `roomGuarantees`. Every platform layer runs
  * `roomSuite.run` and `roomSuite.negativeControls` with its own broken variants, as the reference layer does.
  */
-import { conformanceSuite } from "@file-transfer/conformance"
+import { conformanceSuite, transitionTableCheck } from "@file-transfer/conformance"
+import * as Machine from "@file-transfer/machine"
 import { deriveRoomToken, hashRoomToken } from "@file-transfer/parcel"
 import { expect } from "vite-plus/test"
 import { Effect } from "effect"
 import type { Layer } from "effect"
 import * as fc from "fast-check"
-import { Room, roomGuarantees } from "../src/index.ts"
-import type { RoomGuarantee } from "../src/index.ts"
+import { Room, roomGuarantees, roomMachine } from "../src/index.ts"
+import type { RoomGuarantee, RoomState } from "../src/index.ts"
 
 const secretArbitrary = fc.uint8Array({ minLength: 32, maxLength: 32 })
 
@@ -22,6 +23,73 @@ const createRoomWithSecret = (secret: Uint8Array, maximumRecipients: number) =>
 
     return { room, roomToken, roomIdentifier }
   })
+
+interface RoomHandle {
+  readonly roomIdentifier: string
+  readonly roomToken: Uint8Array
+}
+
+const fixedSecret = new Uint8Array(32).fill(7)
+
+const openRoom = Effect.map(createRoomWithSecret(fixedSecret, 4), ({ roomIdentifier, roomToken }): RoomHandle => ({ roomIdentifier, roomToken }))
+
+/** Drives the room through every pair of its machine's table. */
+const followsMachine = transitionTableCheck(roomMachine, {
+  arrange: (state) =>
+    Effect.gen(function* () {
+      if (state === Machine.boundary) {
+        const handle = yield* openRoom
+
+        return { ...handle, roomIdentifier: "no-such-room" }
+      }
+
+      const handle = yield* openRoom
+
+      if (state === "Closed") {
+        const room = yield* Room
+        yield* Effect.orDie(room.close(handle.roomIdentifier))
+      }
+
+      return handle
+    }),
+  apply: {
+    createRoom: () => openRoom,
+    joinRoom: (handle) =>
+      Effect.gen(function* () {
+        const room = yield* Room
+        yield* room.join({ ...handle, role: "recipient" })
+
+        return handle
+      }),
+    leaveRoom: (handle) =>
+      Effect.gen(function* () {
+        const room = yield* Room
+        yield* room.leave({ roomIdentifier: handle.roomIdentifier, participantIdentifier: "nobody" })
+
+        return handle
+      }),
+    closeRoom: (handle) =>
+      Effect.gen(function* () {
+        const room = yield* Room
+        yield* room.close(handle.roomIdentifier)
+
+        return handle
+      }),
+  },
+  observe: (handle) =>
+    Effect.gen(function* () {
+      const room = yield* Room
+
+      return yield* Effect.match(room.describe(handle.roomIdentifier), {
+        onFailure: (): RoomState | Machine.Boundary => Machine.boundary,
+        onSuccess: (description) => description.state,
+      })
+    }),
+  inexpressible: [
+    { state: "Open", command: "createRoom", reason: "creating always makes a new room; nothing names an existing one" },
+    { state: "Closed", command: "createRoom", reason: "creating always makes a new room; nothing names an existing one" },
+  ],
+})
 
 const runner =
   (layer: Layer.Layer<Room>) =>
@@ -126,5 +194,7 @@ export const roomSuite = conformanceSuite<Room, RoomGuarantee>({
 
       expect(new Set(identifiers).size).toBe(identifiers.length)
     },
+
+    "room/follows-machine": followsMachine,
   },
 })
