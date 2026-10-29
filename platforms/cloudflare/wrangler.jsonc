@@ -23,7 +23,7 @@
   // The operator's limits (src/limits.ts, docs/decisions/0019-open-source-first.md). Change them here, in the
   // Cloudflare dashboard, or at deploy time. Set ADDRESS_SALT as a secret (`wrangler secret put ADDRESS_SALT`).
   "vars": {
-    "LIMIT_ROOMS_PER_ADDRESS_PER_HOUR": "20",
+    "LIMIT_ROOMS_PER_ADDRESS_PER_HOUR": "100",
     "LIMIT_RELAYED_BYTES_PER_ROOM": "10000000000",
     "CLIENT_ADDRESS_HEADER": "cf-connecting-ip",
   },
