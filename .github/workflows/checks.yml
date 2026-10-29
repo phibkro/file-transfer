@@ -87,8 +87,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
+      - uses: docker/setup-buildx-action@v3
+      # The runner's architecture, loaded for the tests below; main also publishes amd64 and arm64 (Dockerfile).
       - name: Build the self-hosted image
-        run: docker build -f platforms/self-hosted/Dockerfile -t file-transfer:ci .
+        run: docker buildx build --platform linux/amd64 --load -f platforms/self-hosted/Dockerfile -t file-transfer:ci .
       - name: Start it
         run: docker run -d --name file-transfer -p 8080:8080 file-transfer:ci
       - name: Wait until it answers
@@ -114,10 +116,8 @@ jobs:
         run: |
           echo "$REGISTRY_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
           image="ghcr.io/${{ github.repository }}"
-          docker tag file-transfer:ci "$image:latest"
-          docker tag file-transfer:ci "$image:${{ github.sha }}"
-          docker push "$image:latest"
-          docker push "$image:${{ github.sha }}"
+          docker buildx build --platform linux/amd64,linux/arm64 --push \
+            -f platforms/self-hosted/Dockerfile -t "$image:latest" -t "$image:${{ github.sha }}" .
 
   deploy-bundle:
     # The prebuilt bundle the Deploy to Cloudflare button deploys, on the `deploy` branch (scripts/deployBundle.ts).

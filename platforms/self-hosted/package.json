@@ -7,7 +7,9 @@
   "scripts": {
     "build": "cd ../cloudflare && bun run build:all && cd ../self-hosted && mkdir -p dist && cp ../cloudflare/dist/worker.js dist/worker.js && esbuild src/assetsWorker.ts --bundle --format=esm --platform=neutral --target=es2022 --outfile=dist/assets-worker.js && rm -rf public && cp -r ../../apps/web/dist public",
     "start": "workerd serve workerd.capnp",
-    "integration": "bun run build && cd ../cloudflare && INTEGRATION_RUNTIME=workerd bun scripts/integration.ts"
+    "integration": "bun run build && cd ../cloudflare && INTEGRATION_RUNTIME=workerd bun scripts/integration.ts",
+    "compile": "bun run build && bun scripts/nodeConfig.ts && workerd compile dist/node.capnp > dist/file-transfer-node",
+    "smoke": "bun scripts/smokeNode.ts dist/file-transfer-node"
   },
   "dependencies": {},
   "devDependencies": {

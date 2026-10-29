@@ -44,11 +44,13 @@ Estimates from Cloudflare's list prices and our load test ([spike 0003](docs/spi
 
 When the day's requests are used up, rooms stop working for everyone on the instance until the allowance resets: new transfers cannot start, and transfers in progress stop. The per-address limits do not prevent this, since five full-size transfers from one person are enough. So Cloudflare deploys set a daily relay budget for the whole instance, `LIMIT_RELAYED_BYTES_PER_DAY`, to 100 GB: past it, transfers stop with a message and new ones are refused until 00:00 UTC, while the account keeps requests for everything else. On Workers Paid ($5 a month), the included million requests relay about 1,300 GB a month and more costs roughly $0.17 to $0.64 per TB, so there you can raise the budget or set it to `off`.
 
-On your own machine, with Docker (behind a proxy that terminates TLS; see [`platforms/self-hosted`](platforms/self-hosted/README.md)):
+On your own machine, with Docker (amd64 or arm64; behind a proxy that terminates TLS; see [`platforms/self-hosted`](platforms/self-hosted/README.md)):
 
 ```
 docker run -p 8080:8080 -v file-transfer-storage:/srv/storage ghcr.io/phibkro/file-transfer
 ```
+
+Or as one program, without Docker: download `file-transfer-node` for Linux (x64, arm64), macOS (Apple silicon) or Windows from the [releases](https://github.com/phibkro/file-transfer/releases), then `mkdir storage && ./file-transfer-node`. Each release also carries the web client's static files. See [ADR 0021](docs/decisions/0021-distribution-web-client-and-server-node.md).
 
 ## Documents
 

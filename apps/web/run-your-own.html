@@ -55,6 +55,18 @@
         <a href="https://github.com/phibkro/file-transfer/tree/main/platforms/self-hosted">self-hosting guide</a> has the details.
       </p>
 
+      <h2>As one program</h2>
+      <p>
+        Without Docker, download <code>file-transfer-node</code> for Linux (x64 or arm64), macOS (Apple silicon) or Windows from the
+        <a href="https://github.com/phibkro/file-transfer/releases">releases page</a>. It is the same server with the web app built in, in one file:
+      </p>
+      <pre><code>mkdir storage
+./file-transfer-node</code></pre>
+      <p>
+        It listens on port 8080 and keeps room state in <code>./storage</code>; <code>--socket-addr http=127.0.0.1:9000</code> and
+        <code>--directory-path storage=/var/lib/file-transfer</code> change them. Put the same TLS proxy in front, and set the same environment variables.
+      </p>
+
       <h2>Limits you control</h2>
       <div class="table-wrap">
         <table>

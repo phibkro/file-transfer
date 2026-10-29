@@ -19,6 +19,10 @@ Or build it yourself from the repository root: `docker build -f platforms/self-h
 
 Put a TLS-terminating proxy in front (Caddy, Traefik, nginx): browsers only allow the app's encryption and storage APIs on HTTPS (or `localhost`). Set `CLIENT_ADDRESS_HEADER` to the header your proxy writes the client's address into (for example `x-real-ip`); without it every client shares one hourly allowance of rooms.
 
+## As one executable
+
+`bun run compile` builds `dist/file-transfer-node`: workerd with this configuration, the Worker and the web app's files embedded (`scripts/nodeConfig.ts`, ADR 0021). Releases carry it for Linux x64 and arm64, macOS arm64 and Windows x64. Run it next to a `storage` directory, or point it elsewhere with `--directory-path storage=<path>`; `--socket-addr http=<address>:<port>` changes where it listens. `bun run smoke` checks a build.
+
 ## Settings
 
 Environment variables, all optional:
