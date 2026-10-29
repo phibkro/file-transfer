@@ -78,7 +78,9 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          git commit -q -m "Release ${VERSION:+v$VERSION}${VERSION:-libraries}" -m "Versions and changelogs from the changesets merged since the last release (docs/versioning.md)."
+          title="Release libraries"
+          if [ -n "$VERSION" ]; then title="Release v$VERSION"; fi
+          git commit -q -m "$title" -m "Versions and changelogs from the changesets merged since the last release (docs/versioning.md)."
           for tag in $TAGS; do git tag -a "$tag" -m "$tag"; done
           git push origin HEAD:main
           git push origin $TAGS
