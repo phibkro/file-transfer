@@ -766,7 +766,7 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
           if (state === "reconnecting") {
             setStatus("reconnecting")
             say("Connection lost. Reconnecting.")
-          } else if (state === "joined" && phase === "Receiving") {
+          } else if (state === "joined" && isAccepted(phase)) {
             setStatus("transferring")
             say("Receiving.")
           }

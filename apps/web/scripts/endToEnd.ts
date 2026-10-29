@@ -1050,6 +1050,50 @@ const recipientLifeCycle = async (browser: Browser, base: string) => {
     }
   }
 
+  // A rejoin while storage opens: once joined again, the page says it is receiving, not reconnecting (review of #18).
+  {
+    const sender = await openPage(browser, false, false, false)
+    const recipient = await openPage(browser, true, false, false)
+
+    try {
+      await recipient.page.addInitScript(() => {
+        const manager = navigator.storage
+        const original = manager.getDirectory.bind(manager)
+        manager.getDirectory = async () => {
+          if (Reflect.has(globalThis, "delayStorage")) {
+            await new Promise((resolve) => {
+              setTimeout(resolve, 6000)
+            })
+          }
+
+          return await original()
+        }
+      })
+      const link = await offer(sender.page, base, payload([["juliet-rejoin.bin", 10_000]]))
+      await recipient.page.goto(link)
+      await waitForStatus(recipient.page, ["reviewing", "failed"])
+      await recipient.page.evaluate(() => Reflect.set(globalThis, "delayStorage", true))
+      await recipient.page.getByRole("button", { name: /^Accept/u }).click()
+      await recipient.page.waitForTimeout(500)
+      await cutSocket(recipient.observed, "clean")
+      await recipient.page.waitForTimeout(3000)
+      const whileOpening = await status(recipient.page)
+      check(
+        recipient.observed.sockets.length >= 2 && whileOpening === "transferring",
+        "life cycle: rejoined while storage opens, the page says it is receiving",
+        {
+          status: whileOpening,
+          sockets: recipient.observed.sockets.length,
+        },
+      )
+      await waitForStatus(recipient.page, ["complete", "failed"])
+      check((await status(recipient.page)) === "complete", "life cycle: and the transfer then completes", await status(recipient.page))
+    } finally {
+      await sender.close()
+      await recipient.close()
+    }
+  }
+
   // R1: when saving the files fails, the recipient fails, tells the sender, and releases the storage.
   {
     const sender = await openPage(browser, false)
