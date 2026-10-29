@@ -322,7 +322,10 @@ const openPage = async (browser: Browser, routed = true, persistent = false, dir
   const trace = traceDirectory === undefined ? undefined : nodePath.join(traceDirectory, `page-${String(pagesOpened).padStart(3, "0")}.zip`)
 
   if (trace !== undefined) {
-    await context.tracing.start({ screenshots: process.env.E2E_TRACE_SCREENSHOTS !== "0", snapshots: process.env.E2E_TRACE_SNAPSHOTS !== "0", title: `page ${pagesOpened}` })
+    // DOM snapshots, actions and network, without screenshots: the standard suite took 82 s untraced, 173 s with
+    // screenshots and snapshots, 158 s with screenshots only and 102 s with snapshots only, and a snapshot replays the
+    // page's state at each step anyway.
+    await context.tracing.start({ screenshots: false, snapshots: true, title: `page ${pagesOpened}` })
   }
 
   if (chaos) {
