@@ -54,8 +54,9 @@ A socket can go silent without closing: a NAT forgets the connection, a phone mo
 
 - sends `ping` after 10 seconds without hearing anything on the socket, once per silence;
 - after 20 seconds without hearing anything, gives the socket up (closing it with code 4001, which may never arrive) and rejoins as after any drop, then resumes from what is missing.
+- before `joined` there is nothing to ping, so an endpoint whose socket has not opened and been answered with `joined` within 15 seconds gives it up the same way (code 4002) and joins on a new socket. This holds for every room, whether or not it answers pings.
 
-On Cloudflare and workerd the runtime answers pings itself (`setWebSocketAutoResponse`), without waking the room's Durable Object. An endpoint ignores `pong` like any text frame it cannot decode, and does not ping a room that did not say `answersPings`, so older rooms and older endpoints work as before. `scripts/endToEnd.ts` in `apps/web` blackholes sockets mid-transfer in its chaos suite and checks the transfer recovers.
+On Cloudflare and workerd the runtime answers pings itself (`setWebSocketAutoResponse`), without waking the room's Durable Object. An endpoint ignores `pong` like any text frame it cannot decode, and does not ping a room that did not say `answersPings`, so older rooms and older endpoints work as before. `scripts/endToEnd.ts` in `apps/web` blackholes sockets mid-transfer in its chaos suite and checks the transfer recovers; it also blackholes a recipient's first socket before `joined` and checks the recipient joins again.
 
 ### Limits
 
