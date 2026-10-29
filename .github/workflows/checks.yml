@@ -119,6 +119,33 @@ jobs:
           docker push "$image:latest"
           docker push "$image:${{ github.sha }}"
 
+  deploy-bundle:
+    # The prebuilt bundle the Deploy to Cloudflare button deploys, on the `deploy` branch (scripts/deployBundle.ts).
+    needs: [check, secrets, browsers]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: deploy-bundle
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run build:all && bun scripts/deployBundle.ts "$RUNNER_TEMP/bundle"
+        working-directory: platforms/cloudflare
+      - name: Publish the bundle to the deploy branch
+        env:
+          PUSH_TOKEN: ${{ github.token }}
+        run: |
+          cd "$RUNNER_TEMP/bundle"
+          git init -q -b deploy
+          git add -A
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -q -m "Deploy bundle built from ${GITHUB_SHA}"
+          git push -q -f "https://x-access-token:${PUSH_TOKEN}@github.com/${{ github.repository }}.git" deploy
+
   preview:
     needs: [check, secrets]
     if: vars.DEPLOYMENTS == 'enabled' && github.event_name == 'pull_request' && github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository

@@ -6,11 +6,15 @@ Try it at https://send.phibkro.org (a demo instance with modest limits).
 
 ## Status
 
-Working: end-to-end encrypted transfers through a relay, resume after a dropped connection, files up to at least 10 GB, renaming and sandboxed previews, operator limits. Also: opt-in counters with an operator page, and self-hosting on workerd in one container. Planned next: one-click deploy to Cloudflare and direct transfers between browsers (WebRTC). See [`docs/plan.md`](docs/plan.md) and [ADR 0019](docs/decisions/0019-open-source-first.md).
+Working: end-to-end encrypted transfers through a relay, resume after a dropped connection, files up to at least 10 GB, renaming and sandboxed previews, operator limits. Also: opt-in counters with an operator page, self-hosting on workerd in one container, and one-click deploy to Cloudflare. Planned next: direct transfers between browsers (WebRTC). See [`docs/plan.md`](docs/plan.md) and [ADR 0019](docs/decisions/0019-open-source-first.md).
 
 The parcel format has had two AI reviewer passes and is checked against an independent implementation in CI, but no human cryptographer has audited it yet. Read [`SECURITY.md`](SECURITY.md) before relying on it, and to report problems.
 
 ## Run your own
+
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/phibkro/file-transfer/tree/deploy)
+
+The button deploys a prebuilt bundle (the `deploy` branch, built by CI) to your Cloudflare account. Or deploy from source:
 
 On Cloudflare (the free plan is enough for personal use), with [Bun](https://bun.sh) 1.4 or later:
 

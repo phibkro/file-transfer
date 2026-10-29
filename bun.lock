@@ -87,6 +87,7 @@
         "@effect/platform-node": "4.0.7",
         "alchemy": "2.0.0-beta.83",
         "esbuild": "^0.28.0",
+        "valibot": "1.5.0",
         "workerd": "^1.20261028.1",
         "wrangler": "^4.154.0",
       },

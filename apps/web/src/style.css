@@ -650,3 +650,14 @@ a.save {
   margin: 1.5rem 0 0.5rem;
   font-size: 1rem;
 }
+
+/* A link that leads to an action elsewhere, drawn as a button. */
+.button-link {
+  display: inline-block;
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  background: var(--accent);
+  color: var(--accent-text);
+  text-decoration: none;
+  font-weight: 600;
+}

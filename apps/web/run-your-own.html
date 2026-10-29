@@ -36,7 +36,14 @@
       </ol>
 
       <h2>One-click deploy</h2>
-      <p>Coming soon: a Deploy to Cloudflare button that sets up an instance without installing anything.</p>
+      <p>
+        <a class="button-link" href="https://deploy.workers.cloudflare.com/?url=https://github.com/phibkro/file-transfer/tree/deploy">Deploy to Cloudflare</a>
+      </p>
+      <p>
+        Cloudflare copies a prebuilt version of this software into a new repository in your GitHub account and deploys it to your account, without installing
+        anything. It asks for two optional secrets: an admin token for the operator page, and a salt for address hashes. The
+        <a href="https://github.com/phibkro/file-transfer/tree/deploy">deploy branch</a> it copies is built by CI from the main branch.
+      </p>
 
       <h2>On your own machine</h2>
       <p>The same server code runs on workerd, Cloudflare's open-source runtime, in one container. Any machine or provider that runs Docker will do:</p>
