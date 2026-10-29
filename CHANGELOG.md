@@ -2,6 +2,21 @@
 
 Every release of this repository, newest first, written from the changesets each pull request adds (docs/versioning.md). Each package also keeps its own CHANGELOG.md.
 
+## v0.5.1
+
+### @file-transfer/web 0.5.1
+
+#### Patch Changes
+
+- e3d0bbf: The web app reads its own address in one module, and a lint rule stops any other code from reading the URL fragment that holds the link secret. Nothing changes for people using the app.
+
+### @file-transfer/platform-cloudflare 0.5.1
+
+#### Patch Changes
+
+- @file-transfer/service-quota@0.5.1
+  - @file-transfer/service-telemetry@0.5.1
+
 ## v0.5.0
 
 ### @file-transfer/platform-cloudflare 0.5.0
