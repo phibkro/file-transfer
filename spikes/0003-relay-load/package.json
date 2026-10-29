@@ -1,0 +1,12 @@
+{
+  "name": "spike-0003-relay-load",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "scripts": {
+    "load": "node --experimental-strip-types load.ts"
+  },
+  "dependencies": {
+    "ws": "8.18.3"
+  }
+}

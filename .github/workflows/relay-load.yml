@@ -1,0 +1,73 @@
+name: relay-load
+
+# Spike 0003 (spikes/0003-relay-load): deploys a Worker Preview named `loadtest`, runs the relay load generator
+# against its workers.dev address from GitHub's runner, uploads the results, and destroys the Preview. Started by hand:
+#   gh workflow run relay-load.yml -f scenarios="single four sixteen slow slowEight slowThirtyTwo"
+
+on:
+  workflow_dispatch:
+    inputs:
+      scenarios:
+        description: Scenarios to run, separated by spaces (see spikes/0003-relay-load/load.ts)
+        required: true
+        default: single four sixteen slow slowEight slowThirtyTwo
+
+permissions:
+  contents: read
+
+concurrency:
+  group: relay-load
+  cancel-in-progress: false
+
+jobs:
+  load:
+    if: vars.DEPLOYMENTS == 'enabled'
+    runs-on: ubuntu-latest
+    environment: preview
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: bun install --frozen-lockfile
+      - id: deploy
+        working-directory: platforms/cloudflare
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          bun run preview loadtest --yes 2>&1 | tee "$RUNNER_TEMP/deploy.log"
+          url="$(grep -oE 'https://[a-z0-9.-]+\.workers\.dev' "$RUNNER_TEMP/deploy.log" | tail -n 1)"
+          test -n "$url"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+      - name: Wait until the Preview answers
+        env:
+          PREVIEW_URL: ${{ steps.deploy.outputs.url }}
+        run: |
+          for attempt in $(seq 1 24); do
+            if [ "$(curl -s -o /dev/null -w '%{http_code}' "$PREVIEW_URL/api/instance")" = 200 ]; then exit 0; fi
+            sleep 5
+          done
+          exit 1
+      - name: Run the load generator
+        working-directory: spikes/0003-relay-load
+        env:
+          PREVIEW_URL: ${{ steps.deploy.outputs.url }}
+          SCENARIOS: ${{ inputs.scenarios }}
+        run: |
+          npm install --no-audit --no-fund
+          # shellcheck disable=SC2086
+          node --experimental-strip-types load.ts "$PREVIEW_URL" $SCENARIOS | tee "$RUNNER_TEMP/results.jsonl"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: relay-load-results
+          path: ${{ runner.temp }}/results.jsonl
+      - name: Destroy the Preview
+        if: always()
+        working-directory: platforms/cloudflare
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: bun run destroy:preview loadtest --yes
