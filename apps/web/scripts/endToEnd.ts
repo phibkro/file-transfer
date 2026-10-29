@@ -69,7 +69,10 @@ interface PayloadFile {
 
 interface Observed {
   readonly urls: string[]
-  /** The body of every request the page sent that had one (round 3 review of #27: a body can carry the URL too). */
+  /**
+   * Request bodies the page sent (round 3 review of #27: a body can carry the URL too). Playwright reports string and
+   * buffer bodies in every browser, but Blob and File bodies only in Firefox (round 4 review of #27).
+   */
   readonly bodies: Buffer[]
   readonly frames: Buffer[]
   readonly sockets: RoutedSocket[]
@@ -555,7 +558,10 @@ const offer = async (sender: Page, base: string, files: readonly PayloadFile[]) 
   return link
 }
 
-/** The invariant from CLAUDE.md, as seen from the browsers: no URL, request body or socket frame they send carries the secret or a file name. */
+/**
+ * The invariant from CLAUDE.md, as seen from the browsers: no request URL, socket frame or visible request body they
+ * send carries the secret or a file name (Blob and File bodies are visible in Firefox only; see Observed.bodies).
+ */
 const checkNothingLeaks = (link: string, files: readonly PayloadFile[], observedList: readonly Observed[]) => {
   const secret = new URL(link).hash.slice(1)
   check(secret.length >= 32, "the link carries its secret in the fragment")
