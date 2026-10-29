@@ -86,6 +86,9 @@ export const replacedCloseCode = 4000
 /** Close code when the room has relayed the operator's limit of bytes for one room (application range). */
 export const relayLimitCloseCode = 4001
 
+/** Close code when the instance's daily relay budget is reached (relayBudget.ts); retry after UTC midnight. */
+export const dailyBudgetCloseCode = 4002
+
 /** Longest text frame the room accepts, in UTF-16 code units; a `want` with 1024 ranges of two u32 values fits in about 23,000. */
 export const maximumTextLength = 64 * 1024
 
@@ -96,6 +99,7 @@ export const errorReasons = {
   wrongToken: "wrong room token",
   replaced: "replaced by a newer connection",
   relayLimit: "relay limit reached",
+  dailyBudget: "daily relay budget reached",
   framesFromSenderOnly: "only the sender sends binary frames",
   notAControlMessage: "not a control message",
   textTooLong: "control message too long",

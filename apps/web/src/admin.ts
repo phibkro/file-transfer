@@ -38,7 +38,7 @@ const Snapshot = v.object({
 type Snapshot = v.InferOutput<typeof Snapshot>
 
 const Instance = v.object({
-  limits: v.object({ roomsPerAddressPerHour: count, relayedBytesPerRoom: count }),
+  limits: v.object({ roomsPerAddressPerHour: count, relayedBytesPerRoom: count, relayedBytesPerDay: v.optional(v.nullable(count)) }),
   counters: v.boolean(),
 })
 
@@ -107,6 +107,10 @@ const settingsSection = async (): Promise<HTMLElement> => {
       ["Counting", counters ? "On" : "Off (set COUNTERS to on to count)"],
       ["Rooms per address per hour", String(limits.roomsPerAddressPerHour)],
       ["Relayed per transfer, at most", formatSize(limits.relayedBytesPerRoom)],
+      [
+        "Relayed per day by everyone, at most",
+        limits.relayedBytesPerDay === undefined || limits.relayedBytesPerDay === null ? "No daily budget" : formatSize(limits.relayedBytesPerDay),
+      ],
     ]),
   ])
 }

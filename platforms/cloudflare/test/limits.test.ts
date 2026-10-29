@@ -10,6 +10,7 @@ describe("readLimits", () => {
     expect(readLimits({ LIMIT_ROOMS_PER_ADDRESS_PER_HOUR: "5", LIMIT_RELAYED_BYTES_PER_ROOM: "1000000", CLIENT_ADDRESS_HEADER: " X-Forwarded-For " })).toEqual({
       roomsPerAddressPerHour: 5,
       relayedBytesPerRoom: 1_000_000,
+      relayedBytesPerDay: undefined,
       clientAddressHeader: "x-forwarded-for",
     })
   })
@@ -20,12 +21,22 @@ describe("readLimits", () => {
     expect(limits.relayedBytesPerRoom).toBe(defaultLimits.relayedBytesPerRoom)
   })
 
+  it("reads a daily budget, and leaves it off for off, empty or invalid values", () => {
+    expect(readLimits({ LIMIT_RELAYED_BYTES_PER_DAY: " 100000000000 " }).relayedBytesPerDay).toBe(100_000_000_000)
+
+    for (const value of ["off", "", "0", "-1", "2.5", "lots"]) {
+      expect(readLimits({ LIMIT_RELAYED_BYTES_PER_DAY: value }).relayedBytesPerDay).toBeUndefined()
+    }
+
+    expect(defaultLimits.relayedBytesPerDay).toBeUndefined()
+  })
+
   it("refuses a header name that is not a plain token", () => {
     expect(readLimits({ CLIENT_ADDRESS_HEADER: "x-test\r\nevil: 1" }).clientAddressHeader).toBe("cf-connecting-ip")
   })
 
   it("tells clients the limits but not how addresses are read", () => {
-    expect(Object.keys(publicLimits(defaultLimits)).toSorted()).toEqual(["relayedBytesPerRoom", "roomsPerAddressPerHour"])
+    expect(Object.keys(publicLimits(defaultLimits)).toSorted()).toEqual(["relayedBytesPerDay", "relayedBytesPerRoom", "roomsPerAddressPerHour"])
   })
 })
 

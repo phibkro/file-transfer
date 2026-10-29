@@ -20,6 +20,9 @@ const stubMarker = "integration-stub-app"
 const port = 20_000 + Math.floor(Math.random() * 20_000)
 const roomsPerAddressPerHour = 3
 const relayedBytesPerRoom = 4 * 1024 * 1024
+
+// The earlier rooms relay about 6 MiB, so the last room reaches this daily budget partway (relayBudget.ts).
+const relayedBytesPerDay = 8 * 1024 * 1024
 const adminToken = "integration-admin-token"
 
 /** Rooms this check created, to compare with what the counters say. */
@@ -38,6 +41,7 @@ const settings = {
   // Small limits, so the check can reach them; addresses come from a header the check sets (limits.ts).
   LIMIT_ROOMS_PER_ADDRESS_PER_HOUR: String(roomsPerAddressPerHour),
   LIMIT_RELAYED_BYTES_PER_ROOM: String(relayedBytesPerRoom),
+  LIMIT_RELAYED_BYTES_PER_DAY: String(relayedBytesPerDay),
   CLIENT_ADDRESS_HEADER: "x-test-address",
   // Counting on, and an admin token, so the check can read what was counted.
   COUNTERS: "on",
@@ -433,7 +437,7 @@ const run = async () => {
   const instanceResponse = await fetch(`${origin}/api/instance`)
   const instance: unknown = await instanceResponse.json()
   check(
-    JSON.stringify(instance) === JSON.stringify({ limits: { roomsPerAddressPerHour, relayedBytesPerRoom }, counters: true }),
+    JSON.stringify(instance) === JSON.stringify({ limits: { roomsPerAddressPerHour, relayedBytesPerRoom, relayedBytesPerDay }, counters: true }),
     "GET /api/instance says this instance counts",
     JSON.stringify(instance),
   )
@@ -503,7 +507,7 @@ const run = async () => {
   const limitsResponse = await fetch(`${origin}/api/limits`)
   const limits: unknown = await limitsResponse.json()
   check(
-    JSON.stringify(limits) === JSON.stringify({ roomsPerAddressPerHour, relayedBytesPerRoom }),
+    JSON.stringify(limits) === JSON.stringify({ roomsPerAddressPerHour, relayedBytesPerRoom, relayedBytesPerDay }),
     "GET /api/limits answers the operator's limits and nothing about how addresses are read",
     JSON.stringify(limits),
   )
@@ -571,6 +575,41 @@ const run = async () => {
   const lateAnswer = await joinRoom(lateJoiner, "recipient")
   const lateClosed = await lateJoiner.closed
   check(encodeControlMessage(lateAnswer) === relayLimitError && lateClosed.code === 4001, "a room that reached its relay limit admits nobody again", lateAnswer)
+
+  // The instance's daily relay budget (relayBudget.ts): this room passes it partway, in reports of 1 MiB.
+  const budgeted = await createRoom(1)
+  const budgetedSender = connect(budgeted)
+  const budgetedRecipient = connect(budgeted)
+  await joinRoom(budgetedSender, "sender")
+  await joinRoom(budgetedRecipient, "recipient")
+  await nextControl(budgetedSender)
+
+  // 56 records of 64 KiB are 3.5 MiB: within the room's limit, past what is left of the day's budget.
+  for (let index = 0; index < 56; index++) {
+    budgetedSender.socket.send(unit("dataRecord", index, 64 * 1024))
+  }
+
+  let budgetEnding: string | ArrayBuffer | undefined
+
+  do {
+    budgetEnding = await budgetedRecipient.next()
+  } while (budgetEnding instanceof ArrayBuffer)
+
+  const budgetError = encodeControlMessage({ type: "error", reason: "daily relay budget reached" })
+  const budgetClosed = await budgetedRecipient.closed
+  check(budgetEnding === budgetError && budgetClosed.code === 4002, "a room past the daily relay budget tells the recipient and closes with 4002", {
+    ending: budgetEnding,
+    code: budgetClosed.code,
+  })
+
+  const afterBudget = await requestRoom(1)
+  const afterBudgetBody: unknown = await afterBudget.json()
+  const untilMidnight = Number(afterBudget.headers.get("retry-after"))
+  check(
+    afterBudget.status === 429 && JSON.stringify(afterBudgetBody).includes("daily relay budget reached") && untilMidnight > 0 && untilMidnight <= 24 * 60 * 60,
+    "after that no address creates a room, with Retry-After until midnight UTC",
+    { status: afterBudget.status, untilMidnight },
+  )
 
   console.log(`\nall ${passed} checks passed`)
 }

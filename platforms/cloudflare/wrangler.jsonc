@@ -16,18 +16,24 @@
       { "name": "ADMISSION", "class_name": "AdmissionObject" },
       // One per instance: opt-in aggregate counters (src/countersObject.ts), empty unless COUNTERS is "on".
       { "name": "COUNTER_STORE", "class_name": "CountersObject" },
+      // One per instance: bytes relayed today, against LIMIT_RELAYED_BYTES_PER_DAY (src/relayBudgetObject.ts).
+      { "name": "RELAY_BUDGET", "class_name": "RelayBudgetObject" },
     ],
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["RoomObject"] },
     { "tag": "v2", "new_sqlite_classes": ["AdmissionObject"] },
     { "tag": "v3", "new_sqlite_classes": ["CountersObject"] },
+    { "tag": "v4", "new_sqlite_classes": ["RelayBudgetObject"] },
   ],
   // The operator's limits (src/limits.ts, docs/decisions/0019-open-source-first.md). Change them here, in the
   // Cloudflare dashboard, or at deploy time. Set ADDRESS_SALT as a secret (`wrangler secret put ADDRESS_SALT`).
   "vars": {
     "LIMIT_ROOMS_PER_ADDRESS_PER_HOUR": "50",
     "LIMIT_RELAYED_BYTES_PER_ROOM": "25000000000",
+    // 100 GB a day for the whole instance, below the about 125 GB that Workers Free's 100,000 daily Durable Object
+    // requests carry (docs/spikes/0003). On Workers Paid, raise it or set "off".
+    "LIMIT_RELAYED_BYTES_PER_DAY": "100000000000",
     "CLIENT_ADDRESS_HEADER": "cf-connecting-ip",
     // Aggregate counters are off unless the operator opts in with "on". Read them at /api/admin/counters and
     // /api/admin/metrics with `wrangler secret put ADMIN_TOKEN` set.

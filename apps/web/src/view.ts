@@ -69,6 +69,7 @@ export const describeFailure = (reason: string): string => {
     ["rate-limited", "This server has started too many transfers from your network this hour."],
     ["room-not-created", "The server could not open a room for this transfer. Try again in a moment."],
     ["relay limit reached", "The transfer passed the most this server relays for one parcel, so it stopped."],
+    ["daily relay budget reached", "This server has relayed as much as it allows for today. It starts again at midnight UTC."],
   ])
 
   return known.get(reason) ?? `The transfer stopped (${reason}).`

@@ -53,7 +53,8 @@
           "libraries/conformance/src/guarantee.ts",
           "platforms/cloudflare/src/room.ts",
           "platforms/cloudflare/src/limits.ts",
-          "platforms/cloudflare/src/counters.ts"
+          "platforms/cloudflare/src/counters.ts",
+          "platforms/cloudflare/src/relayBudget.ts"
         ],
         "role": "effect-library",
         "platform": "portable"

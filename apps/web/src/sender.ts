@@ -4,6 +4,7 @@
  * The sender view (`/`): pick files, label them, open a room, show the link, and serve the parcel to the
  * recipient that accepts it (docs/protocol.md, "Order of a transfer"). MVP: one recipient, sequence number 0.
  */
+import * as v from "valibot"
 import {
   bytesEqual,
   createManifest,
@@ -86,7 +87,24 @@ const detailOf = (cause: unknown): string | undefined => {
 const waitText = (retryAfter: string | null): string => {
   const minutes = Math.max(1, Math.ceil(Number(retryAfter ?? "3600") / 60))
 
-  return Number.isFinite(minutes) ? `about ${minutes} ${minutes === 1 ? "minute" : "minutes"}` : "an hour"
+  if (!Number.isFinite(minutes)) {
+    return "an hour"
+  }
+
+  if (minutes >= 90) {
+    return `about ${Math.round(minutes / 60)} hours`
+  }
+
+  return `about ${minutes} ${minutes === 1 ? "minute" : "minutes"}`
+}
+
+const Refusal = v.object({ error: v.string() })
+
+/** The `error` a refusal names, such as the daily relay budget; undefined when the body names none. */
+const refusalOf = async (response: Response): Promise<string | undefined> => {
+  const decoded = v.safeParse(Refusal, await response.json().catch(() => undefined))
+
+  return decoded.success ? decoded.output.error : undefined
 }
 
 /** The body of `201` from `POST /api/rooms`. */
@@ -144,7 +162,9 @@ const createRoom = async (roomTokenHash: string): Promise<string> => {
   }
 
   if (response.status === 429) {
-    throw new TransferError("rate-limited", `Try again in ${waitText(response.headers.get("retry-after"))}.`)
+    const wait = `Try again in ${waitText(response.headers.get("retry-after"))}.`
+
+    throw new TransferError((await refusalOf(response)) === "daily relay budget reached" ? "daily relay budget reached" : "rate-limited", wait)
   }
 
   if (response.status !== 201) {

@@ -38,6 +38,19 @@ A reconnecting endpoint usually joins before the room has noticed its old socket
 - This grants nothing new: every holder of the link holds the room token and can join as either role. Rooms with several recipients will need recipient identities (a later phase) so that a new recipient does not evict another one.
 - Close code 1012 (service restart) and any close without `error` mean "rejoin and resume". `scripts/endToEnd.ts` in `apps/web` cuts sockets both cleanly and half-open mid-transfer and checks the files still arrive byte-identical.
 
+### Limits
+
+The operator's limits (`platforms/cloudflare/src/limits.ts`, ADR 0019) end a room or refuse a new one with a reason the endpoint shows:
+
+| Limit                                                 | Room creation (`POST /api/rooms`)                                              | In a room                                                                         |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------- |
+| Rooms per client address per hour                     | 429 `{error: "rate limited", retryAfterSeconds}` with `Retry-After`            | none                                                                              |
+| Relayed bytes per room                                | none                                                                           | `error` with `relay limit reached`, close code 4001; the room admits nobody again |
+| Relayed bytes per UTC day for the instance (optional) | 429 `{error: "daily relay budget reached", retryAfterSeconds}` until 00:00 UTC | `error` with `daily relay budget reached`, close code 4002                        |
+| A Durable Object the Worker could not reach           | 503 `{error: "temporarily unavailable"}` with `Retry-After: 1`                 | none                                                                              |
+
+`GET /api/limits` answers `{roomsPerAddressPerHour, relayedBytesPerRoom, relayedBytesPerDay}`, the last `null` when the instance has no daily budget.
+
 ## Parcel units in binary frames
 
 Each binary frame carries one unit: a 9-byte prefix, then the unit's bytes as `parcel.md` defines them.

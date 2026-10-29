@@ -77,6 +77,11 @@
               <td>Bytes relayed for one transfer</td>
             </tr>
             <tr>
+              <td><code>LIMIT_RELAYED_BYTES_PER_DAY</code></td>
+              <td>100000000000 (100 GB) on Cloudflare; off in the container</td>
+              <td>Bytes the whole instance relays per day (UTC); <code>off</code> for no daily budget</td>
+            </tr>
+            <tr>
               <td><code>CLIENT_ADDRESS_HEADER</code></td>
               <td><code>cf-connecting-ip</code></td>
               <td>Where the client's address comes from; change it only behind your own proxy</td>
@@ -92,8 +97,8 @@
       <h2>What Cloudflare's free plan carries</h2>
       <p>
         Cloudflare charges nothing for bandwidth. It bills the relay by Durable Object requests, counting 20 incoming WebSocket messages as one, and by the time
-        a room is busy. Every transfer goes through the relay today, so the free plan's daily allowance is shared by everyone using your instance. These are
-        estimates from Cloudflare's list prices and our
+        a room is busy. Every transfer goes through the relay today, so the free plan's daily allowance is shared by everyone using your instance, and by any
+        other Workers in the same Cloudflare account. These are estimates from Cloudflare's list prices and our
         <a href="https://github.com/phibkro/file-transfer/blob/main/docs/spikes/0003-relay-load.md">load test</a>, not from an invoice:
       </p>
       <div class="table-wrap">
@@ -130,9 +135,11 @@
       </div>
       <p>
         When the day's requests are used up, transfers on your instance stop until the allowance resets, for everyone: new ones cannot start, and ones in
-        progress stop. The per-address limits cannot prevent this, because five full-size transfers from one person are enough; an instance-wide daily budget is
-        planned. On Workers Paid ($5 a month), the included million requests relay about 1,300 GB a month, and more costs roughly $0.17 to $0.64 per TB. Running
-        it on your own machine has no such allowance: the limit is your connection.
+        progress stop. The per-address limits cannot prevent this, because five full-size transfers from one person are enough. So Cloudflare deploys come with
+        a daily relay budget of 100 GB for the whole instance: past it, transfers stop with a message and new ones are refused until midnight UTC, and your
+        account keeps requests for everything else. On Workers Paid, raise <code>LIMIT_RELAYED_BYTES_PER_DAY</code> or set it to <code>off</code>. On Workers
+        Paid ($5 a month), the included million requests relay about 1,300 GB a month, and more costs roughly $0.17 to $0.64 per TB. Running it on your own
+        machine has no such allowance: the limit is your connection.
       </p>
 
       <h2>Counters, if you want them</h2>

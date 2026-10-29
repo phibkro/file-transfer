@@ -9,6 +9,9 @@
  * - Relayed bytes (the operator's limit, limits.ts) are counted in memory on the frame path. The sender's attachment
  *   carries the count across hibernation (updated every `attachmentStepBytes`), and storage keeps it once a socket
  *   closes, so neither a pause nor a reconnect resets it.
+ * - With a daily relay budget set (relayBudget.ts), the frame path reports every `reportStepFor` bytes to the budget
+ *   object without waiting for the answer, and a close reports the rest; an answer that the budget is reached ends the
+ *   room for every participant, as the relay limit does.
  * - No Effect runtime on the frame path (spike 0001 measured about 20% more CPU per frame through Effect).
  * - In-memory state is a cache of what the socket attachments already hold, because hibernation discards the instance.
  * - The one invariant: tokens, control message bodies and frames are never logged or stored.
@@ -19,16 +22,22 @@ import { fromHex, hashRoomToken } from "@file-transfer/parcel"
 import { encodeControlMessage } from "@file-transfer/transport"
 import { megabytesFor, sizeBucketFor } from "@file-transfer/service-telemetry"
 import type { TelemetryEvent } from "@file-transfer/service-telemetry"
+import { askRelayBudget } from "./askRelayBudget.ts"
+import type { BudgetEnvironment } from "./askRelayBudget.ts"
 import { countersEnabled } from "./counters.ts"
 import { readLimits, withinRelayLimit } from "./limits.ts"
 import type { LimitVariables } from "./limits.ts"
 import { recordEvents } from "./recordEvents.ts"
+import { reportStepFor, stepsCrossed } from "./relayBudget.ts"
 import type { CountingEnvironment } from "./recordEvents.ts"
-import { decide, decodeCreateRoom, errorReasons, joinTokenOf, messageType, relayLimitCloseCode, replacedCloseCode } from "./room.ts"
+import { dailyBudgetCloseCode, decide, decodeCreateRoom, errorReasons, joinTokenOf, messageType, relayLimitCloseCode, replacedCloseCode } from "./room.ts"
 import type { Attachment, Instruction, Participant, RoomRecord } from "./room.ts"
 
 const recordKey = "room"
 const relayedKey = "relayedBytes"
+
+/** Bytes of this room already reported to the daily relay budget, kept when a socket closes. */
+const reportedKey = "reportedBytes"
 
 /** Set once a transfer's outcome was counted, so a repeated `complete` (sent again after a reconnect) counts once. */
 const outcomeKey = "outcome"
@@ -69,14 +78,17 @@ const closeQuietly = (socket: WebSocket, code: number, reason: string) => {
   }
 }
 
-export class RoomObject extends DurableObject<LimitVariables & CountingEnvironment> {
+export class RoomObject extends DurableObject<LimitVariables & CountingEnvironment & BudgetEnvironment> {
   private record: RoomRecord | undefined
   /** Bytes relayed for this room so far; undefined until read from attachments or storage after a wake. */
   private relayedBytes: number | undefined
   private readonly relayLimit = readLimits(this.env).relayedBytesPerRoom
+  private readonly dailyBudget = readLimits(this.env).relayedBytesPerDay
+  private readonly reportStep = reportStepFor(this.dailyBudget ?? 1)
   /** Counter events waiting to be sent; only filled when the operator turned counting on (counters.ts). */
   private readonly pendingEvents: TelemetryEvent[] = []
   private relayLimitReached = false
+  private dailyBudgetReached = false
   /** Admitted sockets by participant identifier, rebuilt from attachments after a wake from hibernation. */
   private sockets: Map<string, HibernatableWebSocket> | undefined
   private participants: readonly Participant[] = []
@@ -146,6 +158,13 @@ export class RoomObject extends DurableObject<LimitVariables & CountingEnvironme
     const token = joinTokenOf(message)
     const record = token === undefined ? undefined : await this.loadRecord()
 
+    if (token !== undefined && this.dailyBudgetReached) {
+      sendQuietly(socket, encodeControlMessage({ type: "error", reason: errorReasons.dailyBudget }))
+      closeQuietly(socket, dailyBudgetCloseCode, errorReasons.dailyBudget)
+
+      return
+    }
+
     // A room that reached its relay limit admits nobody again.
     if (token !== undefined && (await this.loadRelayed()) >= this.relayLimit) {
       sendQuietly(socket, encodeControlMessage({ type: "error", reason: errorReasons.relayLimit }))
@@ -176,8 +195,9 @@ export class RoomObject extends DurableObject<LimitVariables & CountingEnvironme
     this.depart(socket)
     closeQuietly(socket, 1000, "closed")
     await this.saveRelayed()
+    await this.reportRemainder()
 
-    if (this.relayLimitReached) {
+    if (this.relayLimitReached || this.dailyBudgetReached) {
       await this.countOutcome("failed")
     }
 
@@ -254,6 +274,40 @@ export class RoomObject extends DurableObject<LimitVariables & CountingEnvironme
     if (Math.floor(after / attachmentStepBytes) !== Math.floor(before / attachmentStepBytes)) {
       this.setAttachment(socket, { ...this.attachmentOf(socket), relayedBytes: after })
     }
+
+    const steps = stepsCrossed(before, after, this.reportStep)
+
+    if (this.dailyBudget !== undefined && steps > 0) {
+      void this.reportToBudget(steps * this.reportStep, this.dailyBudget)
+    }
+  }
+
+  /** Tells the budget object about relayed bytes, and ends the room when it answers that today's budget is reached. */
+  private async reportToBudget(bytes: number, budgetBytes: number) {
+    const answer = await askRelayBudget(this.env, bytes, budgetBytes)
+
+    if (answer.budgetReached && !this.dailyBudgetReached) {
+      this.dailyBudgetReached = true
+      this.endRoom(dailyBudgetCloseCode, errorReasons.dailyBudget)
+    }
+  }
+
+  /**
+   * Reports what the steps did not: the bytes past the last whole step, once. Called when a socket closes; storage
+   * keeps how much was reported, so a reconnect and a second close do not report the same bytes again.
+   */
+  private async reportRemainder() {
+    if (this.dailyBudget === undefined) {
+      return
+    }
+
+    const relayed = this.relayedSoFar()
+    const reported = Math.max((await this.ctx.storage.get<number>(reportedKey)) ?? 0, Math.floor(relayed / this.reportStep) * this.reportStep)
+
+    if (relayed > reported) {
+      await this.ctx.storage.put(reportedKey, relayed)
+      await this.reportToBudget(relayed - reported, this.dailyBudget)
+    }
   }
 
   /** Counts how a transfer ended, once per room, with its relayed volume (only when counting is on). */
@@ -283,16 +337,22 @@ export class RoomObject extends DurableObject<LimitVariables & CountingEnvironme
   private endForRelayLimit() {
     this.relayLimitReached = true
     this.relayedBytes = Math.max(this.relayedSoFar(), this.relayLimit)
+    this.endRoom(relayLimitCloseCode, errorReasons.relayLimit)
+  }
+
+  /** Sends every participant the reason and closes the room to them; storage keeps the relayed count. */
+  private endRoom(code: number, reason: string) {
+    const relayedBytes = this.relayedSoFar()
 
     for (const socket of this.ctx.getWebSockets()) {
-      this.setAttachment(socket, { admitted: false, relayedBytes: this.relayedBytes })
-      sendQuietly(socket, encodeControlMessage({ type: "error", reason: errorReasons.relayLimit }))
-      closeQuietly(socket, relayLimitCloseCode, errorReasons.relayLimit)
+      this.setAttachment(socket, { admitted: false, relayedBytes })
+      sendQuietly(socket, encodeControlMessage({ type: "error", reason }))
+      closeQuietly(socket, code, reason)
     }
 
     this.sockets = undefined
     this.participants = []
-    void this.ctx.storage.put(relayedKey, this.relayedBytes)
+    void this.ctx.storage.put(relayedKey, relayedBytes)
   }
 
   private async loadRecord(): Promise<RoomRecord | undefined> {

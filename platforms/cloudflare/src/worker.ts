@@ -2,7 +2,8 @@
  * The Worker: room creation, the room socket upgrade, and static assets for apps/web.
  *
  *   POST /api/rooms                        {roomTokenHash, maximumRecipients} -> 201 {roomIdentifier}, or 429 when the
- *                                          client address has created its hourly allowance of rooms
+ *                                          client address has created its hourly allowance of rooms or the instance
+ *                                          has relayed its daily budget (relayBudget.ts)
  *   GET  /api/rooms/<roomIdentifier>/socket WebSocket upgrade, forwarded to the room's Durable Object
  *   GET  /api/limits                       the operator's limits a sender can act on (limits.ts)
  *   GET  /api/instance                     the limits and whether this instance counts anything (counters.ts)
@@ -14,6 +15,8 @@
  */
 import type { DurableObjectNamespace, ExecutionContext, Fetcher } from "cloudflare:workers"
 import { constantTimeEqual, toHex } from "@file-transfer/parcel"
+import { askRelayBudget } from "./askRelayBudget.ts"
+import type { BudgetEnvironment } from "./askRelayBudget.ts"
 import { countersEnabled } from "./counters.ts"
 import { unavailable, withOneRetry } from "./durableObjectCalls.ts"
 import { publicLimits, readLimits, retryAfterMillisecondsOf } from "./limits.ts"
@@ -26,9 +29,11 @@ export { AdmissionObject } from "./admissionObject.ts"
 
 export { CountersObject } from "./countersObject.ts"
 
+export { RelayBudgetObject } from "./relayBudgetObject.ts"
+
 export { RoomObject } from "./roomObject.ts"
 
-export interface Environment extends LimitVariables, CountingEnvironment {
+export interface Environment extends LimitVariables, CountingEnvironment, BudgetEnvironment {
   readonly ROOMS: DurableObjectNamespace
   readonly ADMISSION: DurableObjectNamespace
   readonly ASSETS: Fetcher
@@ -59,6 +64,13 @@ const clientKeyOf = async (request: Request, environment: Environment, limits: L
   return toHex(new Uint8Array(await crypto.subtle.digest("SHA-256", material)))
 }
 
+/** A `429` naming the wait in seconds, for the hourly allowance and the daily budget alike. */
+const tooMany = (error: string, retryAfterMilliseconds: number): Response => {
+  const retryAfterSeconds = String(Math.max(1, Math.ceil(retryAfterMilliseconds / 1000)))
+
+  return Response.json({ error, retryAfterSeconds }, { status: 429, headers: { "cache-control": "no-store", "retry-after": retryAfterSeconds } })
+}
+
 /** Asks the client key's admission object for one more room; a `Response` when refused or unreachable. */
 const admit = async (request: Request, environment: Environment, limits: Limits): Promise<Response | undefined> => {
   const clientKey = await clientKeyOf(request, environment, limits)
@@ -77,14 +89,7 @@ const admit = async (request: Request, environment: Environment, limits: Limits)
     return undefined
   }
 
-  const retryAfterMilliseconds = retryAfterMillisecondsOf(await answer.value.json().catch(() => undefined), hourMilliseconds)
-
-  const retryAfterSeconds = String(Math.max(1, Math.ceil(retryAfterMilliseconds / 1000)))
-
-  return Response.json(
-    { error: "rate limited", retryAfterSeconds },
-    { status: 429, headers: { "cache-control": "no-store", "retry-after": retryAfterSeconds } },
-  )
+  return tooMany("rate limited", retryAfterMillisecondsOf(await answer.value.json().catch(() => undefined), hourMilliseconds))
 }
 
 const createRoom = async (request: Request, environment: Environment, context: ExecutionContext): Promise<Response> => {
@@ -108,7 +113,18 @@ const createRoom = async (request: Request, environment: Environment, context: E
     return json(400, { error: "invalid room" })
   }
 
-  const refused = await admit(request, environment, readLimits(environment))
+  const limits = readLimits(environment)
+
+  // Asked first, so a refused room does not use up the client's hourly allowance.
+  if (limits.relayedBytesPerDay !== undefined) {
+    const budget = await askRelayBudget(environment, 0, limits.relayedBytesPerDay)
+
+    if (budget.budgetReached) {
+      return tooMany("daily relay budget reached", budget.retryAfterMilliseconds)
+    }
+  }
+
+  const refused = await admit(request, environment, limits)
 
   if (refused !== undefined) {
     return refused

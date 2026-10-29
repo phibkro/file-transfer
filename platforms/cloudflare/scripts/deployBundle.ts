@@ -67,6 +67,7 @@ writeFileSync(
           ROOMS: { description: "One Durable Object per transfer room; it relays ciphertext and keeps no files." },
           ADMISSION: { description: "Counts rooms per hashed client address per hour, for the rate limit." },
           COUNTER_STORE: { description: "Opt-in aggregate counters; empty unless COUNTERS is on." },
+          RELAY_BUDGET: { description: "Bytes relayed today, against LIMIT_RELAYED_BYTES_PER_DAY; resets at 00:00 UTC." },
           ADMIN_TOKEN: { description: "Optional. Opens the operator page at /admin. Leave empty to keep it closed." },
           ADDRESS_SALT: { description: "Optional. Any random string; mixed into address hashes." },
         },

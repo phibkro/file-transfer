@@ -15,6 +15,11 @@ export interface Limits {
    * it from `GET /api/limits` and warns before sealing a parcel that would not fit.
    */
   readonly relayedBytesPerRoom: number
+  /**
+   * Bytes the whole instance relays per UTC day (relayBudget.ts), or undefined for no daily budget. On Workers Free
+   * this keeps one busy day from using up the account's Durable Object requests, which every room needs.
+   */
+  readonly relayedBytesPerDay: number | undefined
   /** The request header holding the client's address: `cf-connecting-ip` on Cloudflare, set by the proxy elsewhere. */
   readonly clientAddressHeader: string
 }
@@ -25,6 +30,9 @@ export const defaultLimits: Limits = {
   roomsPerAddressPerHour: 50,
   // 25 GB: about 19,400 billed Durable Object requests, a fifth of Workers Free's daily 100,000 (docs/spikes/0003).
   relayedBytesPerRoom: 25_000_000_000,
+  // Off unless set: a container on the operator's own machine has no daily allowance to protect. wrangler.jsonc sets
+  // it for Cloudflare deploys.
+  relayedBytesPerDay: undefined,
   clientAddressHeader: "cf-connecting-ip",
 }
 
@@ -32,6 +40,8 @@ export const defaultLimits: Limits = {
 export interface LimitVariables {
   readonly LIMIT_ROOMS_PER_ADDRESS_PER_HOUR?: string
   readonly LIMIT_RELAYED_BYTES_PER_ROOM?: string
+  /** A positive integer, or `off` (also the meaning when unset or invalid). */
+  readonly LIMIT_RELAYED_BYTES_PER_DAY?: string
   readonly CLIENT_ADDRESS_HEADER?: string
 }
 
@@ -48,6 +58,13 @@ const positiveIntegerOr = (value: string | undefined, fallback: number): number 
   return Result.isSuccess(decoded) ? decoded.success : fallback
 }
 
+/** A positive integer, or undefined for anything else (`off`, empty, unset, invalid). */
+const optionalPositiveInteger = (value: string | undefined): number | undefined => {
+  const decoded = decodePositiveInteger(value?.trim() ?? "")
+
+  return Result.isSuccess(decoded) ? decoded.success : undefined
+}
+
 const headerName = /^[a-z0-9-]{1,64}$/u
 
 export const readLimits = (variables: LimitVariables): Limits => {
@@ -56,6 +73,7 @@ export const readLimits = (variables: LimitVariables): Limits => {
   return {
     roomsPerAddressPerHour: positiveIntegerOr(variables.LIMIT_ROOMS_PER_ADDRESS_PER_HOUR, defaultLimits.roomsPerAddressPerHour),
     relayedBytesPerRoom: positiveIntegerOr(variables.LIMIT_RELAYED_BYTES_PER_ROOM, defaultLimits.relayedBytesPerRoom),
+    relayedBytesPerDay: optionalPositiveInteger(variables.LIMIT_RELAYED_BYTES_PER_DAY),
     clientAddressHeader: header !== undefined && headerName.test(header) ? header : defaultLimits.clientAddressHeader,
   }
 }
@@ -64,6 +82,7 @@ export const readLimits = (variables: LimitVariables): Limits => {
 export const publicLimits = (limits: Limits) => ({
   roomsPerAddressPerHour: limits.roomsPerAddressPerHour,
   relayedBytesPerRoom: limits.relayedBytesPerRoom,
+  relayedBytesPerDay: limits.relayedBytesPerDay ?? null,
 })
 
 /** Whether relaying `frameLength` more bytes after `relayedBytes` stays within `limit`. */
