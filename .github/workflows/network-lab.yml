@@ -1,0 +1,65 @@
+name: network-lab
+
+# Transfers between two homes behind emulated routers on one runner (apps/web/scripts/networkLab.ts, the lab suite
+# of scripts/endToEnd.ts): open, symmetric and UDP-blocking NATs; slow, mobile-like and lossy links (netem); a router
+# that drops everything for 30 s; a router that moves to a new address. Prints one JSON line per scenario with the
+# path taken and the speed. Every night on main, and by hand:
+#   gh workflow run network-lab.yml -f only="symmetric"
+# Needs root for network namespaces, so the suite runs under sudo with the runner's Playwright browsers.
+
+on:
+  # Also on pull requests that change the lab, so a change to it is proven before it merges.
+  pull_request:
+    paths: [apps/web/scripts/networkLab.ts, .github/workflows/network-lab.yml]
+  schedule:
+    - cron: "41 3 * * *"
+  workflow_dispatch:
+    inputs:
+      only:
+        description: Run only scenarios whose name contains this
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  lab:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - name: Network tools (coturn for STUN, conntrack, netem)
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q coturn conntrack
+          # apt starts coturn as a service on every address; the lab runs its own on the lab's address.
+          sudo systemctl stop coturn || true
+          sudo modprobe sch_netem || echo "no netem module; the netem scenarios will be skipped"
+      - run: bunx playwright install --with-deps ${{ matrix.browser }}
+        working-directory: apps/web
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/browsers
+      - name: Lab suite
+        working-directory: apps/web
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/browsers
+          E2E_SUITE: lab
+          E2E_BROWSER: ${{ matrix.browser }}
+          E2E_LAB_ONLY: ${{ inputs.only }}
+        shell: bash
+        run: |
+          # sudo's secure_path would drop bun from PATH; env passes the runner's PATH and the settings through.
+          # Firefox refuses to run as root with the runner's XDG_RUNTIME_DIR or HOME, so root gets its own.
+          sudo env -u XDG_RUNTIME_DIR HOME=/root "PATH=$PATH" "PLAYWRIGHT_BROWSERS_PATH=$PLAYWRIGHT_BROWSERS_PATH" "E2E_SUITE=$E2E_SUITE" "E2E_BROWSER=$E2E_BROWSER" \
+            ${E2E_LAB_ONLY:+"E2E_LAB_ONLY=$E2E_LAB_ONLY"} bun scripts/endToEnd.ts | tee "$RUNNER_TEMP/lab.log"
+          grep '^{' "$RUNNER_TEMP/lab.log" > "$RUNNER_TEMP/lab-${{ matrix.browser }}.jsonl" || true
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: lab-${{ matrix.browser }}
+          path: ${{ runner.temp }}/lab-*.jsonl
