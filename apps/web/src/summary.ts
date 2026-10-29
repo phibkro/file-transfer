@@ -48,6 +48,8 @@ const browserName = (): string => {
 
 const megabytesPerSecond = (summary: TransferSummary): string => (summary.seconds > 0 ? `${(summary.bytes / 1e6 / summary.seconds).toFixed(1)} MB/s` : "n/a")
 
+const pathText = (summary: TransferSummary): string => (summary.direct ? "direct between browsers" : "through the server's relay")
+
 const reportText = (role: string, summary: TransferSummary, location: string): string =>
   [
     `file-transfer report (${role})`,
@@ -55,6 +57,7 @@ const reportText = (role: string, summary: TransferSummary, location: string): s
     `time: ${summary.seconds.toFixed(1)} s`,
     `speed: ${megabytesPerSecond(summary)}`,
     `reconnects: ${summary.reconnects}`,
+    `path: ${pathText(summary)}`,
     `cloudflare location: ${location}`,
     `browser: ${browserName()}`,
   ].join("\n")
@@ -86,6 +89,7 @@ const render = async (root: HTMLElement, role: string) => {
     ["Time", `${summary.seconds.toFixed(1)} s`],
     ["Speed", megabytesPerSecond(summary)],
     ["Reconnects", String(summary.reconnects)],
+    ["Path", pathText(summary)],
     ["Cloudflare location", location],
   ]
 

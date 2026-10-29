@@ -81,6 +81,7 @@ export {
   Joined,
   Peer,
   recipientToSenderTypes,
+  senderToRecipientTypes,
   unitKind,
   unitPrefixLength,
   Want,

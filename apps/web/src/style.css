@@ -281,7 +281,8 @@ a {
   font-size: 0.9rem;
 }
 
-.storage-panel {
+.storage-panel,
+.direct-panel {
   max-width: 40rem;
   margin: 0 auto 2rem;
   padding: 0 1rem;
@@ -289,8 +290,21 @@ a {
   font-size: 0.9rem;
 }
 
-.storage-panel summary {
+.storage-panel {
+  margin-bottom: 1rem;
+}
+
+.storage-panel summary,
+.direct-panel summary {
   cursor: pointer;
+}
+
+.direct-panel p {
+  margin: 0.5rem 0;
+}
+
+.direct-panel label {
+  color: var(--text);
 }
 
 .storage-text,

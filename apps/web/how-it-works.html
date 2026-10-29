@@ -19,8 +19,8 @@
         <svg viewBox="0 0 640 400" role="img" aria-labelledby="flow-title flow-description">
           <title id="flow-title">One transfer</title>
           <desc id="flow-description">
-            The sender's browser encrypts the files. Encrypted pieces go through the relay to the recipient's browser, which checks and decrypts them. The key
-            travels only inside the link, from sender to recipient, never through the server.
+            The sender's browser encrypts the files. Encrypted pieces go to the recipient's browser, directly when the two can connect and through the relay
+            otherwise; the recipient checks and decrypts them. The key travels only inside the link, from sender to recipient, never through the server.
           </desc>
           <defs>
             <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
@@ -107,8 +107,9 @@
       <h2>Today, and what comes next</h2>
       <ul>
         <li>
-          <strong>Relayed today.</strong> Every transfer currently goes through the server's relay, encrypted end to end. Direct transfers between browsers
-          (WebRTC) are planned, with the relay as a fallback.
+          <strong>Direct when possible.</strong> When both browsers allow it and the network lets them, encrypted pieces go directly between them (WebRTC).
+          Otherwise, or when a direct connection drops, they go through the server's relay, and the transfer carries on from where it was. Either way they are
+          encrypted end to end. A direct connection shows each side the other's network address; see <a href="/privacy">privacy</a>.
         </li>
         <li>
           <strong>No files on servers.</strong> A room holds a token hash and a byte count, and is deleted a day after everyone leaves. Encrypted storage for

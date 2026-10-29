@@ -39,6 +39,10 @@
     // requests carry (docs/spikes/0003). On Workers Paid, raise it or set "off".
     "LIMIT_RELAYED_BYTES_PER_DAY": "100000000000",
     "CLIENT_ADDRESS_HEADER": "cf-connecting-ip",
+    // Direct paths between browsers (src/directSettings.ts): "off" keeps every transfer on the relay. STUN tells each
+    // browser its public address; Cloudflare's STUN service is free.
+    "DIRECT_CONNECTIONS": "on",
+    "STUN_URLS": "stun:stun.cloudflare.com:3478",
     // Aggregate counters are off unless the operator opts in with "on". Read them at /api/admin/counters and
     // /api/admin/metrics with `wrangler secret put ADMIN_TOKEN` set.
     "COUNTERS": "off",

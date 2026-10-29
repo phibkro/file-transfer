@@ -24,10 +24,20 @@ Text frames are JSON control messages; binary frames are parcel units. The first
 | `decline`  | recipient to sender | `sequence`                                                         | Refusal; no content follows                                                                    |
 | `credit`   | recipient to sender | `records` (1..4096)                                                | Permission for that many more data records                                                     |
 | `want`     | recipient to sender | `sequence`, `ranges` (`[start, end)` pairs of data record indexes) | Missing records (ADR 0013); the sender answers each range with the covering label pages first  |
-| `complete` | recipient to sender | `sequence`                                                         | Every record matched the contract                                                              |
+| `complete` | recipient to sender | `sequence`, optional `path` (`relay` or `direct`)                  | Every record matched the contract; `path` says whether any came over a direct path             |
 | `abort`    | either              | `reason`                                                           | The transfer stops; the recipient discards provisional output                                  |
+| `signal`   | either              | `description` (`type` offer or answer, `sdp`) or `candidate`       | Sets up the direct path (below)                                                                |
 
-The room relays `accept`, `decline`, `credit`, `want` and `complete` from recipients to the sender, and `abort` both ways, without reading them. Binary frames flow only from the sender to recipients.
+The room relays `accept`, `decline`, `credit`, `want` and `complete` from recipients to the sender, and `abort` and `signal` both ways, without reading them, except that a `complete` with `path` is counted when the operator turned counting on. Binary frames on the socket flow only from the sender to recipients.
+
+### Direct path
+
+When both endpoints allow it (`GET /api/direct` for the instance, a setting for the person), the sender sets up a WebRTC data channel to the recipient (ADR 0022):
+
+- The sender offers whenever a recipient joins; the recipient answers. Offers, answers and ICE candidates travel as `signal` messages through the room, which neither reads nor stores them. ICE servers are STUN only, from `GET /api/direct`.
+- The data channel (`parcel`, reliable and unordered) carries parcel units in the same 9-byte-prefixed frames as the socket. Control messages always go through the room.
+- Once the channel opens, the sender sends units over it; until then, and whenever it closes, over the socket. Credits apply to both. Units go back to the socket when a frame exceeds the channel's `maxMessageSize`.
+- When the channel closes mid-transfer, the recipient sends `accept`, `want` with what is missing and new `credit` through the room, as after a reconnect. A dropped socket, or the other side leaving, closes the channel; the next join sets up a new one.
 
 ### Reconnecting
 

@@ -10,11 +10,22 @@ import type { Manifest, ParcelOpener, ParcelReceiver } from "@file-transfer/parc
 import type { ControlMessage, Unit } from "@file-transfer/transport/protocol"
 import { consume, createCreditWindow, grantDue, resetCredits } from "./credits.ts"
 import { openConnection } from "./connection.ts"
-import type { Connection } from "./connection.ts"
+import type { Connection, PathName } from "./connection.ts"
+import { directOption } from "./directSettings.ts"
 import { spansFor } from "./files.ts"
 import { addRecord, containsRange, createRecordSet, hasRecord, isComplete, missingRanges, rangesOf } from "./ranges.ts"
 import type { RecordSet } from "./ranges.ts"
-import { setFailureDetail, setFileHashes, setProgress, setReceivedFiles, setSpaceShortfall, setStatus, setTotalBytes } from "./report.ts"
+import {
+  setFailureDetail,
+  setFileHashes,
+  setPath,
+  setProgress,
+  setReceivedFiles,
+  setSpaceShortfall,
+  setStatus,
+  setTotalBytes,
+  transferSummary,
+} from "./report.ts"
 import { setUnsavedFiles } from "./leaveGuard.ts"
 import { offerRemoval } from "./storagePanel.ts"
 import { previewButton } from "./preview.ts"
@@ -245,7 +256,7 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
   }
 
   const announceCompletion = () => {
-    send({ type: "complete", sequence })
+    send({ type: "complete", sequence, path: transferSummary().direct ? "direct" : "relay" })
   }
 
   const finish = async () => {
@@ -659,9 +670,20 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
       case "credit":
       case "decline":
       case "join":
+      case "signal":
       case "want": {
         break
       }
+    }
+  }
+
+  // A direct path that closes mid-transfer may have dropped records in flight, and the sender's credits with them:
+  // accept again on the relay, as after a reconnect, so both sides start a fresh session from what is missing.
+  const onPath = (path: PathName) => {
+    setPath(path)
+
+    if (path === "relay" && decision === "accepted" && !finished && !completed && senderPresent) {
+      sendAcceptance(true)
     }
   }
 
@@ -688,11 +710,14 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
     const roomToken = toHex(await deriveRoomToken(linkSecret))
     setStatus("connecting")
     say("Connecting.")
+    const direct = await directOption()
     connection = openConnection({
       roomIdentifier,
       role: "recipient",
       roomToken,
+      direct,
       handlers: {
+        onPath,
         onControl,
         onUnit,
         onState: (state) => {

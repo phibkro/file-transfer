@@ -27,16 +27,18 @@ On macOS, a downloaded executable is quarantined; allow it with `xattr -d com.ap
 
 Environment variables, all optional:
 
-| Variable                           | Default          | Meaning                                                     |
-| ---------------------------------- | ---------------- | ----------------------------------------------------------- |
-| `LIMIT_ROOMS_PER_ADDRESS_PER_HOUR` | 50               | Rooms one client address may create per hour                |
-| `LIMIT_RELAYED_BYTES_PER_ROOM`     | 25000000000      | Bytes relayed for one transfer                              |
-| `LIMIT_RELAYED_BYTES_PER_DAY`      | off              | Bytes the node relays per UTC day                           |
-| `CLIENT_ADDRESS_HEADER`            | cf-connecting-ip | Header holding the client's address; set it to your proxy's |
-| `COUNTERS`                         | off              | `on` keeps aggregate counts, read at `/admin`               |
-| `COUNTERS_RETENTION_DAYS`          | 90               | Days of hourly counts to keep                               |
-| `ADMIN_TOKEN`                      | unset            | Opens `/admin` and `/api/admin/*`                           |
-| `ADDRESS_SALT`                     | generated        | Secret mixed into address hashes; set only to choose it     |
+| Variable                           | Default                         | Meaning                                                     |
+| ---------------------------------- | ------------------------------- | ----------------------------------------------------------- |
+| `LIMIT_ROOMS_PER_ADDRESS_PER_HOUR` | 50                              | Rooms one client address may create per hour                |
+| `LIMIT_RELAYED_BYTES_PER_ROOM`     | 25000000000                     | Bytes relayed for one transfer                              |
+| `LIMIT_RELAYED_BYTES_PER_DAY`      | off                             | Bytes the node relays per UTC day                           |
+| `DIRECT_CONNECTIONS`               | on                              | `off` keeps every transfer on the relay                     |
+| `STUN_URLS`                        | `stun:stun.cloudflare.com:3478` | STUN servers for direct connections; `none` for none        |
+| `CLIENT_ADDRESS_HEADER`            | cf-connecting-ip                | Header holding the client's address; set it to your proxy's |
+| `COUNTERS`                         | off                             | `on` keeps aggregate counts, read at `/admin`               |
+| `COUNTERS_RETENTION_DAYS`          | 90                              | Days of hourly counts to keep                               |
+| `ADMIN_TOKEN`                      | unset                           | Opens `/admin` and `/api/admin/*`                           |
+| `ADDRESS_SALT`                     | generated                       | Secret mixed into address hashes; set only to choose it     |
 
 ## Licence
 

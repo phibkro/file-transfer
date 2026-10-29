@@ -41,6 +41,9 @@ export interface TestHook {
   readonly failureDetail: () => string | undefined
   /** Bytes the browser said it could still store, when that was less than the offer needs. */
   readonly spaceShortfall: () => number | undefined
+  /** The path parcel units travel now, and whether a direct path ever opened in this transfer. */
+  readonly path: () => "relay" | "direct"
+  readonly wentDirect: () => boolean
 }
 
 declare global {
@@ -56,6 +59,8 @@ let hashes: () => Promise<readonly string[]> = async () => []
 let receivedFiles: readonly File[] = []
 let failureDetail: string | undefined
 let spaceShortfall: number | undefined
+let path: "relay" | "direct" = "relay"
+let wentDirect = false
 const listeners = new Set<() => void>()
 let frameRequested = false
 let totalBytes = 0
@@ -123,6 +128,17 @@ export const setFileHashes = (compute: () => Promise<readonly string[]>) => {
 }
 
 /** The plaintext bytes this transfer carries (the manifest's total size), for the completion summary. */
+/** The path parcel units travel (connection.ts); mirrored as `document.body.dataset.path`. */
+export const setPath = (next: "relay" | "direct") => {
+  path = next
+  wentDirect ||= next === "direct"
+  document.body.dataset.path = next
+
+  for (const listener of listeners) {
+    listener()
+  }
+}
+
 export const setTotalBytes = (bytes: number) => {
   totalBytes = bytes
 }
@@ -132,6 +148,8 @@ export interface TransferSummary {
   /** From the first `transferring` status to `complete`, in seconds. */
   readonly seconds: number
   readonly reconnects: number
+  /** Whether any of it went directly between the browsers. */
+  readonly direct: boolean
 }
 
 /** What the completion summary reports: sizes and timing only, never names, keys or the link. */
@@ -139,6 +157,7 @@ export const transferSummary = (): TransferSummary => ({
   bytes: totalBytes,
   seconds: transferStartedAt === undefined || transferEndedAt === undefined ? 0 : (transferEndedAt - transferStartedAt) / 1000,
   reconnects,
+  direct: wentDirect,
 })
 
 export const currentStatus = (): Status => status
@@ -164,6 +183,8 @@ export const installTestHook = () => {
     fileSizes: () => receivedFiles.map((file) => file.size),
     failureDetail: () => failureDetail,
     spaceShortfall: () => spaceShortfall,
+    path: () => path,
+    wentDirect: () => wentDirect,
   }
   document.body.dataset.status = status
 }

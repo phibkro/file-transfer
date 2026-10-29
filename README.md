@@ -6,7 +6,7 @@ Try it at https://send.phibkro.org (a demo instance with modest limits).
 
 ## Status
 
-Working: end-to-end encrypted transfers through a relay, resume after a dropped connection, files up to at least 10 GB, renaming and sandboxed previews, operator limits. Also: opt-in counters with an operator page, self-hosting on workerd in one container, and one-click deploy to Cloudflare. Planned next: direct transfers between browsers (WebRTC). See [`docs/plan.md`](docs/plan.md) and [ADR 0019](docs/decisions/0019-open-source-first.md).
+Working: end-to-end encrypted transfers, directly between browsers (WebRTC) when possible and through a relay otherwise, resume after a dropped connection, files up to at least 10 GB, renaming and sandboxed previews, operator limits. Also: opt-in counters with an operator page, self-hosting on workerd in one container, and one-click deploy to Cloudflare. Planned next: measuring direct transfers on real networks and phones, and encrypted storage for recipients who are offline. See [`docs/plan.md`](docs/plan.md) and [ADR 0019](docs/decisions/0019-open-source-first.md).
 
 The parcel format has had two AI reviewer passes and is checked against an independent implementation in CI, but no human cryptographer has audited it yet. Read [`SECURITY.md`](SECURITY.md) before relying on it, and to report problems.
 
@@ -32,7 +32,7 @@ Limits are variables in `platforms/cloudflare/wrangler.jsonc`; the site's "Run y
 
 ### What Cloudflare's free plan carries
 
-Estimates from Cloudflare's list prices and our load test ([spike 0003](docs/spikes/0003-relay-load.md)), not from an invoice. Cloudflare charges nothing for bandwidth; the relay is billed by Durable Object requests (20 incoming WebSocket messages count as one) and by duration. Every transfer goes through the relay today, and the allowance belongs to the Cloudflare account, so the instance shares it with any other Workers in that account.
+Estimates from Cloudflare's list prices and our load test ([spike 0003](docs/spikes/0003-relay-load.md)), not from an invoice. Cloudflare charges nothing for bandwidth; the relay is billed by Durable Object requests (20 incoming WebSocket messages count as one) and by duration. Only relayed transfers count: one that goes directly between browsers costs a handful of requests. The figures below assume every transfer is relayed. The allowance belongs to the Cloudflare account, so the instance shares it with any other Workers in that account.
 
 | Per day on Workers Free             | About                                                       |
 | ----------------------------------- | ----------------------------------------------------------- |

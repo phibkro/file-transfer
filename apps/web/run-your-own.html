@@ -94,6 +94,16 @@
               <td>Bytes the whole instance relays per day (UTC); <code>off</code> for no daily budget</td>
             </tr>
             <tr>
+              <td><code>DIRECT_CONNECTIONS</code></td>
+              <td>on</td>
+              <td>Whether browsers may connect directly; <code>off</code> keeps every transfer on your relay</td>
+            </tr>
+            <tr>
+              <td><code>STUN_URLS</code></td>
+              <td><code>stun:stun.cloudflare.com:3478</code></td>
+              <td>STUN servers that tell browsers their public address, for direct connections; <code>none</code> for none</td>
+            </tr>
+            <tr>
               <td><code>CLIENT_ADDRESS_HEADER</code></td>
               <td><code>cf-connecting-ip</code></td>
               <td>Where the client's address comes from; change it only behind your own proxy</td>
@@ -109,8 +119,9 @@
       <h2>What Cloudflare's free plan carries</h2>
       <p>
         Cloudflare charges nothing for bandwidth. It bills the relay by Durable Object requests, counting 20 incoming WebSocket messages as one, and by the time
-        a room is busy. Every transfer goes through the relay today, so the free plan's daily allowance is shared by everyone using your instance, and by any
-        other Workers in the same Cloudflare account. These are estimates from Cloudflare's list prices and our
+        a room is busy. Only relayed transfers count: one that goes directly between browsers costs a handful of requests, and the figures below assume every
+        transfer is relayed. The free plan's daily allowance is shared by everyone using your instance, and by any other Workers in the same Cloudflare account.
+        These are estimates from Cloudflare's list prices and our
         <a href="https://github.com/phibkro/file-transfer/blob/main/docs/spikes/0003-relay-load.md">load test</a>, not from an invoice:
       </p>
       <div class="table-wrap">

@@ -35,18 +35,39 @@ export const Want = v.object({
   ranges: v.pipe(v.array(v.pipe(v.tuple([u32, u32]), v.readonly())), v.maxLength(1024), v.readonly()),
 })
 
-export const Complete = v.object({ type: v.literal("complete"), sequence: u32 })
+/** `path` says whether any of the parcel came over a direct path, for the operator's opt-in counters (ADR 0019). */
+export const Complete = v.object({ type: v.literal("complete"), sequence: u32, path: v.optional(v.picklist(["relay", "direct"])) })
 export const Abort = v.object({ type: v.literal("abort"), reason: v.pipe(v.string(), v.maxLength(200)) })
 
+/** An SDP offer or answer for the direct path (docs/decisions/0022), as RTCSessionDescriptionInit carries it. */
+const SessionDescription = v.object({ type: v.picklist(["offer", "answer"]), sdp: v.pipe(v.string(), v.maxLength(32_768)) })
+
+/** One ICE candidate, as RTCIceCandidateInit carries it. */
+const IceCandidate = v.object({
+  candidate: v.pipe(v.string(), v.maxLength(1024)),
+  sdpMid: v.nullish(v.pipe(v.string(), v.maxLength(64))),
+  sdpMLineIndex: v.nullish(v.pipe(v.number(), v.safeInteger(), v.minValue(0), v.maxValue(255))),
+})
+
+/**
+ * Setting up a direct path between the endpoints: a session description or an ICE candidate, relayed by the room to
+ * the other side unread and never stored. It carries the endpoints' network addresses, which is why direct paths are
+ * something each endpoint may turn off (docs/decisions/0022).
+ */
+export const Signal = v.object({ type: v.literal("signal"), description: v.optional(SessionDescription), candidate: v.optional(IceCandidate) })
+
 /** Every control message, as one schema; a Standard Schema through its `~standard` property. */
-export const ControlMessage = v.variant("type", [Join, Joined, Peer, ErrorMessage, Accept, Decline, Credit, Want, Complete, Abort])
+export const ControlMessage = v.variant("type", [Join, Joined, Peer, ErrorMessage, Accept, Decline, Credit, Want, Complete, Abort, Signal])
 
 export type ControlMessage = v.InferOutput<typeof ControlMessage>
 
 export type Role = v.InferOutput<typeof role>
 
 /** Messages a room relays from recipients to the sender without reading them. */
-export const recipientToSenderTypes: readonly ControlMessage["type"][] = ["accept", "decline", "credit", "want", "complete", "abort"]
+export const recipientToSenderTypes: readonly ControlMessage["type"][] = ["accept", "decline", "credit", "want", "complete", "abort", "signal"]
+
+/** Messages a room relays from the sender to recipients without reading them. */
+export const senderToRecipientTypes: readonly ControlMessage["type"][] = ["abort", "signal"]
 
 /** The outcome of decoding untrusted input: the value, or why it was refused. */
 export type Decoded<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly reason: string }

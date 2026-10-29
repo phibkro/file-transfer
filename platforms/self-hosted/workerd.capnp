@@ -43,6 +43,8 @@ const roomWorker :Workerd.Worker = (
     (name = "LIMIT_RELAYED_BYTES_PER_ROOM", fromEnvironment = "LIMIT_RELAYED_BYTES_PER_ROOM"),
     (name = "LIMIT_RELAYED_BYTES_PER_DAY", fromEnvironment = "LIMIT_RELAYED_BYTES_PER_DAY"),
     (name = "CLIENT_ADDRESS_HEADER", fromEnvironment = "CLIENT_ADDRESS_HEADER"),
+    (name = "DIRECT_CONNECTIONS", fromEnvironment = "DIRECT_CONNECTIONS"),
+    (name = "STUN_URLS", fromEnvironment = "STUN_URLS"),
     (name = "COUNTERS", fromEnvironment = "COUNTERS"),
     (name = "COUNTERS_RETENTION_DAYS", fromEnvironment = "COUNTERS_RETENTION_DAYS"),
     (name = "ADMIN_TOKEN", fromEnvironment = "ADMIN_TOKEN"),

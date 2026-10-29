@@ -65,7 +65,8 @@
           "libraries/parcel/src/**",
           "tools/quality/src/moduleGraph.ts",
           "platforms/self-hosted/src/assetRouting.ts",
-          "platforms/cloudflare/src/durableObjectCalls.ts"
+          "platforms/cloudflare/src/durableObjectCalls.ts",
+          "platforms/cloudflare/src/directSettings.ts"
         ],
         "role": "pure-library",
         "platform": "portable"
@@ -108,7 +109,9 @@
           "apps/web/src/previewFrame.ts",
           "apps/web/src/rename.ts",
           "apps/web/src/serverLimits.ts",
-          "apps/web/src/admin.ts"
+          "apps/web/src/admin.ts",
+          "apps/web/src/direct.ts",
+          "apps/web/src/directSettings.ts"
         ],
         "role": "runtime-adapter",
         "platform": "browser",

@@ -6,6 +6,7 @@
  *                                          has relayed its daily budget (relayBudget.ts)
  *   GET  /api/rooms/<roomIdentifier>/socket WebSocket upgrade, forwarded to the room's Durable Object
  *   GET  /api/limits                       the operator's limits a sender can act on (limits.ts)
+ *   GET  /api/direct                       whether browsers may connect directly, and the STUN servers (directSettings.ts)
  *   GET  /api/instance                     the limits and whether this instance counts anything (counters.ts)
  *   GET  /api/admin/counters               totals and hourly counts as JSON      } with `Authorization: Bearer <ADMIN_TOKEN>`;
  *   GET  /api/admin/metrics                totals in OpenMetrics, for Prometheus } 404 when no ADMIN_TOKEN is set
@@ -20,6 +21,8 @@ import type { SaltEnvironment } from "./addressSalt.ts"
 import { askRelayBudget } from "./askRelayBudget.ts"
 import type { BudgetEnvironment } from "./askRelayBudget.ts"
 import { countersEnabled } from "./counters.ts"
+import { readDirectSettings } from "./directSettings.ts"
+import type { DirectVariables } from "./directSettings.ts"
 import { unavailable, withOneRetry } from "./durableObjectCalls.ts"
 import { publicLimits, readLimits, retryAfterMillisecondsOf } from "./limits.ts"
 import type { LimitVariables, Limits } from "./limits.ts"
@@ -37,7 +40,7 @@ export { RelayBudgetObject } from "./relayBudgetObject.ts"
 
 export { RoomObject } from "./roomObject.ts"
 
-export interface Environment extends LimitVariables, CountingEnvironment, BudgetEnvironment, SaltEnvironment {
+export interface Environment extends LimitVariables, CountingEnvironment, BudgetEnvironment, SaltEnvironment, DirectVariables {
   readonly ROOMS: DurableObjectNamespace
   readonly ADMISSION: DurableObjectNamespace
   readonly ASSETS: Fetcher
@@ -212,6 +215,10 @@ export default {
 
     if (url.pathname === "/api/admin/counters" || url.pathname === "/api/admin/metrics") {
       return await admin(request, environment, url.pathname)
+    }
+
+    if (url.pathname === "/api/direct") {
+      return Response.json(readDirectSettings(environment), { headers: { "cache-control": "no-store" } })
     }
 
     if (url.pathname === "/api/limits") {

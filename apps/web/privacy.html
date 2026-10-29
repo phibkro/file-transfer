@@ -58,6 +58,14 @@
         the link after <code>#</code>. On Cloudflare, this software turns off the Worker's own request logging.
       </p>
 
+      <h2>Direct connections and your network address</h2>
+      <p>
+        When both sides allow it, the two browsers connect directly (WebRTC) and the encrypted pieces skip the server. To find a direct route, each browser asks
+        a STUN server for its public network address (Cloudflare's by default; the operator chooses), and the two browsers pass their addresses to each other
+        through the room, which forwards them and keeps nothing. So the other side learns your network (IP) address, which the server sees anyway. To keep it
+        from them, turn off "Direct connections" at the bottom of the main page: everything then goes through the server's relay.
+      </p>
+
       <h2>In your browser</h2>
       <ul>
         <li>
@@ -65,6 +73,7 @@
           left behind.
         </li>
         <li>"Storage in this browser", at the bottom of the main page, shows how much is stored and clears it.</li>
+        <li>Whether you allow direct connections is remembered in this browser only.</li>
         <li>This software sets no cookies. A hosting provider's bot protection may set its own (Cloudflare's challenge page does).</li>
       </ul>
 

@@ -18,6 +18,7 @@ if (built.exitCode !== 0) {
 }
 
 mkdirSync(nodePath.join(packageDirectory, "dist"), { recursive: true })
+
 cpSync(nodePath.join(cloudflareDirectory, "dist/worker.js"), nodePath.join(packageDirectory, "dist/worker.js"))
 
 await build({
@@ -30,5 +31,7 @@ await build({
 })
 
 rmSync(nodePath.join(packageDirectory, "public"), { recursive: true, force: true })
+
 cpSync(nodePath.join(webDirectory, "dist"), nodePath.join(packageDirectory, "public"), { recursive: true })
+
 console.log("built dist/worker.js, dist/assets-worker.js and public/")

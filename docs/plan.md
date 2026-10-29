@@ -16,7 +16,8 @@ Startup phase: prove that people want this, then that some will pay, before stab
 
 - [x] Scaffold the monorepo (this commit)
 - [ ] Throughput harness: 10 GB synthetic stream, direct WebRTC versus Durable Object relay, MB/s against RTT
-  - Relay half done (spike 0002): 10 GB completes through the local Worker and Durable Object; with a 16 MiB credit window throughput holds from 0 to 300 ms round trips. Direct WebRTC not started
+  - Relay half done (spike 0002): 10 GB completes through the local Worker and Durable Object; with a 16 MiB credit window throughput holds from 0 to 300 ms round trips
+  - Direct WebRTC built (ADR 0022): on one machine, 19.3 MB/s direct against 13.1 MB/s relayed (headless Chromium, 268 MB). Two devices on real networks, phones and how often direct fails still to measure
 - [ ] Save-tier test (picker, service worker, OPFS) on Chrome, Firefox, Safari desktop, Android Chrome, iOS Safari
   - OPFS output passes in Chromium, Firefox and WebKit on Linux (CI); Save all uses the folder picker where it exists. Real Safari, Android and iPhone (large files out of OPFS) not yet tested
 - [x] Durable Object load test: sustained MB/s per object, slow-receiver behaviour, cost per GB (`docs/spikes/0003-relay-load.md`: 28 to 78 MB/s per room, stalled recipients safe, about $0.19 to $0.70 per TiB at list prices, 120 GiB a day on the free plan; Cloudflare's edge negotiates WebSocket compression regardless of the flag)

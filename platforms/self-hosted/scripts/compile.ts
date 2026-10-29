@@ -21,4 +21,5 @@ if (compiled.exitCode !== 0) {
 }
 
 chmodSync(output, 0o755)
+
 console.log(`wrote ${nodePath.relative(packageDirectory, output)}`)

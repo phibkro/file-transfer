@@ -403,9 +403,22 @@ const run = async () => {
 
   check(intact === records.length, `${records.length} label and data units arrive unchanged and in order`, intact)
 
+  // Setting up a direct path: the room relays signals both ways, unchanged (docs/decisions/0022).
+  const offerSignal = encodeControlMessage({ type: "signal", description: { type: "offer", sdp: "v=0\r\no=- 1 2 IN IP4 127.0.0.1\r\n" } })
+  sender.socket.send(offerSignal)
+  check((await recipient.next()) === offerSignal, "a signal from the sender reaches the recipient unchanged")
+
+  const candidateSignal = encodeControlMessage({
+    type: "signal",
+    candidate: { candidate: "candidate:1 1 udp 2122260223 192.0.2.1 50000 typ host", sdpMid: "0", sdpMLineIndex: 0 },
+  })
+
+  recipient.socket.send(candidateSignal)
+  check((await sender.next()) === candidateSignal, "a signal from the recipient reaches the sender unchanged")
+
   // Routing violations.
   sender.socket.send(encodeControlMessage({ type: "credit", records: 1 }))
-  await expectRefusal(sender, "the sender may only send abort", "a credit from the sender is refused and closed")
+  await expectRefusal(sender, "the sender may only send abort or signal", "a credit from the sender is refused and closed")
   check(
     JSON.stringify(await nextControl(recipient)) === JSON.stringify({ type: "peer", event: "left", role: "sender" }),
     "the recipient is told the sender left",

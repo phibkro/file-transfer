@@ -7,7 +7,7 @@
  * text it received and binary frames as the bytes it received, and never decodes or stores either.
  */
 import { constantTimeEqual, encodeBase64Url } from "@file-transfer/parcel"
-import { decodeControlMessage, encodeControlMessage, recipientToSenderTypes } from "@file-transfer/transport"
+import { decodeControlMessage, encodeControlMessage, recipientToSenderTypes, senderToRecipientTypes } from "@file-transfer/transport"
 import type { Role } from "@file-transfer/transport"
 import { Result, Schema } from "effect"
 
@@ -103,8 +103,8 @@ export const errorReasons = {
   framesFromSenderOnly: "only the sender sends binary frames",
   notAControlMessage: "not a control message",
   textTooLong: "control message too long",
-  notAllowedForSender: "the sender may only send abort",
-  notAllowedForRecipient: "recipients may only send accept, decline, credit, want, complete or abort",
+  notAllowedForSender: "the sender may only send abort or signal",
+  notAllowedForRecipient: "recipients may only send accept, decline, credit, want, complete, abort or signal",
 } as const
 
 const violation = (reason: string): readonly Instruction[] => [
@@ -117,6 +117,7 @@ const identifiersOf = (participants: readonly Participant[], role: Role): readon
 
 /** The relayed recipient message types, as a set of plain strings so any message type can be looked up. */
 const recipientToSenderTypeSet: ReadonlySet<string> = new Set(recipientToSenderTypes)
+const senderToRecipientTypeSet: ReadonlySet<string> = new Set(senderToRecipientTypes)
 
 const opposite = (role: Role): Role => (role === "sender" ? "recipient" : "sender")
 
@@ -243,7 +244,7 @@ export const decide = (self: Attachment, participants: readonly Participant[], e
       }
 
       if (self.role === "sender") {
-        if (type !== "abort") {
+        if (!senderToRecipientTypeSet.has(type)) {
           return violation(errorReasons.notAllowedForSender)
         }
 

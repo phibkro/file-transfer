@@ -19,7 +19,7 @@
 import { DurableObject } from "cloudflare:workers"
 import type { HibernatableWebSocket, UpgradeResponseInit, WebSocketPairConstructor } from "cloudflare:workers"
 import { fromHex, hashRoomToken } from "@file-transfer/parcel"
-import { encodeControlMessage } from "@file-transfer/transport"
+import { decodeControlMessage, encodeControlMessage } from "@file-transfer/transport"
 import { megabytesFor, sizeBucketFor } from "@file-transfer/service-telemetry"
 import type { TelemetryEvent } from "@file-transfer/service-telemetry"
 import { askRelayBudget } from "./askRelayBudget.ts"
@@ -144,7 +144,8 @@ export class RoomObject extends DurableObject<LimitVariables & CountingEnvironme
         const type = messageType(message)
 
         if (type === "complete" && sender.role === "recipient") {
-          await this.countOutcome("completed")
+          const decoded = decodeControlMessage(message)
+          await this.countOutcome("completed", decoded.ok && decoded.value.type === "complete" && decoded.value.path === "direct")
         } else if (type === "abort") {
           await this.countOutcome("failed")
         }
@@ -311,7 +312,8 @@ export class RoomObject extends DurableObject<LimitVariables & CountingEnvironme
   }
 
   /** Counts how a transfer ended, once per room, with its relayed volume (only when counting is on). */
-  private async countOutcome(outcome: "completed" | "failed") {
+  /** `direct`: the recipient said some of the parcel came over a direct path (`complete` with `path`). */
+  private async countOutcome(outcome: "completed" | "failed", direct = false) {
     if (!countersEnabled(this.env) || (await this.ctx.storage.get<string>(outcomeKey)) !== undefined) {
       return
     }
@@ -319,12 +321,15 @@ export class RoomObject extends DurableObject<LimitVariables & CountingEnvironme
     await this.ctx.storage.put(outcomeKey, outcome)
     const relayed = await this.loadRelayed()
     const relayedMegabytes = megabytesFor(relayed)
-    this.pendingEvents.push(
-      outcome === "completed"
-        ? { kind: "transfer-completed", sizeBucket: sizeBucketFor(relayed), relayedMegabytes }
-        : { kind: "transfer-failed", relayedMegabytes },
-      { kind: "path-relayed" },
-    )
+
+    // The room knows a parcel's size only from what it relayed, so a transfer that went direct has no size bucket.
+    const completed: TelemetryEvent = direct
+      ? { kind: "transfer-completed", relayedMegabytes }
+      : { kind: "transfer-completed", sizeBucket: sizeBucketFor(relayed), relayedMegabytes }
+
+    this.pendingEvents.push(outcome === "completed" ? completed : { kind: "transfer-failed", relayedMegabytes }, {
+      kind: direct ? "path-direct" : "path-relayed",
+    })
   }
 
   private async flushEvents() {

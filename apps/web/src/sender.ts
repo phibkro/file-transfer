@@ -27,10 +27,11 @@ import type { ControlMessage } from "@file-transfer/transport/protocol"
 import { receiveCredit, spendCredit } from "./credits.ts"
 import type { CreditBalance } from "./credits.ts"
 import { openConnection } from "./connection.ts"
-import type { Connection } from "./connection.ts"
+import type { Connection, PathName } from "./connection.ts"
+import { directOption } from "./directSettings.ts"
 import { addRecord, createRecordSet, createSchedule, markSent, peekNext, prioritise, rangesAreValid, replaceDebt } from "./ranges.ts"
 import type { Schedule } from "./ranges.ts"
-import { setProgress, setStatus, setTotalBytes } from "./report.ts"
+import { setPath, setProgress, setStatus, setTotalBytes } from "./report.ts"
 import { previewButton } from "./preview.ts"
 import { estimatedRelayedBytes, fetchServerLimits } from "./serverLimits.ts"
 import type { ServerLimits } from "./serverLimits.ts"
@@ -185,8 +186,17 @@ interface SenderView {
   readonly progress: (done: number, total: number) => void
 }
 
-/** Serves one prepared parcel through the room until the recipient completes, declines or aborts. */
-const serve = (prepared: Prepared, roomIdentifier: string, roomToken: string, view: SenderView) => {
+/**
+ * Serves one prepared parcel through the room until the recipient completes, declines or aborts. Units go over a
+ * direct path when one opens (`direct`, docs/decisions/0022) and over the relay otherwise; credits govern both.
+ */
+const serve = (
+  prepared: Prepared,
+  roomIdentifier: string,
+  roomToken: string,
+  view: SenderView,
+  direct: { readonly iceServers: readonly RTCIceServer[] } | undefined,
+) => {
   const { sealer, contract, readRecord } = prepared
   const digest = toHex(contract.digest)
   const everSent = createRecordSet(contract.recordCount)
@@ -246,7 +256,7 @@ const serve = (prepared: Prepared, roomIdentifier: string, roomToken: string, vi
     pumping = true
 
     try {
-      while (!finished && schedule !== undefined && balance.available > 0 && connection.isJoined()) {
+      while (!finished && schedule !== undefined && balance.available > 0 && connection.isJoined() && connection.writable()) {
         const index = peekNext(schedule)
 
         if (index === undefined) {
@@ -288,6 +298,19 @@ const serve = (prepared: Prepared, roomIdentifier: string, roomToken: string, vi
     } finally {
       pumping = false
     }
+
+    // The direct path's send buffer is full: carry on once it drains.
+    if (!finished && schedule !== undefined && balance.available > 0 && !connection.writable()) {
+      void (async () => {
+        await connection.untilWritable()
+        await pump()
+      })()
+    }
+  }
+
+  const onPath = (path: PathName) => {
+    setPath(path)
+    void pump()
   }
 
   const onControl = (message: ControlMessage) => {
@@ -408,8 +431,9 @@ const serve = (prepared: Prepared, roomIdentifier: string, roomToken: string, vi
         break
       }
 
-      // The one message a sender never receives.
-      case "join": {
+      // Messages a sender never receives here: `signal` is the connection's own (connection.ts).
+      case "join":
+      case "signal": {
         break
       }
     }
@@ -419,8 +443,10 @@ const serve = (prepared: Prepared, roomIdentifier: string, roomToken: string, vi
     roomIdentifier,
     role: "sender",
     roomToken,
+    direct,
     handlers: {
       onControl,
+      onPath,
       onUnit: () => {
         // The sender receives no parcel units.
       },
@@ -590,14 +616,21 @@ export const startSender = (root: HTMLElement) => {
       const link = `${location.origin}/r/${roomIdentifier}#${encodeLinkSecret(prepared.linkSecret)}`
       progress.update(0, prepared.contract.recordCount, () => "")
       status.before(sharePanel(link))
-      serve(prepared, roomIdentifier, toHex(roomToken), {
-        update: (text) => {
-          status.textContent = text
+      const direct = await directOption()
+      serve(
+        prepared,
+        roomIdentifier,
+        toHex(roomToken),
+        {
+          update: (text) => {
+            status.textContent = text
+          },
+          progress: (done, count) => {
+            progress.update(done, count, () => `Sent ${Math.round((done / count) * 100)}% of ${formatSize(total)}`)
+          },
         },
-        progress: (done, count) => {
-          progress.update(done, count, () => `Sent ${Math.round((done / count) * 100)}% of ${formatSize(total)}`)
-        },
-      })
+        direct,
+      )
       setProgress(0, prepared.contract.recordCount)
     } catch (error) {
       const reason = reasonOf(error)

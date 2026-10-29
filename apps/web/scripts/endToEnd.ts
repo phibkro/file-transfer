@@ -29,7 +29,7 @@ import { closeSync, ftruncateSync, mkdtempSync, openSync, rmSync, writeFileSync,
 import { tmpdir } from "node:os"
 import nodePath from "node:path"
 import { chromium, firefox, webkit } from "playwright"
-import type { Browser, BrowserContext, Page, WebSocketRoute } from "playwright"
+import type { Browser, BrowserContext, LaunchOptions, Page, WebSocketRoute } from "playwright"
 import { startLatencyProxy } from "./latencyProxy.ts"
 
 declare global {
@@ -63,6 +63,18 @@ const browserTypes = new Map([
 ])
 
 const browserType = browserTypes.get(browserName) ?? chromium
+
+/**
+ * Two pages in one browser on one machine connect directly through their host candidates, which browsers hide behind
+ * mDNS names by default; multicast DNS is often unavailable on CI machines, so the tests turn the hiding off.
+ */
+const launchOptionsByBrowser = new Map<string, LaunchOptions>([
+  ["chromium", { args: ["--disable-features=WebRtcHideLocalIpsWithMdns"] }],
+  ["firefox", { firefoxUserPrefs: { "media.peerconnection.ice.obfuscate_host_addresses": false } }],
+])
+
+const launchOptions: LaunchOptions = launchOptionsByBrowser.get(browserName) ?? {}
+
 const suite = process.env.E2E_SUITE ?? "standard"
 const timeoutMilliseconds = Number(process.env.E2E_TIMEOUT_MS ?? 180_000)
 
@@ -184,7 +196,7 @@ const newContext = async (browser: Browser, persistent: boolean): Promise<{ read
   const directory = mkdtempSync(nodePath.join(tmpdir(), "file-transfer-e2e-webkit-"))
 
   return {
-    context: await browserType.launchPersistentContext(directory),
+    context: await browserType.launchPersistentContext(directory, launchOptions),
     dispose: () => {
       rmSync(directory, { recursive: true, force: true })
     },
@@ -195,8 +207,16 @@ const newContext = async (browser: Browser, persistent: boolean): Promise<{ read
  * A page in its own profile. `persistent` gives it a normal on-disk profile; ephemeral contexts count as private
  * windows, whose storage quota (about 2.1 GB in headless Chromium) is too small for the large suite.
  */
-const openPage = async (browser: Browser, routed = true, persistent = false) => {
+const openPage = async (browser: Browser, routed = true, persistent = false, direct = true) => {
   const { context, dispose } = await newContext(browser, persistent)
+
+  if (!direct) {
+    // The setting a person turns off under "Direct connections" (apps/web/src/directSettings.ts).
+    await context.addInitScript(() => {
+      localStorage.setItem("file-transfer:direct-connections", "off")
+    })
+  }
+
   // Records the extensions each socket negotiated, to report whether the relay path compresses.
   await context.addInitScript(() => {
     const negotiated: string[] = []
@@ -638,8 +658,11 @@ const transfer = async (browser: Browser, base: string, scenario: TransferScenar
   const total = files.reduce((sum, file) => sum + file.buffer.length, 0)
   // Playwright copies every routed frame through its own protocol, so throughput runs without routing.
   const routed = scenario !== "throughput" && scenario !== "latency"
-  const sender = await openPage(browser, routed)
-  const recipient = await openPage(browser, routed)
+  // Resume runs on the relay alone, so the relay's own recovery stays covered; the others may go direct.
+  // E2E_DIRECT=0 keeps every scenario on the relay, to compare the two paths.
+  const direct = process.env.E2E_DIRECT !== "0" && scenario !== "resume" && scenario !== "latency"
+  const sender = await openPage(browser, routed, false, direct)
+  const recipient = await openPage(browser, routed, false, direct)
 
   try {
     const link = await offer(sender.page, base, files)
@@ -721,6 +744,27 @@ const transfer = async (browser: Browser, base: string, scenario: TransferScenar
         recipient: recipient.observed.sockets.length,
         sender: sender.observed.sockets.length,
       })
+    }
+
+    const wentDirect = [
+      await sender.page.evaluate(() => window.fileTransferTest?.wentDirect()),
+      await recipient.page.evaluate(() => window.fileTransferTest?.wentDirect()),
+    ]
+
+    if (!direct) {
+      check(
+        wentDirect.every((value) => value === false),
+        `${scenario}: with direct connections turned off, everything goes through the relay`,
+        JSON.stringify(wentDirect),
+      )
+    } else if (scenario === "basic" && browserName === "chromium") {
+      check(
+        wentDirect.every((value) => value === true),
+        `${scenario}: the browsers connect directly`,
+        JSON.stringify(wentDirect),
+      )
+    } else {
+      console.log(`   ${scenario}: direct path ${wentDirect.every((value) => value === true) ? "used" : "not used"}`)
     }
 
     lastMegabytesPerSecond = total / 1e6 / seconds
@@ -900,7 +944,7 @@ const base = configuredBase ?? local?.origin ?? ""
 
 console.log(`end to end against ${base} in ${browserName}, suite ${suite}`)
 
-const browser = await browserType.launch()
+const browser = await browserType.launch(launchOptions)
 
 try {
   if (suite === "large") {
