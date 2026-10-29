@@ -7,6 +7,8 @@
   "compatibility_date": "2026-10-01",
   // Spike 0001: per-message deflate cost 8.7x relay throughput, and parcel records are ciphertext that does not compress.
   "compatibility_flags": ["no_web_socket_compression"],
+  // Off: the server never sees keys or file names, but request logs would keep room identifiers and timing.
+  "observability": { "enabled": false },
   "durable_objects": {
     "bindings": [
       { "name": "ROOMS", "class_name": "RoomObject" },

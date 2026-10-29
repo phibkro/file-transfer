@@ -1,8 +1,30 @@
 # file-transfer (working name)
 
-Send files of any size from your browser with one link, no install or account needed. Files stream straight to the recipients' disks while you are still sending. They go directly between devices when possible, through relays when not, or through encrypted storage when recipients are offline. Only the sender and recipients can read the files or their names; relays and stores carry ciphertext they can check but not read. You choose which networks may carry your files, and anyone can run a node. The whole system is open source (AGPL) and free to self-host. The hosted service charges only for what it carries: relay bandwidth, speed priority and storage.
+Send files of any size from your browser with one link, no install or account needed. Files are encrypted in the sender's browser and decrypted in the recipient's; the server in between carries ciphertext it can check but not read, and keeps no files. The whole system is free software (AGPL) that anyone can run: on their own Cloudflare account today, on their own machine soon.
 
-Status: phase 0 (spike and parcel specification). Nothing here is usable yet.
+Try it at https://send.phibkro.org (a demo instance with modest limits).
+
+## Status
+
+Working: end-to-end encrypted transfers through a relay, resume after a dropped connection, files up to at least 10 GB, renaming and sandboxed previews, operator limits. Planned next: an operator dashboard, one-click deploy, self-hosting on workerd, and direct transfers between browsers (WebRTC). See [`docs/plan.md`](docs/plan.md) and [ADR 0019](docs/decisions/0019-open-source-first.md).
+
+The parcel format has had two AI reviewer passes and is checked against an independent implementation in CI, but no human cryptographer has audited it yet. Read [`SECURITY.md`](SECURITY.md) before relying on it, and to report problems.
+
+## Run your own
+
+On Cloudflare (the free plan is enough for personal use), with [Bun](https://bun.sh) 1.4 or later:
+
+```
+git clone https://github.com/phibkro/file-transfer
+cd file-transfer
+bun install
+cd platforms/cloudflare
+bun run build:all
+bunx wrangler login
+bunx wrangler deploy
+```
+
+Limits are variables in `platforms/cloudflare/wrangler.jsonc`; the site's "Run your own" page explains them.
 
 ## Documents
 

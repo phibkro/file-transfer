@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'"
+    />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="description" content="Run your own instance on your Cloudflare account, or host it yourself." />
+    <title>Run your own · File transfer</title>
+    <link rel="stylesheet" href="/src/style.css" />
+    <script type="module" src="/src/page.ts"></script>
+  </head>
+  <body>
+    <main class="content">
+      <h1>Run your own</h1>
+      <p class="lead">
+        The whole system is free software under the AGPL-3.0. Run a private instance for yourself, your family or your team, with your own limits.
+      </p>
+
+      <h2>On your own Cloudflare account</h2>
+      <p>
+        This works today. Cloudflare's free plan is enough for personal use: by our estimate from Cloudflare's published limits, a free account relays on the
+        order of 100 GB a day. Cloudflare does not charge for bandwidth.
+      </p>
+      <ol class="steps">
+        <li>Install <a href="https://bun.sh">Bun</a> 1.4 or later, and sign in to Cloudflare with <code>bunx wrangler login</code>.</li>
+        <li>
+          Get the code and build it:
+          <pre><code>git clone https://github.com/phibkro/file-transfer
+      cd file-transfer
+      bun install
+      cd platforms/cloudflare
+      bun run build:all</code></pre>
+        </li>
+        <li>Deploy: <code>bunx wrangler deploy</code>. Wrangler prints your instance's address on <code>workers.dev</code>.</li>
+        <li>
+          Optionally, attach your own domain in the Cloudflare dashboard, and set a salt for address hashing:
+          <code>bunx wrangler secret put ADDRESS_SALT</code>.
+        </li>
+      </ol>
+
+      <h2>One-click deploy</h2>
+      <p>Coming soon: a Deploy to Cloudflare button that sets up an instance without installing anything.</p>
+
+      <h2>On your own machine</h2>
+      <p>
+        Coming soon: the same server code runs on workerd, Cloudflare's open-source runtime, so an instance can run on any machine or provider with a Docker
+        image.
+      </p>
+
+      <h2>Limits you control</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">Variable</th>
+              <th scope="col">Default</th>
+              <th scope="col">What it limits</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>LIMIT_ROOMS_PER_ADDRESS_PER_HOUR</code></td>
+              <td>20</td>
+              <td>Transfers one network address may start per hour</td>
+            </tr>
+            <tr>
+              <td><code>LIMIT_RELAYED_BYTES_PER_ROOM</code></td>
+              <td>10000000000 (10 GB)</td>
+              <td>Bytes relayed for one transfer</td>
+            </tr>
+            <tr>
+              <td><code>CLIENT_ADDRESS_HEADER</code></td>
+              <td><code>cf-connecting-ip</code></td>
+              <td>Where the client's address comes from; change it only behind your own proxy</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Set them in <code>platforms/cloudflare/wrangler.jsonc</code> before deploying, or in the Cloudflare dashboard afterwards.</p>
+
+      <h2>If you change the code</h2>
+      <p>
+        The AGPL asks you to offer the source of your modified version to the people who use your instance. Point the "Source code" link at your repository
+        (<code>sourceUrl</code> in <code>apps/web/src/site.ts</code>).
+      </p>
+    </main>
+  </body>
+</html>

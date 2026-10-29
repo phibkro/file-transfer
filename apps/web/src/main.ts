@@ -7,6 +7,7 @@ import { installLeaveGuard } from "./leaveGuard.ts"
 import { installTestHook } from "./report.ts"
 import { startSender } from "./sender.ts"
 import { sweepStaleTransfers } from "./storage.ts"
+import { installSiteChrome } from "./site.ts"
 import { storagePanel } from "./storagePanel.ts"
 import { showSummaryOnCompletion } from "./summary.ts"
 
@@ -17,7 +18,9 @@ if (root !== null) {
   installLeaveGuard()
   // Received files from tabs that are gone are deleted before anything else touches storage (storage.ts).
   await sweepStaleTransfers()
-  root.after(storagePanel())
+  const storage = storagePanel()
+  root.after(storage)
+  installSiteChrome(root, storage)
   const recipientPath = /^\/r\/(?<roomIdentifier>[A-Za-z0-9_-]{22})\/?$/u.exec(location.pathname)
   const roomIdentifier = recipientPath?.groups?.roomIdentifier
 

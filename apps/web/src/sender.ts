@@ -429,6 +429,11 @@ export const startSender = (root: HTMLElement) => {
   const section = element("section", { "aria-labelledby": "send-heading" }, [
     element("h1", { id: "send-heading" }, ["Send files"]),
     element("p", {}, ["Files are encrypted in this browser. The link holds the key; the server never sees it."]),
+    element("ul", { class: "promises", "aria-label": "What this site promises" }, [
+      element("li", {}, [element("a", { href: "/security" }, ["End-to-end encrypted"])]),
+      element("li", {}, [element("a", { href: "/privacy" }, ["No files kept on servers"])]),
+      element("li", {}, [element("a", { href: "/run-your-own" }, ["Free software you can run yourself"])]),
+    ]),
     input,
     label,
     rejections,

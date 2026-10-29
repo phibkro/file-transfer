@@ -87,14 +87,15 @@
           "apps/web/src/preview.ts",
           "apps/web/src/previewFrame.ts",
           "apps/web/src/rename.ts",
-          "apps/web/src/serverLimits.ts"
+          "apps/web/src/serverLimits.ts",
+          "apps/web/src/site.ts"
         ],
         "role": "runtime-adapter",
         "platform": "browser",
         "adapterDependencies": ["uqr"]
       },
       {
-        "files": ["apps/web/src/main.ts"],
+        "files": ["apps/web/src/main.ts", "apps/web/src/page.ts"],
         "role": "composition-root",
         "platform": "browser"
       },

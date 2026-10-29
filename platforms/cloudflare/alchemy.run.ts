@@ -41,6 +41,7 @@ const WranglerConfiguration = Schema.Struct({
   durable_objects: Schema.Struct({ bindings: Schema.Array(Schema.Struct({ name: Schema.String, class_name: Schema.String })) }),
   migrations: Schema.Array(Schema.Struct({ tag: Schema.String, new_sqlite_classes: Schema.Array(Schema.String) })),
   vars: Schema.Record(Schema.String, Schema.String),
+  observability: Schema.Struct({ enabled: Schema.Literal(false) }),
   assets: Schema.Struct({
     directory: Schema.String,
     binding: Schema.Literal("ASSETS"),
@@ -92,8 +93,8 @@ export default Alchemy.Stack(
         notFoundHandling: wrangler.assets.not_found_handling,
         runWorkerFirst: [...wrangler.assets.run_worker_first],
       },
-      // Off: the server never sees keys or file names, but request logs would keep room identifiers and timing.
-      observability: { enabled: false },
+      // Off (wrangler.jsonc): the server never sees keys or file names, but request logs would keep room identifiers.
+      observability: { enabled: wrangler.observability.enabled },
     }
 
     if (stage === productionStage) {

@@ -17,8 +17,15 @@ export default defineConfig({
     emptyOutDir: true,
     target: "es2023",
     rollupOptions: {
-      // The app, and the sandboxed page previews render in (src/preview.ts).
-      input: { main: "index.html", preview: "preview.html" },
+      // The app, the sandboxed page previews render in (src/preview.ts), and the content pages.
+      input: {
+        main: "index.html",
+        preview: "preview.html",
+        howItWorks: "how-it-works.html",
+        security: "security.html",
+        privacy: "privacy.html",
+        runYourOwn: "run-your-own.html",
+      },
     },
   },
 })

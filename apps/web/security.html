@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'"
+    />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="description" content="What protects your files, what does not, and how to find and report problems." />
+    <title>Security · File transfer</title>
+    <link rel="stylesheet" href="/src/style.css" />
+    <script type="module" src="/src/page.ts"></script>
+  </head>
+  <body>
+    <main class="content">
+      <h1>Security</h1>
+      <p class="lead">What protects your files, what it does not protect against, and how to help find and fix problems.</p>
+
+      <h2>What protects your files</h2>
+      <ul>
+        <li>
+          <strong>Encryption happens in your browser.</strong> Files and names are encrypted with AES-256-GCM through the browser's built-in Web Crypto. Keys
+          come from HKDF-SHA-256 over a 32-byte random secret. Nonces are derived from the content (synthetic), so they never repeat, and a parcel opens under
+          exactly one key (key commitment).
+        </li>
+        <li>
+          <strong>The key stays in the link.</strong> The secret lives after the <code>#</code> in the link, which browsers never send to servers. Servers store
+          only a hash of a token derived from it, which admits a browser to the room and cannot decrypt anything.
+        </li>
+        <li>
+          <strong>Every piece is checked.</strong> Before any content, the recipient receives a SHA-256 hash tree over every encrypted piece. Missing,
+          reordered, swapped or altered pieces stop the transfer, and so does a file that changed on the sender's side partway through.
+        </li>
+        <li><strong>You see the offer first.</strong> Names and sizes are shown before anything downloads, and nothing downloads until you accept.</li>
+        <li>
+          <strong>Previews run in a sandbox.</strong> Previews render in a frame with no access to this site's storage or links, and only for formats recognised
+          from a file's own bytes. HTML and SVG are never rendered as pages.
+        </li>
+        <li>
+          <strong>A strict page.</strong> A content security policy blocks code from anywhere but this site. There are no third-party scripts, no analytics and
+          no cookies.
+        </li>
+      </ul>
+
+      <h2>What it does not protect against</h2>
+      <ul>
+        <li>
+          <strong>Anyone with the link can receive the files.</strong> Share it only with your recipient. A room admits one recipient at a time, and a newer
+          connection holding the link replaces an older one.
+        </li>
+        <li>
+          <strong>The code your browser runs comes from the server.</strong> A malicious or compromised server could serve code that leaks keys. That is true of
+          every encrypted web app. What limits it: the code is open, you can run your own instance, and reproducible builds and browser-verified code are
+          planned.
+        </li>
+        <li><strong>Metadata.</strong> The server sees sizes, timing and network addresses (see <a href="/how-it-works">how it works</a>).</li>
+        <li>
+          <strong>Your own devices.</strong> Malware on the sender's or the recipient's device defeats any encryption. Received files are decrypted in your
+          browser's storage until you leave the page.
+        </li>
+        <li>
+          <strong>No human cryptographer has audited it yet.</strong> The parcel format was reviewed in two passes by an AI reviewer and is checked against an
+          independent implementation in every build. A human review is planned before a 1.0 release; a flaw found then is fixed in a new format version.
+        </li>
+      </ul>
+
+      <h2 id="report">Find problems, and help fix them</h2>
+      <ul>
+        <li>
+          <strong>Everything is public:</strong> the <a href="https://github.com/phibkro/file-transfer">code</a>, the
+          <a href="https://github.com/phibkro/file-transfer/blob/main/docs/parcel.md">format specification</a>, its test vectors and the design decisions.
+        </li>
+        <li>
+          <strong>Point any tool at it, including AI agents.</strong> Fuzz the format, review the code, or attack an instance <em>you run yourself</em>. Please
+          do not test instances that other people run, this one included, beyond normal use.
+        </li>
+        <li>
+          <strong>Report vulnerabilities privately</strong> through the repository's
+          <a href="https://github.com/phibkro/file-transfer/security">security page</a> (Report a vulnerability). The policy is in
+          <a href="https://github.com/phibkro/file-transfer/blob/main/SECURITY.md">SECURITY.md</a>.
+        </li>
+        <li>
+          <strong>Fixes are welcome</strong> as pull requests. Changes to the parcel format need test vectors and new version numbers, never edits to a frozen
+          version.
+        </li>
+      </ul>
+    </main>
+  </body>
+</html>

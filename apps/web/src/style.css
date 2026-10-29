@@ -436,3 +436,161 @@ a.save {
 .limit-warning {
   color: var(--accent);
 }
+
+/* Site header and footer (src/site.ts). */
+.site-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem 1.25rem;
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: 1rem 1rem 0;
+}
+
+.site-name {
+  font-weight: 700;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.site-header nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  font-size: 0.95rem;
+}
+
+.site-header nav a[aria-current="page"] {
+  color: var(--text);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.site-footer {
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: 1rem 1rem 2.5rem;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.promises {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.25rem;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.95rem;
+}
+
+.promises li::before {
+  content: "✓ ";
+  color: var(--accent);
+}
+
+/* Content pages. */
+.content h2 {
+  margin: 2rem 0 0.5rem;
+  font-size: 1.25rem;
+}
+
+.content .lead {
+  font-size: 1.1rem;
+}
+
+.content li {
+  margin: 0.4rem 0;
+}
+
+.content code {
+  font-size: 0.9em;
+  overflow-wrap: anywhere;
+}
+
+.content pre {
+  overflow-x: auto;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--surface);
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+.content table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.95rem;
+}
+
+.content th,
+.content td {
+  padding: 0.5rem;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.diagram {
+  margin: 1rem 0;
+}
+
+.diagram svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.diagram figcaption {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.diagram-box {
+  fill: var(--surface);
+  stroke: var(--border);
+  stroke-width: 2;
+}
+
+.diagram-server {
+  stroke-dasharray: 6 4;
+}
+
+.diagram-title {
+  fill: var(--text);
+  font-size: 17px;
+  font-weight: 600;
+  text-anchor: middle;
+}
+
+.diagram-text,
+.diagram-label {
+  fill: var(--muted);
+  font-size: 14px;
+  text-anchor: middle;
+}
+
+.diagram-left {
+  text-anchor: start;
+}
+
+.diagram-line {
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 2;
+}
+
+.diagram-key {
+  stroke: var(--accent);
+  stroke-dasharray: 2 5;
+  stroke-linecap: round;
+}
+
+.diagram-arrowhead {
+  fill: var(--muted);
+}

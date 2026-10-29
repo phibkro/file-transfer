@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'"
+    />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="description" content="What this software stores and counts, and what it never does." />
+    <title>Privacy · File transfer</title>
+    <link rel="stylesheet" href="/src/style.css" />
+    <script type="module" src="/src/page.ts"></script>
+  </head>
+  <body>
+    <main class="content">
+      <h1>Privacy</h1>
+      <p class="lead">
+        This software is built to know as little as possible about you and your files. This page describes the software as published. Anyone may run their own
+        instance, possibly modified, and its operator is responsible for it.
+      </p>
+
+      <h2>Never stored on a server</h2>
+      <ul>
+        <li>Your files, in any form, encrypted or not.</li>
+        <li>File names, types or counts.</li>
+        <li>The link, its secret, or any key.</li>
+      </ul>
+
+      <h2>What a server keeps, and for how long</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">What</th>
+              <th scope="col">Why</th>
+              <th scope="col">Kept until</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>A room: a hash of its room token, how many recipients it admits, and how many bytes it relayed</td>
+              <td>To admit only browsers holding the link, and to apply the operator's relay limit</td>
+              <td>A day after everyone leaves the room</td>
+            </tr>
+            <tr>
+              <td>A salted hash of your network address, with a count of rooms created</td>
+              <td>To limit how many transfers one network starts per hour</td>
+              <td>The end of that hour</td>
+            </tr>
+            <tr>
+              <td>Counts per hour, with nothing that identifies anyone (coming with the operator dashboard)</td>
+              <td>So the operator can see that the service works</td>
+              <td>Set by the operator</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        The hosting provider may keep its own request logs under its own terms. Those logs can include network addresses and room identifiers, never the part of
+        the link after <code>#</code>. On Cloudflare, this software turns off the Worker's own request logging.
+      </p>
+
+      <h2>In your browser</h2>
+      <ul>
+        <li>
+          Received files are kept in this site's private browser storage until you save them, remove them, or leave the page. The next visit deletes anything
+          left behind.
+        </li>
+        <li>"Storage in this browser", at the bottom of the main page, shows how much is stored and clears it.</li>
+        <li>This software sets no cookies. A hosting provider's bot protection may set its own (Cloudflare's challenge page does).</li>
+      </ul>
+
+      <h2>No tracking</h2>
+      <ul>
+        <li>No analytics, no advertising, no third-party scripts or fonts.</li>
+        <li>Nothing is sent to the people who make this software. An instance never phones home.</li>
+      </ul>
+    </main>
+  </body>
+</html>
