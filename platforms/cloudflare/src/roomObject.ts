@@ -5,7 +5,8 @@
  * ArrayBuffer frames, completing the close handshake in webSocketClose. Constraints it keeps:
  * - Storage holds the room record, written once at creation, and is never written per frame (docs/decisions/0004:
  *   on celld every write delays the frames behind it). The only other writes are the idle alarm, set at creation and
- *   when the last participant leaves, and the relayed byte count, written when a socket closes.
+ *   when the last participant leaves, the relayed byte count, written when a socket closes, and the completed sequence
+ *   number, written when a recipient reports `complete` (once per transfer, more only if it repeats it).
  * - Relayed bytes (the operator's limit, limits.ts) are counted in memory on the frame path. The sender's attachment
  *   carries the count across hibernation (updated every `attachmentStepBytes`), and storage keeps it once a socket
  *   closes, so neither a pause nor a reconnect resets it.
@@ -48,6 +49,9 @@ const reportedKey = "reportedBytes"
 /** Set once a transfer's outcome was counted, so a repeated `complete` (sent again after a reconnect) counts once. */
 const outcomeKey = "outcome"
 
+/** The sequence a recipient reported complete, told to a sender that joins later (room.ts, `rememberCompletion`). */
+const completedKey = "completedSequence"
+
 /** The sender's attachment is brought up to date with the relayed count after every this many bytes. */
 const attachmentStepBytes = 16 * 1024 * 1024
 
@@ -87,6 +91,8 @@ const closeQuietly = (socket: WebSocket, code: number, reason: string) => {
 
 export class RoomObject extends DurableObject<LimitVariables & CountingEnvironment & BudgetEnvironment> {
   private record: RoomRecord | undefined
+  /** The completed sequence once read from storage or remembered; `undefined` inside means none was reported. */
+  private completed: { readonly sequence: number | undefined } | undefined
   /** Bytes relayed for this room so far; undefined until read from attachments or storage after a wake. */
   private relayedBytes: number | undefined
   private readonly relayLimit = readLimits(this.env).relayedBytesPerRoom
@@ -191,7 +197,12 @@ export class RoomObject extends DurableObject<LimitVariables & CountingEnvironme
     const admission =
       token === undefined || record === undefined
         ? undefined
-        : { record, presentedTokenHash: await hashRoomToken(fromHex(token)), participantIdentifier: crypto.randomUUID() }
+        : {
+            record,
+            presentedTokenHash: await hashRoomToken(fromHex(token)),
+            participantIdentifier: crypto.randomUUID(),
+            completedSequence: await this.loadCompleted(),
+          }
 
     // Decided after the last await, so no other event interleaves between reading the participants and admitting.
     // Counting waits until after, below.
@@ -239,6 +250,7 @@ export class RoomObject extends DurableObject<LimitVariables & CountingEnvironme
     await this.ctx.storage.deleteAlarm()
     await this.ctx.storage.deleteAll()
     this.record = undefined
+    this.completed = undefined
   }
 
   private async create(request: Request): Promise<Response> {
@@ -380,6 +392,12 @@ export class RoomObject extends DurableObject<LimitVariables & CountingEnvironme
     return this.record
   }
 
+  private async loadCompleted(): Promise<number | undefined> {
+    this.completed ??= { sequence: await this.ctx.storage.get<number>(completedKey) }
+
+    return this.completed.sequence
+  }
+
   private attachmentOf(socket: HibernatableWebSocket): StoredAttachment {
     const cached = this.attachments.get(socket)
 
@@ -518,6 +536,16 @@ export class RoomObject extends DurableObject<LimitVariables & CountingEnvironme
           this.setAttachment(target, notAdmitted)
           sendQuietly(target, encodeControlMessage({ type: "error", reason: instruction.reason }))
           closeQuietly(target, replacedCloseCode, instruction.reason)
+          break
+        }
+
+        case "rememberCompletion": {
+          if (this.completed?.sequence !== instruction.sequence) {
+            this.completed = { sequence: instruction.sequence }
+            // Not awaited: the runtime holds outgoing messages until the write is durable (output gates).
+            void this.ctx.storage.put(completedKey, instruction.sequence)
+          }
+
           break
         }
       }

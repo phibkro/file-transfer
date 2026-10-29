@@ -6,7 +6,7 @@ Status: draft for the MVP. Codec in `libraries/transport/src/protocol.ts`.
 
 ## Rooms
 
-- `POST /api/rooms` with JSON `{"roomTokenHash": <64 hex>, "maximumRecipients": <1..16>}` creates a room and answers `201 {"roomIdentifier": <22 base64url characters>}`. The server stores only the hash.
+- `POST /api/rooms` with JSON `{"roomTokenHash": <64 hex>, "maximumRecipients": <1..16>}` creates a room and answers `201 {"roomIdentifier": <22 base64url characters>}`. The server stores only the hash (and, later, the relayed byte count and whether a recipient completed; see Completion).
 - Link: `https://<host>/r/<roomIdentifier>#<base64url(linkSecret)>`. The fragment never reaches a server.
 - `GET /api/rooms/<roomIdentifier>/socket` upgrades to a WebSocket. Each room is one Durable Object (`idFromName(roomIdentifier)`).
 
@@ -92,6 +92,15 @@ Each binary frame carries one unit: a 9-byte prefix, then the unit's bytes as `p
 4. The sender sends each label page before the records it covers, and one data record per credit. Units may arrive in any order; the recipient drops a record whose page it has not verified and asks for it again with `want`.
 5. On a dropped connection (either side) the dropped endpoint rejoins; the sender offers the contract again as in step 2, and the recipient answers the same header with `accept` (same digest), then `want` with the ranges it still lacks, then `credit`.
 6. When every record matched, the recipient sends `complete` and commits its files.
+
+### Completion
+
+A sender's socket can drop with `complete` in flight, so it never hears it. Two things make sure it still learns the transfer completed:
+
+- The completed recipient stays connected for two minutes and sends `complete` again whenever the sender joins (`apps/web/src/recipient.ts`).
+- The room remembers that a recipient completed: when an admitted recipient sends a `complete` the room can decode, it stores the sequence number (not the message), and every sender that joins afterwards gets `complete` with that sequence right after `joined`. This covers a sender that gets back after every recipient has gone. The room learns nothing it did not already relay, and the record goes with the room when it expires after a day without participants.
+
+A sender treats every `complete` for its sequence alike, so hearing it twice changes nothing.
 
 ### Sender debt
 
