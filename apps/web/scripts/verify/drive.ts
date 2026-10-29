@@ -52,7 +52,15 @@ const step = (action: string, observed: string, ok: boolean) => {
   }
 }
 
-const browserType = { chromium, firefox, webkit }[browserName] ?? chromium
+const browserTypes = { chromium, firefox, webkit } as const
+const isBrowserName = (value: string): value is keyof typeof browserTypes => Object.hasOwn(browserTypes, value)
+
+if (!isBrowserName(browserName)) {
+  console.error(`unknown browser ${browserName}; use chromium, firefox or webkit`)
+  process.exit(2)
+}
+
+const browserType = browserTypes[browserName]
 const browser: Browser = await browserType.launch()
 
 /** A fresh profile whose page records every request URL and every socket frame it sends, for the invariant check. */
@@ -235,7 +243,7 @@ try {
 
   if (journey === "resume") {
     // Both ends of each routed socket, so a cut can close both, as a server restart does.
-    // Bytes the room sent on each socket, so the cut can show that the room stopped sending on the old one.
+    // Both ends of each routed socket, so the cut can close both.
     const sockets: { readonly page: WebSocketRoute; readonly server: WebSocketRoute }[] = []
     await recipient.routeWebSocket(/\/api\/rooms\/.+\/socket/u, (socket) => {
       const server = socket.connectToServer()
@@ -272,7 +280,7 @@ try {
       // 1012, as a server restart would send, and the room's end gets 1000.
       await cut?.page.close({ code: 1012, reason: "verification cut" })
       await cut?.server.close({ code: 1000, reason: "verification cut" })
-      step("cut the recipient's socket at 30%, both ends", `socket ${sockets.length} closed with 1012`, cut !== undefined)
+      step("cut the recipient's socket at 30%, both ends", `socket ${sockets.length} closed, 1012 to the page and 1000 to the room`, cut !== undefined)
     })
     step("rejoin on a new socket", `${sockets.length} sockets opened`, sockets.length >= 2)
     // A room that heard the close tells the sender `peer left`; one that did not hears of it only when the new socket

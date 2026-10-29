@@ -9,20 +9,48 @@
  */
 import { spawn, spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
-import { cpSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs"
+import { cpSync, existsSync, mkdirSync, openSync, readFileSync, realpathSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import nodePath from "node:path"
+import * as v from "valibot"
 
 const repository = nodePath.resolve(import.meta.dirname, "../../../..")
 const appDirectory = nodePath.join(repository, "apps/web")
 const platformDirectory = nodePath.join(repository, "platforms/cloudflare")
 const run = process.argv[2] ?? nodePath.join(tmpdir(), "verify-file-transfer", `${new Date().toISOString().replaceAll(":", "-")}-${process.pid}`)
 
-const relativeRun = nodePath.relative(repository, nodePath.resolve(run))
+/** The path with symbolic links resolved, as far as it exists. */
+const realPathOf = (path: string): string => {
+  const absolute = nodePath.resolve(path)
 
-if (!relativeRun.startsWith("..") && !nodePath.isAbsolute(relativeRun)) {
+  return existsSync(absolute) ? realpathSync(absolute) : nodePath.join(realPathOf(nodePath.dirname(absolute)), nodePath.basename(absolute))
+}
+
+const relativeRun = nodePath.relative(realpathSync(repository), realPathOf(run))
+const isOutside = relativeRun === ".." || relativeRun.startsWith(`..${nodePath.sep}`) || nodePath.isAbsolute(relativeRun)
+
+if (!isOutside) {
   // Files in the checkout would count as uncommitted edits, and doctor.ts would then refuse the instance.
   console.error(`the run directory must be outside the checkout (${repository}), not ${run}`)
+  process.exit(2)
+}
+
+/** Whether the run directory describes a server whose process group is still alive. */
+const hasLiveServer = (): boolean => {
+  try {
+    const recorded: unknown = JSON.parse(readFileSync(nodePath.join(run, "server.json"), "utf-8"))
+    const group = v.parse(v.object({ processIdentifier: v.number() }), recorded).processIdentifier
+    process.kill(-group, 0)
+
+    return true
+  } catch {
+    return false
+  }
+}
+
+if (hasLiveServer()) {
+  // A second launch would overwrite the first one's description, and stop.ts could no longer find that server.
+  console.error(`${run} already has a server; stop it first (bun apps/web/scripts/verify/stop.ts ${run}) or use a new run directory`)
   process.exit(2)
 }
 

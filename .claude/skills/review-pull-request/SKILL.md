@@ -43,7 +43,7 @@ Most changes that look risky are safe because of one fact (for example "the dead
 - **PASS+NOTES**: as PASS, with notes that do not break the intent (a follow-up, an unproven but low-risk fact, a journey that could not run and why).
 - **FAIL**: a verified finding breaks the intent, a journey fails at the head, or a repository rule is broken.
 
-Post it as one comment on the pull request (`gh api repos/{owner}/{repo}/issues/<n>/comments -f body=@<file>`), in this shape:
+Post it as one comment on the pull request (`gh api repos/{owner}/{repo}/issues/<n>/comments -F body=@<file>`; `-F` reads the file, while `-f` would post the literal text `@<file>`), in this shape:
 
 ```markdown
 ## Review: <PASS | PASS+NOTES | FAIL> at <head sha, 12 characters>
