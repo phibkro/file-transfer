@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test"
-import { lockfileDrift, manifestVersionOnDisk } from "../src/lockfile.ts"
+import { lockfileDrift } from "../src/lockfile.ts"
 import { textNow } from "../src/repository.ts"
+import { manifestVersion } from "../src/workspace.ts"
 
 const root = new URL("../../../", import.meta.url).pathname
 
@@ -31,6 +32,6 @@ describe("lockfile drift", () => {
 
   it("holds for this repository (run `bun install --lockfile-only` to refresh bun.lock)", () => {
     // An empty text fails to parse, so a missing bun.lock fails here rather than passing with nothing to compare.
-    expect(lockfileDrift(textNow(root, "bun.lock") ?? "", manifestVersionOnDisk(root))).toEqual([])
+    expect(lockfileDrift(textNow(root, "bun.lock") ?? "", manifestVersion(root))).toEqual([])
   })
 })

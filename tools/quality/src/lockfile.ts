@@ -3,8 +3,6 @@
  * but not the lockfile, so without the release step's refresh every install after a release rewrites bun.lock, and
  * `bun install --frozen-lockfile` does not notice (it ignores workspace versions).
  */
-import { readFileSync } from "node:fs"
-import nodePath from "node:path"
 
 interface LockedWorkspace {
   readonly name?: string
@@ -31,13 +29,3 @@ export const lockfileDrift = (lockText: string, manifestVersion: (path: string) 
       ? []
       : [`${path || "(root)"}: bun.lock has ${locked.version ?? "no version"}, package.json has ${declared ?? "no version"}`]
   })
-
-/** The `version` a workspace's package.json declares, read from disk. */
-export const manifestVersionOnDisk =
-  (root: string) =>
-  (path: string): string | undefined => {
-    // SAFETY: every package.json in this repository is a manifest; only `version` is read.
-    const manifest = JSON.parse(readFileSync(nodePath.join(root, path, "package.json"), "utf-8")) as { readonly version?: string }
-
-    return manifest.version
-  }
