@@ -5,7 +5,7 @@ description: Independently verify a pull request in this repository and post one
 
 # Review a pull request
 
-Adapted from pstack (cursor/plugins, MIT, copyright 2026 Lauren Tan; licence in `.claude/skills/PSTACK-LICENSE.txt`): the independent verdict from the `shipping` playbook, adversarial findings proven by runs from `interrogate`, and the one safety fact from `blast-radius`. pstack has no single pull request review skill; this combines those three for this repository. The severity scale, the pass rule and the review loop come from phibkro/vektorprogrammet-reimagined (`.agents/skills/review-pr`, same author), rewritten for a security product.
+Adapted from pstack (cursor/plugins, MIT, copyright 2026 Lauren Tan; licence in `.claude/skills/PSTACK-LICENSE.txt`): the independent verdict from the `shipping` playbook, adversarial findings proven by runs from `interrogate`, and the one safety fact from `blast-radius`. pstack has no single pull request review skill; this combines those three for this repository. The severity scale, the pass rule and the review loop come from phibkro/vektorprogrammet-reimagined (`.agents/skills/review-pr`, same author), rewritten for a security product. Adapted there: the source runs two reviewers every round, this runs one or more (two for security-relevant diffs); the source's lead posts one marker per round (`review-round n=`, verdict pass or changes), here each reviewer posts its own; and the source merges a passing pull request, here the owner does.
 
 Green CI and an approving bot are not verdicts: neither runs the change as a user would. A verdict counts only from an agent that did not write the code, because an author checks what it meant to build. Report findings; do not fix them, push to the branch, approve, or merge.
 
@@ -23,7 +23,7 @@ Green CI and an approving bot are not verdicts: neither runs the change as a use
 
 ## 3. Try to break it
 
-Write down how the change could fail its intent, then prove or drop each idea with a run against the real code: a failing test, a script, a journey variation, command output. Keep a finding only when the output shows a failure that breaks the intent. Leave out anything you did not run: style, naming, structure, and risks that need a future change to matter. No findings is a valid result.
+Write down how the change could fail its intent, then prove or drop each idea with a run against the real code: a failing test, a script, a journey variation, command output. Keep a finding only when the output shows a failure that breaks the intent. Leave out anything you did not run: style, naming, structure, and risks that need a future change to matter. The one exception is a suspected critical you cannot run here, which is reported as unproven critical (see Severity). No findings is a valid result.
 
 Repository rules to check, each by evidence rather than impression:
 
@@ -41,7 +41,7 @@ Give every verified finding one severity. When unsure between two, take the high
 | Severity | Meaning in this repository | Examples |
 | --- | --- | --- |
 | critical | Weakens the one invariant or a confidentiality or integrity invariant (`docs/invariants.md`, C1 to C7, I1 to I5), or breaks main or a release once merged | a key, the link fragment, a file name or plaintext reaching a server path, log, store, CI artifact or counter; a script or Content-Security-Policy change that lets other code run on the app's origin (threat T3); changed parcel v1 bytes; a leaked credential; a release that no longer publishes |
-| high | Behaviour a user relies on is wrong, the evidence for a critical invariant is weakened, or a seam changes incompatibly | a transfer that stalls or ends with different bytes; a broken liveness or resource bound (L, R invariants); a negative control removed; a room protocol, HTTP API or parcel change without its version bump (docs/versioning.md); a parcel change without test vectors and property tests |
+| high | Behaviour a user relies on is wrong, the evidence for a critical invariant is weakened, or a seam changes incompatibly | a transfer that stalls or never finishes (a transfer that ends with different bytes breaks I1 and is critical); a broken liveness or resource bound (L, R invariants); a negative control removed; a parcel, room protocol, HTTP API, operator setting or Durable Object class or migration change without its version bump (docs/versioning.md); a parcel change without test vectors and property tests |
 | medium | A rule of CLAUDE.md broken, the verification skill out of step, or evidence that does not match the branch | a missing changeset; a type assertion without `// SAFETY:`; a journey or handle the feature map lacks (`maintenance`); a pull request body claiming a run the branch cannot reproduce |
 | low | Clarity or maintainability with no behavioural effect | a misleading name or comment; a doc sentence that is unclear but not wrong |
 | nit | Taste | |
