@@ -7,6 +7,7 @@ import type { Kind, PackageFacts } from "./moduleGraph.ts"
 
 interface Manifest {
   readonly name: string
+  readonly version?: string
   readonly dependencies?: Readonly<Record<string, string>>
   readonly devDependencies?: Readonly<Record<string, string>>
   readonly fileTransfer?: { readonly testSupportFiles?: readonly string[] }
@@ -14,6 +15,12 @@ interface Manifest {
 
 // SAFETY: every package.json in this repository is a manifest; the checks below read only the fields Manifest declares.
 const readManifest = (path: string): Manifest => JSON.parse(readFileSync(path, "utf-8")) as Manifest
+
+/** The `version` the package.json of the workspace at `path` (relative to `root`, "" for the root) declares. */
+export const manifestVersion =
+  (root: string) =>
+  (path: string): string | undefined =>
+    readManifest(nodePath.join(root, path, "package.json")).version
 
 const sourceFiles = (directory: string): string[] =>
   readdirSync(directory).flatMap((entry) => {
