@@ -52,3 +52,20 @@ A seam is a contract between pieces built and deployed independently: a recipien
 Releases happen on their own (`.github/workflows/release.yml`): when `checks` passes on a push to main and changesets are waiting, the release workflow runs `changeset version`, writes the notes (`bun run release:prepare`), commits `Release vX.Y.Z` to main with its tags, builds and smoke-tests the executables on every platform and both container architectures, and publishes the GitHub release. A push with only empty changesets releases nothing; their files go with the next release.
 
 The release commit is pushed by GitHub Actions, so it does not run `checks` again; it changes only versions and changelogs.
+
+## Release key
+
+Main accepts changes only through pull requests with passing checks (the `protect-main` ruleset), and a workflow's own token cannot be exempted, so the release workflow pushes its commit and tags with a deploy key that is on the ruleset's bypass list. The private key is the `RELEASE_DEPLOY_KEY` secret of the `release` environment, whose deployment branches are limited to main, so a workflow run for a pull request cannot read it. To set it up, or to replace a key:
+
+```sh
+# The environment, deployable from main only
+gh api -X PUT repos/phibkro/file-transfer/environments/release \
+  -F 'deployment_branch_policy[protected_branches]=false' -F 'deployment_branch_policy[custom_branch_policies]=true'
+gh api -X POST repos/phibkro/file-transfer/environments/release/deployment-branch-policies -f name=main -f type=branch
+# The key: public half as a deploy key with write access, private half as the environment's secret
+ssh-keygen -t ed25519 -N "" -C "file-transfer release" -f release-key
+gh repo deploy-key add release-key.pub --repo phibkro/file-transfer --allow-write --title release
+gh secret set RELEASE_DEPLOY_KEY --repo phibkro/file-transfer --env release < release-key && rm release-key release-key.pub
+```
+
+Then add the key under Deploy keys in the ruleset's bypass list. `gh secret set` does not create the environment, which is why it comes first. A release finds no key and stops with an error naming this section. Adding yourself as a required reviewer on the `release` environment makes every release wait for your approval.

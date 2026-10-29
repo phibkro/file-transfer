@@ -18,7 +18,7 @@ Changesets (MIT, @changesets/cli 3.0.3, read 2026-10-29 from changesets.dev and 
 
 ## Consequences
 
-- The release workflow pushes to main. If main is ever protected against direct pushes, it needs a bypass for GitHub Actions or a token that has one.
-- The release commit is pushed with the workflow's token, which does not start other workflows, so `checks` does not run on it; it changes only versions and changelogs, and production stays on the merged commit.
+- The release workflow pushes to main, which a ruleset protects. A workflow's token cannot bypass a ruleset, so the push uses a deploy key on the bypass list, kept in a `release` environment only main may use (docs/versioning.md, Release key). A GitHub App would do the same with short-lived tokens, at the cost of creating and maintaining the App.
+- A deploy key's push starts workflows, so `checks` runs on the release commit and production deploys it; the release run it starts finds no changesets and stops.
 - Pull requests take longer: the macOS and Windows executables build in parallel with the other checks, a few minutes each.
 - Changesets is a development dependency of the repository root; the product does not ship it.
