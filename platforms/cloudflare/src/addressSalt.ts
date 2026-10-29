@@ -8,8 +8,8 @@ import { withOneRetry } from "./durableObjectCalls.ts"
 import { decodeSaltAnswer } from "./salt.ts"
 
 export interface SaltEnvironment {
-  /** Optional: a salt the operator chose; the generated one is used when this is unset or empty. */
-  readonly ADDRESS_SALT?: string
+  /** Optional: a salt the operator chose; the generated one is used when this is unset (null on workerd) or empty. */
+  readonly ADDRESS_SALT?: string | null
   readonly ADDRESS_SALT_STORE: DurableObjectNamespace
 }
 
@@ -17,8 +17,10 @@ let generated: string | undefined
 
 /** The instance's address salt, or undefined when the salt object could not be reached. */
 export const addressSaltOf = async (environment: SaltEnvironment): Promise<string | undefined> => {
-  if (environment.ADDRESS_SALT !== undefined && environment.ADDRESS_SALT !== "") {
-    return environment.ADDRESS_SALT
+  const chosen = environment.ADDRESS_SALT ?? ""
+
+  if (chosen !== "") {
+    return chosen
   }
 
   if (generated !== undefined) {

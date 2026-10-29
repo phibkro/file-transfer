@@ -61,6 +61,10 @@ const run = async () => {
   const instance = await instanceResponse.text()
   check(instance.includes('"limits"'), "GET /api/instance answers", instance)
 
+  const directResponse = await fetch(`${origin}/api/direct`)
+  const direct = await directResponse.text()
+  check(directResponse.status === 200 && direct.includes('"enabled":true') && direct.includes("stun:"), "GET /api/direct allows direct paths with STUN", direct)
+
   const created = await fetch(`${origin}/api/rooms`, { method: "POST", body: JSON.stringify({ roomTokenHash, maximumRecipients: 1 }) })
   const body = await created.text()
   check(created.status === 201, "POST /api/rooms creates a room", body)

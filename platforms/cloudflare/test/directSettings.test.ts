@@ -6,6 +6,10 @@ describe("readDirectSettings", () => {
     expect(readDirectSettings({})).toEqual({ enabled: true, iceServers: [{ urls: defaultStunUrls }] })
   })
 
+  it("reads an unset workerd variable (null) as the default", () => {
+    expect(readDirectSettings({ DIRECT_CONNECTIONS: null, STUN_URLS: null })).toEqual(readDirectSettings({}))
+  })
+
   it("turns direct paths off only for off", () => {
     expect(readDirectSettings({ DIRECT_CONNECTIONS: " OFF " }).enabled).toBe(false)
     expect(readDirectSettings({ DIRECT_CONNECTIONS: "on" }).enabled).toBe(true)
