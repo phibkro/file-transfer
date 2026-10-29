@@ -28,7 +28,7 @@ Facts this decision rests on, read 2026-10-29 from primary sources:
 
 ## Consequences
 
-- Measured locally (one machine, headless Chromium, 268 MB, one run each): 19.3 MB/s direct against 13.1 MB/s relayed through `wrangler dev`. Both are limited by the browsers' decryption and storage on one machine, not by the network; real numbers need two devices on real networks, which the throughput spike in plan.md M0 still owes.
+- Measured locally (one machine, headless Chromium, 268 MB, one run each): 19.3 MB/s direct against 13.1 MB/s relayed through `wrangler dev`. Corrected by spike 0004: that relay ran through Miniflare, which compresses WebSocket frames. Against plain workerd on a 4 vCPU runner the relay was 12 to 55% faster than the direct path on one machine (28.7 against 25.6 MB/s for 512 MB in Chromium), because a data channel's SCTP runs inside the browsers and competes with sealing for the same cores. Two devices on real networks are still unmeasured.
 - Firefox pages also connect directly (15.5 MB/s on the same test). Playwright's WebKit on Linux never opened a direct path and finished every transfer on the relay, as designed; real Safari on macOS and iOS is untested.
 - The end-to-end suite checks that two Chromium pages connect directly and that a transfer with direct connections turned off stays on the relay; resume after a cut socket runs on the relay alone, and the half-open cut runs with a direct path open. Tests turn off mDNS hiding of local addresses, since multicast DNS is often missing on CI machines.
 - Signalling adds a few control messages per transfer through the room (a few requests, against 775 per relayed GB).
