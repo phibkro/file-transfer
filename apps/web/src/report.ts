@@ -68,6 +68,10 @@ let transferStartedAt: number | undefined
 let transferEndedAt: number | undefined
 let reconnects = 0
 
+/** When the direct path first opened during the transfer, and how often it closed before the end. */
+let directOpenedAt: number | undefined
+let directDrops = 0
+
 const flush = () => {
   frameRequested = false
   document.body.dataset.progress = `${progress.done}/${progress.total}`
@@ -130,6 +134,14 @@ export const setFileHashes = (compute: () => Promise<readonly string[]>) => {
 /** The plaintext bytes this transfer carries (the manifest's total size), for the completion summary. */
 /** The path parcel units travel (connection.ts); mirrored as `document.body.dataset.path`. */
 export const setPath = (next: "relay" | "direct") => {
+  if (next === "direct" && directOpenedAt === undefined) {
+    directOpenedAt = performance.now()
+  }
+
+  if (next === "relay" && path === "direct" && status === "transferring") {
+    directDrops++
+  }
+
   path = next
   wentDirect ||= next === "direct"
   document.body.dataset.path = next
@@ -150,6 +162,10 @@ export interface TransferSummary {
   readonly reconnects: number
   /** Whether any of it went directly between the browsers. */
   readonly direct: boolean
+  /** Seconds from the start of the transfer until the direct path opened (zero when it was open before). */
+  readonly secondsToDirect: number | undefined
+  /** How often the direct path closed mid-transfer, sending the rest back to the relay. */
+  readonly directDrops: number
 }
 
 /** What the completion summary reports: sizes and timing only, never names, keys or the link. */
@@ -158,6 +174,8 @@ export const transferSummary = (): TransferSummary => ({
   seconds: transferStartedAt === undefined || transferEndedAt === undefined ? 0 : (transferEndedAt - transferStartedAt) / 1000,
   reconnects,
   direct: wentDirect,
+  secondsToDirect: directOpenedAt === undefined || transferStartedAt === undefined ? undefined : Math.max(0, (directOpenedAt - transferStartedAt) / 1000),
+  directDrops,
 })
 
 export const currentStatus = (): Status => status
