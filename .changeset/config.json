@@ -1,0 +1,16 @@
+{
+  "$schema": "https://unpkg.com/@changesets/config@4.0.1/schema.json",
+  "changelog": "@changesets/cli/changelog",
+  "commit": false,
+  "fixed": [["@file-transfer/web", "@file-transfer/platform-cloudflare", "@file-transfer/platform-self-hosted", "@file-transfer/service-*"]],
+  "linked": [],
+  "access": "restricted",
+  "baseBranch": "main",
+  "updateInternalDependencies": "patch",
+  "ignore": ["@file-transfer/tool-quality"],
+  "privatePackages": {
+    "version": true,
+    "tag": true
+  },
+  "format": false
+}

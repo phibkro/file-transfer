@@ -51,6 +51,8 @@ We are in the startup phase (see `docs/plan.md`). Prefer adopting or lifting exi
 
 AGPL-3.0 for everything except `libraries/parcel` (MIT, so other clients can adopt it). Code lifted from other projects keeps its notices; record the origin in a header comment and in `docs/research.md`.
 
-## Commits
+## Commits and versions
 
 Small, descriptive commits. Run `bun run check` (typecheck + tests) before committing.
+
+Every pull request adds a changeset (`bunx changeset`, or `bunx changeset --empty` when nothing ships) naming each package it changes with its semantic version bump and a description for that package's users; `bun run check:changesets` enforces it. Seams (the parcel format, the room protocol, the server's HTTP API and settings) get the bump `docs/versioning.md` gives them. Releases are cut from main automatically (ADR 0023); never edit versions or CHANGELOG.md files by hand.

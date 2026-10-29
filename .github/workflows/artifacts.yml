@@ -1,0 +1,96 @@
+name: artifacts
+
+# Builds what a release ships, without publishing it (docs/decisions/0021): the server node as one executable per
+# platform, each smoke-tested on its own platform, and the web client's static files. Called by `checks` on every pull
+# request and push, so a change that breaks an executable fails before it merges, and by `release`, which publishes
+# what it built. `workerd compile` attaches the configuration to the workerd binary that runs it, so each executable is
+# built on a runner of its own platform.
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: The commit to build (defaults to the calling run's)
+        type: string
+        default: ""
+      label:
+        description: Goes into the file names, for example v0.1.0
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  node:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-latest, platform: linux-x64 }
+          - { runner: ubuntu-24.04-arm, platform: linux-arm64 }
+          - { runner: macos-latest, platform: macos-arm64 }
+          - { runner: windows-latest, platform: windows-x64 }
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run compile
+        working-directory: platforms/self-hosted
+      - name: Name the executable for its platform
+        working-directory: platforms/self-hosted
+        run: |
+          binary="file-transfer-node"
+          if [ "${{ matrix.platform }}" = windows-x64 ]; then binary="file-transfer-node.exe"; fi
+          mkdir -p package
+          mv "dist/$binary" "package/$binary"
+          echo "BINARY=package/$binary" >> "$GITHUB_ENV"
+      - run: bun scripts/smokeNode.ts "$BINARY"
+        working-directory: platforms/self-hosted
+      - name: Package it
+        working-directory: platforms/self-hosted
+        env:
+          LABEL: ${{ inputs.label }}
+        run: |
+          name="file-transfer-node-${LABEL//\//-}-${{ matrix.platform }}"
+          cp ../../LICENSE package/LICENSE
+          cp node-README.md package/README.md
+          mkdir -p "$RUNNER_TEMP/out"
+          if [ "${{ matrix.platform }}" = windows-x64 ]; then
+            (cd package && 7z a -tzip "$RUNNER_TEMP/out/$name.zip" . > /dev/null)
+          else
+            tar -czf "$RUNNER_TEMP/out/$name.tar.gz" -C package .
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: node-${{ matrix.platform }}
+          path: ${{ runner.temp }}/out/*
+          retention-days: 7
+
+  web-client:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+        working-directory: apps/web
+      - name: Package it
+        env:
+          LABEL: ${{ inputs.label }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/out"
+          tar -czf "$RUNNER_TEMP/out/file-transfer-web-${LABEL//\//-}.tar.gz" -C apps/web/dist .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-client
+          path: ${{ runner.temp }}/out/*
+          retention-days: 7

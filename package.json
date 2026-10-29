@@ -16,12 +16,15 @@
     "check:effect": "effx check",
     "check:secrets": "gitleaks git --redact --config .gitleaks.toml",
     "check": "vp check --deny-warnings && bun run check:graph && bun run check:effect && vp test run",
-    "check:vectors": "python3 -I libraries/parcel/test/vectors/verify.py"
+    "check:vectors": "python3 -I libraries/parcel/test/vectors/verify.py",
+    "check:changesets": "bun tools/quality/src/checkChangesets.ts",
+    "release:prepare": "bun tools/quality/src/prepareRelease.ts"
   },
   "dependencies": {
     "effect": "^4.0.7"
   },
   "devDependencies": {
+    "@changesets/cli": "3.0.3",
     "@effect/tsgo": "0.48.0",
     "@phibkro/oxlint-effect-plugin": "0.2.0",
     "@types/bun": "latest",

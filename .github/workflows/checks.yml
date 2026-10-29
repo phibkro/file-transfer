@@ -77,6 +77,29 @@ jobs:
         env:
           E2E_BROWSER: ${{ matrix.browser }}
 
+  changesets:
+    # Every pull request adds a changeset naming each package it changes, with a semantic version bump, or an empty
+    # one when it ships nothing (docs/versioning.md). Releases are written from them (release.yml).
+    if: github.event_name == 'pull_request' && github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run check:changesets
+        env:
+          CHANGESET_BASE: origin/${{ github.base_ref }}
+
+  artifacts:
+    # The node executables on every platform and the web client, built and smoke-tested the way a release builds them.
+    needs: [check]
+    if: github.event.action != 'closed' && (github.event_name == 'pull_request' || github.ref == 'refs/heads/main')
+    uses: ./.github/workflows/artifacts.yml
+    with:
+      label: ${{ github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.sha }}
+
   container:
     needs: [check]
     if: github.event.action != 'closed'
@@ -109,6 +132,10 @@ jobs:
         working-directory: apps/web
         env:
           BASE_URL: http://127.0.0.1:8080
+      # The arm64 image builds without emulation (Dockerfile); a release also starts it on an arm64 machine.
+      - name: Build the arm64 image
+        if: github.event_name == 'pull_request'
+        run: docker buildx build --platform linux/arm64 -f platforms/self-hosted/Dockerfile .
       - name: Publish to GitHub's container registry
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:

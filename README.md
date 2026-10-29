@@ -60,6 +60,7 @@ Or as one program, without Docker: download `file-transfer-node` for Linux (x64,
 - [`docs/plan.md`](docs/plan.md): phases, gates, milestones, metrics
 - [`docs/decisions/`](docs/decisions/): architecture decision records
 - [`docs/research.md`](docs/research.md): the findings and numbers behind the decisions
+- [`docs/versioning.md`](docs/versioning.md): changesets, semantic versions and releases; [`CHANGELOG.md`](CHANGELOG.md) lists every release
 - [`CLAUDE.md`](CLAUDE.md): working rules for humans and agents
 
 ## Layout

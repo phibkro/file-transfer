@@ -64,6 +64,8 @@
         "files": [
           "libraries/parcel/src/**",
           "tools/quality/src/moduleGraph.ts",
+          "tools/quality/src/changesets.ts",
+          "tools/quality/src/releaseNotes.ts",
           "platforms/self-hosted/src/assetRouting.ts",
           "platforms/cloudflare/src/durableObjectCalls.ts",
           "platforms/cloudflare/src/directSettings.ts"
@@ -77,13 +79,13 @@
         "platform": "portable"
       },
       {
-        "files": ["tools/quality/src/workspace.ts"],
+        "files": ["tools/quality/src/workspace.ts", "tools/quality/src/repository.ts"],
         "role": "runtime-adapter",
         "platform": "node",
-        "adapterDependencies": ["node:fs", "node:path", "oxc-parser"]
+        "adapterDependencies": ["node:fs", "node:path", "node:child_process", "oxc-parser"]
       },
       {
-        "files": ["tools/quality/src/checkModuleGraph.ts"],
+        "files": ["tools/quality/src/checkModuleGraph.ts", "tools/quality/src/checkChangesets.ts", "tools/quality/src/prepareRelease.ts"],
         "role": "composition-root",
         "platform": "node"
       },

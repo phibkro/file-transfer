@@ -1,114 +1,134 @@
 name: release
 
-# Publishes a release when a version tag is pushed (`git tag v0.1.0 && git push origin v0.1.0`), or builds everything
-# without publishing when started by hand (docs/decisions/0021):
-#   - the server node as one executable per platform (platforms/self-hosted/scripts/nodeConfig.ts, `workerd compile`),
-#     each smoke-tested on its own platform;
-#   - the container image for linux/amd64 and linux/arm64, tagged with the version;
-#   - the web client's static build.
-# `workerd compile` attaches the configuration to the workerd binary that runs it, so each executable is built on a
-# runner of its own platform.
+# Releases from main, automatically (docs/versioning.md, docs/decisions/0023). When `checks` passes on a push to main
+# and changesets are waiting in .changeset/, this:
+#   1. runs `changeset version`, which bumps each named package by its declared semantic version and writes its
+#      CHANGELOG.md, then gathers the release notes into the root CHANGELOG.md (tools/quality/src/prepareRelease.ts);
+#   2. commits that as "Release vX.Y.Z" on main and tags it: `vX.Y.Z` for the product (apps, platforms and services
+#      share one version) and `<package>@<version>` for every package bumped, libraries included;
+#   3. builds the node executables and the web client (artifacts.yml), the container for amd64 and arm64, starts the
+#      arm64 image on an arm64 machine, and publishes the GitHub release with the notes and checksums.
+# A push to main with no changesets waiting (or only empty ones) releases nothing. Started by hand, it does the same
+# for main's current commit.
 
 on:
-  push:
-    tags: ["v*"]
+  workflow_run:
+    workflows: [checks]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
 
-jobs:
-  node:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { runner: ubuntu-latest, platform: linux-x64 }
-          - { runner: ubuntu-24.04-arm, platform: linux-arm64 }
-          - { runner: macos-latest, platform: macos-arm64 }
-          - { runner: windows-latest, platform: windows-x64 }
-    runs-on: ${{ matrix.runner }}
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-      - run: bun install --frozen-lockfile
-      - run: bun run compile
-        working-directory: platforms/self-hosted
-      - name: Name the executable for its platform
-        working-directory: platforms/self-hosted
-        run: |
-          binary="file-transfer-node"
-          if [ "${{ matrix.platform }}" = windows-x64 ]; then binary="file-transfer-node.exe"; fi
-          mkdir -p package
-          mv "dist/$binary" "package/$binary"
-          echo "BINARY=package/$binary" >> "$GITHUB_ENV"
-      - run: bun scripts/smokeNode.ts "$BINARY"
-        working-directory: platforms/self-hosted
-      - name: Package it
-        working-directory: platforms/self-hosted
-        run: |
-          name="file-transfer-node-${GITHUB_REF_NAME//\//-}-${{ matrix.platform }}"
-          cp ../../LICENSE package/LICENSE
-          cp node-README.md package/README.md
-          mkdir -p "$RUNNER_TEMP/out"
-          if [ "${{ matrix.platform }}" = windows-x64 ]; then
-            (cd package && 7z a -tzip "$RUNNER_TEMP/out/$name.zip" . > /dev/null)
-          else
-            tar -czf "$RUNNER_TEMP/out/$name.tar.gz" -C package .
-          fi
-      - uses: actions/upload-artifact@v4
-        with:
-          name: node-${{ matrix.platform }}
-          path: ${{ runner.temp }}/out/*
+concurrency:
+  group: release
+  cancel-in-progress: false
 
-  web-client:
+jobs:
+  version:
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.prepare.outputs.version }}
+      commit: ${{ steps.commit.outputs.commit }}
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-      - run: bun install --frozen-lockfile
-      - run: bun run build
-        working-directory: apps/web
-      - name: Package it
-        run: |
-          mkdir -p "$RUNNER_TEMP/out"
-          tar -czf "$RUNNER_TEMP/out/file-transfer-web-${GITHUB_REF_NAME//\//-}.tar.gz" -C apps/web/dist .
-      - uses: actions/upload-artifact@v4
         with:
-          name: web-client
-          path: ${{ runner.temp }}/out/*
+          ref: main
+          fetch-depth: 0
+      - name: Release only the commit the checks passed on
+        id: current
+        env:
+          CHECKED: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          if [ -n "$CHECKED" ] && [ "$(git rev-parse HEAD)" != "$CHECKED" ]; then
+            echo "main moved on since the checked commit; the run for the newer commit releases it"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          elif [ -z "$(find .changeset -name '*.md' ! -name README.md -print -quit)" ]; then
+            echo "no changesets waiting; nothing to release"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: oven-sh/setup-bun@v2
+        if: steps.current.outputs.skip != 'true'
+      - uses: actions/setup-node@v4
+        if: steps.current.outputs.skip != 'true'
+        with:
+          node-version: 22
+      - if: steps.current.outputs.skip != 'true'
+        run: bun install --frozen-lockfile
+      - name: Bump versions and write changelogs
+        id: prepare
+        if: steps.current.outputs.skip != 'true'
+        run: |
+          bunx changeset version
+          bun run release:prepare "$RUNNER_TEMP/notes.md" | tee "$RUNNER_TEMP/prepare.txt"
+          grep -E '^(version|tags)=' "$RUNNER_TEMP/prepare.txt" >> "$GITHUB_OUTPUT"
+          # Changesets writes the changelogs unformatted; the repository's formatter is the one that checks them.
+          ./node_modules/.bin/vp fmt CHANGELOG.md '**/CHANGELOG.md'
+      - name: Commit and tag the release
+        id: commit
+        if: steps.current.outputs.skip != 'true' && steps.prepare.outputs.tags != ''
+        env:
+          VERSION: ${{ steps.prepare.outputs.version }}
+          TAGS: ${{ steps.prepare.outputs.tags }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Release ${VERSION:+v$VERSION}${VERSION:-libraries}" -m "Versions and changelogs from the changesets merged since the last release (docs/versioning.md)."
+          for tag in $TAGS; do git tag -a "$tag" -m "$tag"; done
+          git push origin HEAD:main
+          git push origin $TAGS
+          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        if: steps.commit.outputs.commit != ''
+        with:
+          name: release-notes
+          path: ${{ runner.temp }}/notes.md
+
+  artifacts:
+    needs: [version]
+    if: needs.version.outputs.version != ''
+    uses: ./.github/workflows/artifacts.yml
+    with:
+      ref: ${{ needs.version.outputs.commit }}
+      label: v${{ needs.version.outputs.version }}
 
   container:
-    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [version]
+    if: needs.version.outputs.version != ''
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.commit }}
       - uses: docker/setup-buildx-action@v3
       - name: Build and publish for amd64 and arm64
         env:
           REGISTRY_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
         run: |
           echo "$REGISTRY_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
           image="ghcr.io/${{ github.repository }}"
-          version="${GITHUB_REF_NAME#v}"
           docker buildx build --platform linux/amd64,linux/arm64 --push \
-            -f platforms/self-hosted/Dockerfile -t "$image:$version" -t "$image:${version%.*}" .
+            -f platforms/self-hosted/Dockerfile -t "$image:$VERSION" -t "$image:${VERSION%.*}" .
 
   container-arm64:
     # The arm64 image, started on an arm64 machine: the build above made it without running it.
-    needs: [container]
+    needs: [version, container]
     runs-on: ubuntu-24.04-arm
     steps:
       - name: Start the published image and ask it something
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
         run: |
-          image="ghcr.io/${{ github.repository }}:${GITHUB_REF_NAME#v}"
-          docker run -d --name node -p 8080:8080 "$image"
+          docker run -d --name node -p 8080:8080 "ghcr.io/${{ github.repository }}:$VERSION"
           for attempt in $(seq 1 30); do
             if curl -sf http://127.0.0.1:8080/api/instance; then exit 0; fi
             sleep 2
@@ -117,21 +137,26 @@ jobs:
           exit 1
 
   publish:
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [node, web-client, container-arm64]
+    needs: [version, artifacts, container-arm64]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/download-artifact@v4
         with:
+          pattern: "{node-*,web-client}"
           path: out
           merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-notes
+          path: notes
       - name: Checksums
         run: cd out && sha256sum * > SHA256SUMS
       - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
         run: |
-          gh release create "$GITHUB_REF_NAME" --repo "${{ github.repository }}" --generate-notes \
-            --title "$GITHUB_REF_NAME" out/*
+          gh release create "v$VERSION" --repo "${{ github.repository }}" --title "v$VERSION" \
+            --notes-file notes/notes.md out/*
