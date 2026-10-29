@@ -66,6 +66,9 @@ export const describeFailure = (reason: string): string => {
     ["storage-unavailable", "This browser could not store the incoming files."],
     ["room-not-found", "This link has expired or never existed."],
     ["declined", "The recipient declined the files."],
+    ["rate-limited", "This server has started too many transfers from your network this hour."],
+    ["room-not-created", "The server could not open a room for this transfer. Try again in a moment."],
+    ["relay limit reached", "The transfer passed the most this server relays for one parcel, so it stopped."],
   ])
 
   return known.get(reason) ?? `The transfer stopped (${reason}).`

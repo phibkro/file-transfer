@@ -19,6 +19,8 @@ const wrongToken = "f".repeat(64)
 const stubMarker = "integration-stub-app"
 
 const port = 20_000 + Math.floor(Math.random() * 20_000)
+const roomsPerAddressPerHour = 3
+const relayedBytesPerRoom = 4 * 1024 * 1024
 const origin = `http://127.0.0.1:${port}`
 const packageDirectory = new URL("..", import.meta.url).pathname
 const scratch = mkdtempSync(nodePath.join(tmpdir(), "file-transfer-integration-"))
@@ -45,6 +47,13 @@ const wrangler = Bun.spawn(
     "--show-interactive-dev-session=false",
     "--log-level",
     "warn",
+    // Small limits, so the check can reach them; addresses come from a header the check sets (limits.ts).
+    "--var",
+    `LIMIT_ROOMS_PER_ADDRESS_PER_HOUR:${roomsPerAddressPerHour}`,
+    "--var",
+    `LIMIT_RELAYED_BYTES_PER_ROOM:${relayedBytesPerRoom}`,
+    "--var",
+    "CLIENT_ADDRESS_HEADER:x-test-address",
   ],
   { cwd: packageDirectory, env: environment, stdout: "ignore", stderr: "pipe" },
 )
@@ -190,8 +199,16 @@ const equalBytes = (left: Uint8Array, right: Uint8Array) => left.length === righ
 const isCreatedRoom = (body: unknown): body is { readonly roomIdentifier: string } =>
   typeof body === "object" && body !== null && "roomIdentifier" in body && typeof body.roomIdentifier === "string"
 
+/** Asks for a room from `address` (a fresh one by default, so ordinary checks never meet the hourly limit). */
+const requestRoom = async (maximumRecipients: number, address = crypto.randomUUID()) =>
+  await fetch(`${origin}/api/rooms`, {
+    method: "POST",
+    headers: { "x-test-address": address },
+    body: JSON.stringify({ roomTokenHash, maximumRecipients }),
+  })
+
 const createRoom = async (maximumRecipients: number): Promise<string> => {
-  const response = await fetch(`${origin}/api/rooms`, { method: "POST", body: JSON.stringify({ roomTokenHash, maximumRecipients }) })
+  const response = await requestRoom(maximumRecipients)
   const body: unknown = await response.json()
   const roomIdentifier = isCreatedRoom(body) ? body.roomIdentifier : ""
   check(
@@ -375,6 +392,79 @@ const run = async () => {
   check(await returningSender.nothingWithin(300), "nothing else reaches the sender")
   returningSender.socket.close(1000, "done")
   await returningSender.closed
+
+  // The operator's limits (limits.ts).
+  const limitsResponse = await fetch(`${origin}/api/limits`)
+  const limits: unknown = await limitsResponse.json()
+  check(
+    JSON.stringify(limits) === JSON.stringify({ roomsPerAddressPerHour, relayedBytesPerRoom }),
+    "GET /api/limits answers the operator's limits and nothing about how addresses are read",
+    JSON.stringify(limits),
+  )
+
+  const address = crypto.randomUUID()
+  const statuses: number[] = []
+
+  for (let attempt = 0; attempt <= roomsPerAddressPerHour; attempt++) {
+    const response = await requestRoom(1, address)
+    statuses.push(response.status)
+  }
+
+  check(
+    statuses.slice(0, roomsPerAddressPerHour).every((status) => status === 201),
+    `one address creates its ${roomsPerAddressPerHour} rooms of the hour`,
+    statuses.join(","),
+  )
+  const refused = await requestRoom(1, address)
+  const retryAfter = Number(refused.headers.get("retry-after"))
+  check(
+    statuses.at(-1) === 429 && refused.status === 429 && retryAfter > 3500 && retryAfter <= 3600,
+    "the next room from that address answers 429 with Retry-After until the hour ends",
+    { status: refused.status, retryAfter },
+  )
+  const otherAddress = await requestRoom(1)
+  check(otherAddress.status === 201, "another address still creates rooms")
+
+  const limited = await createRoom(1)
+  const limitedSender = connect(limited)
+  const limitedRecipient = connect(limited)
+  await joinRoom(limitedSender, "sender")
+  await joinRoom(limitedRecipient, "recipient")
+  await nextControl(limitedSender)
+  // 80 records of 64 KiB are 5 MiB, more than the 4 MiB the room may relay.
+  const overLimit = Array.from({ length: 80 }, (_, index) => unit("dataRecord", index, 64 * 1024))
+
+  for (const frame of overLimit) {
+    limitedSender.socket.send(frame)
+  }
+
+  let forwarded = 0
+  let ending: string | ArrayBuffer | undefined
+
+  for (;;) {
+    ending = await limitedRecipient.next()
+
+    if (!(ending instanceof ArrayBuffer)) {
+      break
+    }
+
+    forwarded++
+  }
+
+  const relayLimitError = encodeControlMessage({ type: "error", reason: "relay limit reached" })
+  const recipientClosed = await limitedRecipient.closed
+  check(
+    forwarded < overLimit.length && ending === relayLimitError && recipientClosed.code === 4001,
+    "the room relays up to its byte limit, then tells the recipient and closes with 4001",
+    { forwarded, ending },
+  )
+  const senderClosed = await limitedSender.closed
+  check(senderClosed.code === 4001, "and closes the sender's socket with 4001 too")
+
+  const lateJoiner = connect(limited)
+  const lateAnswer = await joinRoom(lateJoiner, "recipient")
+  const lateClosed = await lateJoiner.closed
+  check(encodeControlMessage(lateAnswer) === relayLimitError && lateClosed.code === 4001, "a room that reached its relay limit admits nobody again", lateAnswer)
 
   console.log(`\nall ${passed} checks passed`)
 }

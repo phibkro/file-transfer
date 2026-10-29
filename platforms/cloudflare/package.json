@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@file-transfer/parcel": "workspace:*",
+    "@file-transfer/service-quota": "workspace:*",
     "@file-transfer/transport": "workspace:*",
     "effect": "^4.0.7"
   },

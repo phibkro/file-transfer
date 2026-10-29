@@ -5,7 +5,10 @@
  * ArrayBuffer frames, completing the close handshake in webSocketClose. Constraints it keeps:
  * - Storage holds the room record, written once at creation, and is never written per frame (docs/decisions/0004:
  *   on celld every write delays the frames behind it). The only other writes are the idle alarm, set at creation and
- *   when the last participant leaves.
+ *   when the last participant leaves, and the relayed byte count, written when a socket closes.
+ * - Relayed bytes (the operator's limit, limits.ts) are counted in memory on the frame path. The sender's attachment
+ *   carries the count across hibernation (updated every `attachmentStepBytes`), and storage keeps it once a socket
+ *   closes, so neither a pause nor a reconnect resets it.
  * - No Effect runtime on the frame path (spike 0001 measured about 20% more CPU per frame through Effect).
  * - In-memory state is a cache of what the socket attachments already hold, because hibernation discards the instance.
  * - The one invariant: tokens, control message bodies and frames are never logged or stored.
@@ -14,10 +17,19 @@ import { DurableObject } from "cloudflare:workers"
 import type { HibernatableWebSocket, UpgradeResponseInit, WebSocketPairConstructor } from "cloudflare:workers"
 import { fromHex, hashRoomToken } from "@file-transfer/parcel"
 import { encodeControlMessage } from "@file-transfer/transport"
-import { decide, decodeCreateRoom, joinTokenOf, replacedCloseCode } from "./room.ts"
+import { readLimits, withinRelayLimit } from "./limits.ts"
+import type { LimitVariables } from "./limits.ts"
+import { decide, decodeCreateRoom, errorReasons, joinTokenOf, relayLimitCloseCode, replacedCloseCode } from "./room.ts"
 import type { Attachment, Instruction, Participant, RoomRecord } from "./room.ts"
 
 const recordKey = "room"
+const relayedKey = "relayedBytes"
+
+/** The sender's attachment is brought up to date with the relayed count after every this many bytes. */
+const attachmentStepBytes = 16 * 1024 * 1024
+
+/** An attachment as this adapter stores it: room.ts's, plus the room's relayed byte count when last written. */
+type StoredAttachment = Attachment & { readonly relayedBytes?: number }
 
 /** A room with no participant for this long is deleted by its alarm. */
 export const idleMilliseconds = 24 * 60 * 60 * 1000
@@ -49,12 +61,15 @@ const closeQuietly = (socket: WebSocket, code: number, reason: string) => {
   }
 }
 
-export class RoomObject extends DurableObject {
+export class RoomObject extends DurableObject<LimitVariables> {
   private record: RoomRecord | undefined
+  /** Bytes relayed for this room so far; undefined until read from attachments or storage after a wake. */
+  private relayedBytes: number | undefined
+  private readonly relayLimit = readLimits(this.env).relayedBytesPerRoom
   /** Admitted sockets by participant identifier, rebuilt from attachments after a wake from hibernation. */
   private sockets: Map<string, HibernatableWebSocket> | undefined
   private participants: readonly Participant[] = []
-  private readonly attachments = new WeakMap<WebSocket, Attachment>()
+  private readonly attachments = new WeakMap<WebSocket, StoredAttachment>()
 
   override async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url)
@@ -83,6 +98,15 @@ export class RoomObject extends DurableObject {
   override async webSocketMessage(socket: HibernatableWebSocket, message: string | ArrayBuffer): Promise<void> {
     if (message instanceof ArrayBuffer) {
       // The frame path: synchronous, no storage, no Effect.
+      const relayed = this.relayedSoFar()
+
+      if (this.attachmentOf(socket).admitted && !withinRelayLimit(relayed, message.byteLength, this.relayLimit)) {
+        this.endForRelayLimit()
+
+        return
+      }
+
+      this.countRelayed(socket, relayed, message.byteLength)
       this.carryOut(socket, decide(this.attachmentOf(socket), this.admittedParticipants(), { type: "binary" }), message)
 
       return
@@ -96,6 +120,14 @@ export class RoomObject extends DurableObject {
 
     const token = joinTokenOf(message)
     const record = token === undefined ? undefined : await this.loadRecord()
+
+    // A room that reached its relay limit admits nobody again.
+    if (token !== undefined && (await this.loadRelayed()) >= this.relayLimit) {
+      sendQuietly(socket, encodeControlMessage({ type: "error", reason: errorReasons.relayLimit }))
+      closeQuietly(socket, relayLimitCloseCode, errorReasons.relayLimit)
+
+      return
+    }
 
     const admission =
       token === undefined || record === undefined
@@ -116,6 +148,7 @@ export class RoomObject extends DurableObject {
   override async webSocketClose(socket: HibernatableWebSocket, _code: number, _reason: string, _wasClean: boolean): Promise<void> {
     this.depart(socket)
     closeQuietly(socket, 1000, "closed")
+    await this.saveRelayed()
     await this.scheduleIdleCleanupIfEmpty()
   }
 
@@ -158,27 +191,74 @@ export class RoomObject extends DurableObject {
     return json(201, {})
   }
 
+  /** The relayed count without I/O: memory, or the largest count any socket's attachment carries after a wake. */
+  private relayedSoFar(): number {
+    this.relayedBytes ??= Math.max(0, ...this.ctx.getWebSockets().map((socket) => this.attachmentOf(socket).relayedBytes ?? 0))
+
+    return this.relayedBytes
+  }
+
+  /** The relayed count including what storage kept from sockets that have closed. */
+  private async loadRelayed(): Promise<number> {
+    const stored = (await this.ctx.storage.get<number>(relayedKey)) ?? 0
+    this.relayedBytes = Math.max(stored, this.relayedSoFar())
+
+    return this.relayedBytes
+  }
+
+  private async saveRelayed() {
+    const relayed = this.relayedSoFar()
+
+    if (relayed > ((await this.ctx.storage.get<number>(relayedKey)) ?? 0)) {
+      await this.ctx.storage.put(relayedKey, relayed)
+    }
+  }
+
+  private countRelayed(socket: HibernatableWebSocket, before: number, frameLength: number) {
+    const after = before + frameLength
+    this.relayedBytes = after
+
+    if (Math.floor(after / attachmentStepBytes) !== Math.floor(before / attachmentStepBytes)) {
+      this.setAttachment(socket, { ...this.attachmentOf(socket), relayedBytes: after })
+    }
+  }
+
+  /** Tells every participant the limit was reached and closes the room to them; storage keeps the count. */
+  private endForRelayLimit() {
+    this.relayedBytes = Math.max(this.relayedSoFar(), this.relayLimit)
+
+    for (const socket of this.ctx.getWebSockets()) {
+      this.setAttachment(socket, { admitted: false, relayedBytes: this.relayedBytes })
+      sendQuietly(socket, encodeControlMessage({ type: "error", reason: errorReasons.relayLimit }))
+      closeQuietly(socket, relayLimitCloseCode, errorReasons.relayLimit)
+    }
+
+    this.sockets = undefined
+    this.participants = []
+    void this.ctx.storage.put(relayedKey, this.relayedBytes)
+  }
+
   private async loadRecord(): Promise<RoomRecord | undefined> {
     this.record ??= await this.ctx.storage.get<RoomRecord>(recordKey)
 
     return this.record
   }
 
-  private attachmentOf(socket: HibernatableWebSocket): Attachment {
+  private attachmentOf(socket: HibernatableWebSocket): StoredAttachment {
     const cached = this.attachments.get(socket)
 
     if (cached !== undefined) {
       return cached
     }
 
-    // SAFETY: setAttachment is the only writer of attachments, and it writes an Attachment.
-    const stored = (socket.deserializeAttachment() as Attachment | null) ?? notAdmitted
+    // SAFETY: setAttachment is the only writer of attachments, and it writes a StoredAttachment.
+    const stored = (socket.deserializeAttachment() as StoredAttachment | null) ?? notAdmitted
     this.attachments.set(socket, stored)
 
     return stored
   }
 
-  private setAttachment(socket: HibernatableWebSocket, attachment: Attachment) {
+  private setAttachment(socket: HibernatableWebSocket, attachment: StoredAttachment) {
     socket.serializeAttachment(attachment)
     this.attachments.set(socket, attachment)
   }
@@ -240,7 +320,8 @@ export class RoomObject extends DurableObject {
     for (const instruction of instructions) {
       switch (instruction.type) {
         case "admit": {
-          this.setAttachment(socket, { admitted: true, ...instruction.participant })
+          // The new participant carries the room's relayed count, so a wake after hibernation finds it.
+          this.setAttachment(socket, { admitted: true, ...instruction.participant, relayedBytes: this.relayedSoFar() })
           this.admittedSockets().set(instruction.participant.participantIdentifier, socket)
           this.participants = this.listParticipants()
           break

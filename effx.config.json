@@ -39,7 +39,8 @@
           "libraries/sink/src/**",
           "libraries/transport/src/**",
           "libraries/conformance/src/guarantee.ts",
-          "platforms/cloudflare/src/room.ts"
+          "platforms/cloudflare/src/room.ts",
+          "platforms/cloudflare/src/limits.ts"
         ],
         "role": "effect-library",
         "platform": "portable"
@@ -85,7 +86,8 @@
           "apps/web/src/storagePanel.ts",
           "apps/web/src/preview.ts",
           "apps/web/src/previewFrame.ts",
-          "apps/web/src/rename.ts"
+          "apps/web/src/rename.ts",
+          "apps/web/src/serverLimits.ts"
         ],
         "role": "runtime-adapter",
         "platform": "browser",

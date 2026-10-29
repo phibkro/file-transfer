@@ -31,6 +31,8 @@ import { addRecord, createRecordSet, createSchedule, markSent, peekNext, priorit
 import type { Schedule } from "./ranges.ts"
 import { setProgress, setStatus, setTotalBytes } from "./report.ts"
 import { previewButton } from "./preview.ts"
+import { estimatedRelayedBytes, fetchServerLimits } from "./serverLimits.ts"
+import type { ServerLimits } from "./serverLimits.ts"
 import { nameField } from "./rename.ts"
 import { addToSelection, removeFromSelection, renameProblem } from "./selection.ts"
 import { sharePanel } from "./share.ts"
@@ -61,11 +63,30 @@ const manifestEntry = ({ file, name }: Entry): ManifestFile => {
 class TransferError extends Error {
   override readonly name = "TransferError"
   readonly reason: string
+  /** A sentence to show after the reason's description, such as how long to wait. */
+  readonly detail: string | undefined
 
-  constructor(reason: string) {
+  constructor(reason: string, detail?: string) {
     super(reason)
     this.reason = reason
+    this.detail = detail
   }
+}
+
+/** What to show after a failure's description: a parcel error's message, or a transfer error's detail. */
+const detailOf = (cause: unknown): string | undefined => {
+  if (isParcelError(cause)) {
+    return cause.message
+  }
+
+  return cause instanceof TransferError ? cause.detail : undefined
+}
+
+/** "about 12 minutes" from a `Retry-After` header in seconds; the hour when the header is missing. */
+const waitText = (retryAfter: string | null): string => {
+  const minutes = Math.max(1, Math.ceil(Number(retryAfter ?? "3600") / 60))
+
+  return Number.isFinite(minutes) ? `about ${minutes} ${minutes === 1 ? "minute" : "minutes"}` : "an hour"
 }
 
 /** The body of `201` from `POST /api/rooms`. */
@@ -111,8 +132,12 @@ const createRoom = async (roomTokenHash: string): Promise<string> => {
     body: JSON.stringify({ roomTokenHash, maximumRecipients: 1 }),
   })
 
+  if (response.status === 429) {
+    throw new TransferError("rate-limited", `Try again in ${waitText(response.headers.get("retry-after"))}.`)
+  }
+
   if (response.status !== 201) {
-    throw new TransferError(response.status === 429 ? "rate-limited" : "room-not-created")
+    throw new TransferError("room-not-created")
   }
 
   const body: unknown = await response.json()
@@ -396,8 +421,10 @@ export const startSender = (root: HTMLElement) => {
   const sealNote = element("p", { class: "seal-note" }, ["Sealing locks these files and their names. To change them, you start a new parcel."])
   const sealing = element("h2", { class: "sealing-heading", hidden: "" }, ["Sealing parcel"])
   const sendOther = element("button", { type: "button", hidden: "" }, ["Send other files"])
+  const limitWarning = element("p", { class: "limit-warning", role: "alert", hidden: "" })
   let selected: readonly Entry[] = []
   let sealed = false
+  let serverLimits: ServerLimits | undefined
 
   const section = element("section", { "aria-labelledby": "send-heading" }, [
     element("h1", { id: "send-heading" }, ["Send files"]),
@@ -408,6 +435,7 @@ export const startSender = (root: HTMLElement) => {
     sealing,
     list,
     totals,
+    limitWarning,
     createLink,
     sealNote,
     status,
@@ -466,7 +494,13 @@ export const startSender = (root: HTMLElement) => {
     const total = selected.reduce((sum, entry) => sum + entry.file.size, 0)
     totals.textContent = selected.length === 0 ? "" : `${selected.length} ${selected.length === 1 ? "file" : "files"}, ${formatSize(total)} in total`
     pickLabel.textContent = selected.length === 0 ? "Choose files" : "Add more files"
-    createLink.disabled = sealed || selected.length === 0
+    // The room stops a parcel that passes the instance's relay limit, so say so before sealing rather than partway.
+    const tooLarge = serverLimits !== undefined && estimatedRelayedBytes(total) > serverLimits.relayedBytesPerRoom
+    limitWarning.hidden = !tooLarge || sealed
+    limitWarning.textContent = tooLarge
+      ? `This server relays up to ${formatSize(serverLimits?.relayedBytesPerRoom ?? 0)} per parcel, and these files need about ${formatSize(estimatedRelayedBytes(total))}. Remove some files, send them in more than one parcel, or use an instance with a higher limit.`
+      : ""
+    createLink.disabled = sealed || selected.length === 0 || tooLarge
   }
 
   const add = (files: readonly File[]) => {
@@ -532,7 +566,8 @@ export const startSender = (root: HTMLElement) => {
     } catch (error) {
       const reason = reasonOf(error)
       setStatus("failed", reason)
-      status.textContent = isParcelError(error) ? `${describeFailure(reason)} ${error.message}` : describeFailure(reason)
+      const detail = detailOf(error)
+      status.textContent = detail === undefined ? describeFailure(reason) : `${describeFailure(reason)} ${detail}`
     }
   }
 
@@ -544,6 +579,13 @@ export const startSender = (root: HTMLElement) => {
   createLink.addEventListener("click", () => {
     void begin(selected)
   })
+
+  const loadLimits = async () => {
+    serverLimits = await fetchServerLimits()
+    renderSelection()
+  }
+
+  void loadLimits()
   // A sealed parcel cannot take more files; other files go in a new parcel with its own link, in a new tab, so this
   // one keeps serving its recipient.
   sendOther.addEventListener("click", () => {

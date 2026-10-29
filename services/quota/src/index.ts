@@ -58,15 +58,45 @@ export class Quota extends Context.Service<
   }
 >()("file-transfer/Quota") {}
 
+/** One client key's fixed window: when it started and how many admissions it has granted. */
+export interface AdmissionWindow {
+  readonly windowStart: number
+  readonly count: number
+}
+
+export type AdmissionDecision =
+  | { readonly admitted: true; readonly window: AdmissionWindow }
+  | { readonly admitted: false; readonly retryAfterMilliseconds: number }
+
 /**
- * In-memory reference layer with a fixed-window counter per client key. `faults` builds the deliberately broken
- * variants that the negative controls need; production code passes none.
+ * The fixed-window rule every layer applies (the reference layer here, the Durable Object in each platform): a window
+ * starts at the first admission after the previous one ended, and admits up to the policy's maximum.
+ */
+export const admitInWindow = (current: AdmissionWindow | undefined, now: number, policy: AdmissionPolicy): AdmissionDecision => {
+  const expired = current !== undefined && now - current.windowStart >= policy.windowMilliseconds
+  const window = current === undefined || expired ? { windowStart: now, count: 0 } : current
+
+  if (window.count >= policy.maximumRoomsPerWindow) {
+    return { admitted: false, retryAfterMilliseconds: window.windowStart + policy.windowMilliseconds - now }
+  }
+
+  return { admitted: true, window: { ...window, count: window.count + 1 } }
+}
+
+/**
+ * In-memory reference layer over `admitInWindow`. `faults` builds the deliberately broken variants that the negative
+ * controls need; production code passes none.
  */
 export const makeQuotaReference = (policy: AdmissionPolicy, faults: ReadonlySet<QuotaGuarantee> = new Set()) =>
   Layer.effect(
     Quota,
     Effect.gen(function* () {
-      const windows = yield* Ref.make<ReadonlyMap<string, { readonly windowStart: number; readonly count: number }>>(new Map())
+      const windows = yield* Ref.make<ReadonlyMap<string, AdmissionWindow>>(new Map())
+
+      const effectivePolicy: AdmissionPolicy = {
+        maximumRoomsPerWindow: faults.has("quota/per-key-limit") ? Number.POSITIVE_INFINITY : policy.maximumRoomsPerWindow,
+        windowMilliseconds: faults.has("quota/window-resets") ? Number.POSITIVE_INFINITY : policy.windowMilliseconds,
+      }
 
       return {
         admitRoomCreation: (clientKey) =>
@@ -74,17 +104,15 @@ export const makeQuotaReference = (policy: AdmissionPolicy, faults: ReadonlySet<
             const now = yield* Clock.currentTimeMillis
             const storageKey = faults.has("quota/keys-independent") ? "shared" : clientKey
             const all = yield* Ref.get(windows)
-            const current = all.get(storageKey)
-            const expired = current !== undefined && now - current.windowStart >= policy.windowMilliseconds && !faults.has("quota/window-resets")
-            const window = current === undefined || expired ? { windowStart: now, count: 0 } : current
+            const decision = admitInWindow(all.get(storageKey), now, effectivePolicy)
 
-            if (window.count >= policy.maximumRoomsPerWindow && !faults.has("quota/per-key-limit")) {
-              const retryAfterMilliseconds = faults.has("quota/honest-retry-after") ? 0 : window.windowStart + policy.windowMilliseconds - now
+            if (!decision.admitted) {
+              const retryAfterMilliseconds = faults.has("quota/honest-retry-after") ? 0 : decision.retryAfterMilliseconds
 
               return yield* new RateLimited({ clientKey, retryAfterMilliseconds })
             }
 
-            yield* Ref.set(windows, new Map(all).set(storageKey, { ...window, count: window.count + 1 }))
+            yield* Ref.set(windows, new Map(all).set(storageKey, decision.window))
           }),
       }
     }),

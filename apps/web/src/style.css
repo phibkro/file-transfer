@@ -432,3 +432,7 @@ a.save {
 .file-list .name-field:has(.rename-form) {
   flex-basis: 100%;
 }
+
+.limit-warning {
+  color: var(--accent);
+}

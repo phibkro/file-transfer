@@ -40,6 +40,7 @@ const WranglerConfiguration = Schema.Struct({
   compatibility_flags: Schema.Array(Schema.String),
   durable_objects: Schema.Struct({ bindings: Schema.Array(Schema.Struct({ name: Schema.String, class_name: Schema.String })) }),
   migrations: Schema.Array(Schema.Struct({ tag: Schema.String, new_sqlite_classes: Schema.Array(Schema.String) })),
+  vars: Schema.Record(Schema.String, Schema.String),
   assets: Schema.Struct({
     directory: Schema.String,
     binding: Schema.Literal("ASSETS"),
@@ -84,7 +85,8 @@ export default Alchemy.Stack(
       main: `./${wrangler.main.replace(/^\.\//u, "")}`,
       bundle: false as const,
       compatibility: { date: wrangler.compatibility_date, flags: [...wrangler.compatibility_flags] },
-      env: durableObjects,
+      // Plain-text variables (the operator's limits) next to the Durable Object bindings.
+      env: { ...wrangler.vars, ...durableObjects },
       assets: {
         directory: wrangler.assets.directory,
         notFoundHandling: wrangler.assets.not_found_handling,

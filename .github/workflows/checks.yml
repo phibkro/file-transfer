@@ -33,6 +33,9 @@ jobs:
         with:
           python-version: "3.13"
       - run: pip install cryptography==50.0.1 && bun run check:vectors
+      # The Worker and its Durable Objects under wrangler dev: rooms, relaying, and the operator's limits.
+      - run: bun run integration
+        working-directory: platforms/cloudflare
 
   secrets:
     if: github.event.action != 'closed'

@@ -8,9 +8,23 @@
   // Spike 0001: per-message deflate cost 8.7x relay throughput, and parcel records are ciphertext that does not compress.
   "compatibility_flags": ["no_web_socket_compression"],
   "durable_objects": {
-    "bindings": [{ "name": "ROOMS", "class_name": "RoomObject" }],
+    "bindings": [
+      { "name": "ROOMS", "class_name": "RoomObject" },
+      // One per client key (a salted hash of an address): counts room creations per hour (src/admissionObject.ts).
+      { "name": "ADMISSION", "class_name": "AdmissionObject" },
+    ],
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RoomObject"] }],
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["RoomObject"] },
+    { "tag": "v2", "new_sqlite_classes": ["AdmissionObject"] },
+  ],
+  // The operator's limits (src/limits.ts, docs/decisions/0019-open-source-first.md). Change them here, in the
+  // Cloudflare dashboard, or at deploy time. Set ADDRESS_SALT as a secret (`wrangler secret put ADDRESS_SALT`).
+  "vars": {
+    "LIMIT_ROOMS_PER_ADDRESS_PER_HOUR": "20",
+    "LIMIT_RELAYED_BYTES_PER_ROOM": "10000000000",
+    "CLIENT_ADDRESS_HEADER": "cf-connecting-ip",
+  },
   "assets": {
     "directory": "../../apps/web/dist",
     "binding": "ASSETS",
