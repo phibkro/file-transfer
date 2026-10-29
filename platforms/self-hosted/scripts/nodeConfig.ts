@@ -11,7 +11,7 @@
 import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs"
 import nodePath from "node:path"
 
-const packageDirectory = new URL("..", import.meta.url).pathname
+const packageDirectory = nodePath.join(import.meta.dirname, "..")
 const publicDirectory = nodePath.join(packageDirectory, "public")
 const distDirectory = nodePath.join(packageDirectory, "dist")
 
