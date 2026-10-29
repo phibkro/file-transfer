@@ -78,6 +78,36 @@ export default defineConfig({
     },
     overrides: [
       {
+        // The link secret lives in the URL fragment (docs/invariants.md, C1). Shipped browser code reads the page's
+        // address only through apps/web/src/address.ts, so the fragment cannot reach a log, a request or a report from
+        // anywhere else by accident. Other routes to the URL are closed too.
+        files: ["apps/web/src/**/*.ts", "libraries/*/src/**/*.ts"],
+        rules: {
+          "eslint/no-restricted-globals": [
+            "error",
+            { name: "location", message: "Read the page's address through apps/web/src/address.ts: the fragment holds the link secret." },
+            { name: "navigation", message: "The Navigation API exposes the page's URL, fragment included; use apps/web/src/address.ts." },
+          ],
+          "eslint/no-restricted-properties": [
+            "error",
+            ...["window", "document", "globalThis", "self", "top", "parent"].map((object) => ({
+              object,
+              property: "location",
+              message: "Read the page's address through apps/web/src/address.ts: the fragment holds the link secret.",
+            })),
+            ...["URL", "documentURI", "baseURI"].map((property) => ({
+              object: "document",
+              property,
+              message: "The document's URL includes the fragment, which holds the link secret; use apps/web/src/address.ts.",
+            })),
+          ],
+        },
+      },
+      {
+        files: ["apps/web/src/address.ts"],
+        rules: { "eslint/no-restricted-globals": "off", "eslint/no-restricted-properties": "off" },
+      },
+      {
         files: effectFiles,
         // Ultracite wants `async` on every Promise-returning function; effx forbids native async in Effect code.
         rules: { "typescript/promise-function-async": "off" },
