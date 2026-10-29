@@ -40,7 +40,7 @@ jobs:
     outputs:
       commit: ${{ steps.current.outputs.commit }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: main
       - name: Release only the commit the checks passed on, when changesets wait
