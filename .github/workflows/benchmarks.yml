@@ -1,0 +1,50 @@
+name: benchmarks
+
+# Runs apps/web/scripts/benchmark.ts by hand on a GitHub runner (docs/spikes/0004-transfer-benchmarks.md): the crypto
+# benchmark in Bun and each browser, and transfers through a self-hosted node on the runner itself, so nothing touches
+# a Cloudflare account. Results are uploaded as JSON lines.
+#   gh workflow run benchmarks.yml -f browsers=chromium,firefox -f sizes=1,16,128,512
+
+on:
+  workflow_dispatch:
+    inputs:
+      browsers:
+        description: Browsers, separated by commas (chromium, firefox, webkit)
+        default: chromium,firefox
+      sizes:
+        description: Transfer sizes in MB, separated by commas
+        default: 1,16,128
+      repeats:
+        description: Transfers per size and path (the median is reported)
+        default: "3"
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - name: Install the browsers
+        working-directory: apps/web
+        env:
+          BROWSERS: ${{ inputs.browsers }}
+        run: bunx playwright install --with-deps ${BROWSERS//,/ }
+      - name: Run the benchmarks
+        working-directory: apps/web
+        env:
+          BENCH_BROWSERS: ${{ inputs.browsers }}
+          BENCH_SIZES: ${{ inputs.sizes }}
+          BENCH_REPEATS: ${{ inputs.repeats }}
+          BENCH_OUTPUT: ${{ runner.temp }}/benchmarks.jsonl
+        run: |
+          nproc
+          bun scripts/benchmark.ts
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: benchmarks
+          path: ${{ runner.temp }}/benchmarks.jsonl
