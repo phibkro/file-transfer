@@ -58,6 +58,12 @@ declare global {
     chaosDropDirect?: () => number
     /** Set by the chaos init script: each peer connection's state changes, with milliseconds since the page loaded. */
     peerStates?: string[]
+    /** Set by the test, read by `gateStorage`: storage opening waits until the test calls `releaseStorage`. */
+    holdStorage?: boolean
+    /** Set by `gateStorage`: how many times the page asked for its storage directory while it was held. */
+    storageHeldCalls?: number
+    /** Set by `gateStorage` while storage requests wait: lets every one of them go on. */
+    releaseStorage?: (() => void) | undefined
   }
 }
 
@@ -1047,6 +1053,55 @@ const settledLocks = async (page: Page, limitMilliseconds = 5000) => {
 }
 
 /**
+ * An init script that holds storage opening on a gate: once the test sets `holdStorage`, the page's next request for
+ * its storage directory waits until the test calls `releaseStorage`, and `storageHeldCalls` counts the requests held.
+ * A fixed delay raced the test's own sleeps (a WebKit run on CI completed the transfer before the check looked), and
+ * nothing showed whether the delay had applied at all; the gate makes both visible.
+ */
+const gateStorage = () => {
+  const manager = navigator.storage
+  const original = manager.getDirectory.bind(manager)
+  manager.getDirectory = async () => {
+    if (window.holdStorage === true) {
+      window.storageHeldCalls = (window.storageHeldCalls ?? 0) + 1
+      await new Promise<void>((resolve) => {
+        // Other requests may wait here too (the storage panel refreshes when the status changes), so the release lets
+        // all of them go rather than only the latest.
+        const earlier = window.releaseStorage
+        window.releaseStorage = () => {
+          earlier?.()
+          resolve()
+        }
+      })
+    }
+
+    return await original()
+  }
+}
+
+/** Sets the gate, clicks Accept, and waits until storage opening is held there; false when it never was. */
+const acceptWithStorageHeld = async (page: Page) => {
+  await page.evaluate(() => {
+    window.holdStorage = true
+  })
+  await page.getByRole("button", { name: /^Accept/u }).click()
+
+  return await page
+    .waitForFunction(() => (window.storageHeldCalls ?? 0) > 0, undefined, { timeout: 10_000 })
+    .then(() => true)
+    .catch(() => false)
+}
+
+/** Lets a held storage opening go on. */
+const releaseStorage = async (page: Page) => {
+  await page.evaluate(() => {
+    window.holdStorage = false
+    window.releaseStorage?.()
+    window.releaseStorage = undefined
+  })
+}
+
+/**
  * The recipient's life cycle (src/recipientPhase.ts) at the points spike 0006 found broken: R2, a failure while the offer
  * is on screen; R3, an abort while storage is opening; a rejoin while storage is opening (found in review of #18); R1,
  * saving the files fails. Faults come from the network (an
@@ -1088,27 +1143,14 @@ const recipientLifeCycle = async (browser: Browser, base: string) => {
     const recipient = await openPage(browser)
 
     try {
-      await recipient.page.addInitScript(() => {
-        const manager = navigator.storage
-        const original = manager.getDirectory.bind(manager)
-        manager.getDirectory = async () => {
-          if (Reflect.has(globalThis, "delayStorage")) {
-            await new Promise((resolve) => {
-              setTimeout(resolve, 3000)
-            })
-          }
-
-          return await original()
-        }
-      })
+      await recipient.page.addInitScript(gateStorage)
       const link = await offer(sender.page, base, payload([["hotel-storage.bin", 10_000]]))
       await recipient.page.goto(link)
       await waitForStatus(recipient.page, ["reviewing", "failed"])
-      await recipient.page.evaluate(() => Reflect.set(globalThis, "delayStorage", true))
-      await recipient.page.getByRole("button", { name: /^Accept/u }).click()
-      await recipient.page.waitForTimeout(500)
+      check(await acceptWithStorageHeld(recipient.page), "life cycle: storage opening is held for the abort (R3)")
       abortRecipient(recipient.observed)
-      await recipient.page.waitForTimeout(4000)
+      await waitForStatus(recipient.page, ["failed"], 10_000).catch(() => undefined)
+      await releaseStorage(recipient.page)
       const locks = await settledLocks(recipient.page)
       check((await status(recipient.page)) === "failed" && locks === 0, "life cycle: an abort while storage opens stays failed and releases the storage (R3)", {
         status: await status(recipient.page),
@@ -1126,28 +1168,22 @@ const recipientLifeCycle = async (browser: Browser, base: string) => {
     const recipient = await openPage(browser, true, false, false)
 
     try {
-      await recipient.page.addInitScript(() => {
-        const manager = navigator.storage
-        const original = manager.getDirectory.bind(manager)
-        manager.getDirectory = async () => {
-          if (Reflect.has(globalThis, "delayStorage")) {
-            await new Promise((resolve) => {
-              setTimeout(resolve, 6000)
-            })
-          }
-
-          return await original()
-        }
-      })
+      await recipient.page.addInitScript(gateStorage)
       const link = await offer(sender.page, base, payload([["juliet-rejoin.bin", 10_000]]))
       await recipient.page.goto(link)
       await waitForStatus(recipient.page, ["reviewing", "failed"])
-      await recipient.page.evaluate(() => Reflect.set(globalThis, "delayStorage", true))
-      await recipient.page.getByRole("button", { name: /^Accept/u }).click()
-      await recipient.page.waitForTimeout(500)
+      check(await acceptWithStorageHeld(recipient.page), "life cycle: storage opening is held for the rejoin")
       await cutSocket(recipient.observed, "clean")
-      await recipient.page.waitForTimeout(3000)
-      const whileOpening = await status(recipient.page)
+      const deadline = Date.now() + 10_000
+
+      while (recipient.observed.sockets.length < 2 && Date.now() < deadline) {
+        await recipient.page.waitForTimeout(100)
+      }
+
+      const whileOpening = await waitForStatus(recipient.page, ["transferring"], 5000)
+        .then(async () => await status(recipient.page))
+        .catch(async () => await status(recipient.page))
+
       check(
         recipient.observed.sockets.length >= 2 && whileOpening === "transferring",
         "life cycle: rejoined while storage opens, the page says it is receiving",
@@ -1156,6 +1192,7 @@ const recipientLifeCycle = async (browser: Browser, base: string) => {
           sockets: recipient.observed.sockets.length,
         },
       )
+      await releaseStorage(recipient.page)
       await waitForStatus(recipient.page, ["complete", "failed"])
       check((await status(recipient.page)) === "complete", "life cycle: and the transfer then completes", await status(recipient.page))
     } finally {
