@@ -2,7 +2,7 @@
  * Calls from the Worker into Durable Objects, which can throw instead of answering: a transient platform error, a
  * code update resetting the object, or an overloaded object. Cloudflare marks these with `retryable` and `overloaded`
  * (https://developers.cloudflare.com/durable-objects/best-practices/error-handling/): retry with a new stub when
- * `retryable` is true, and never when `overloaded` is true. Spike 0003 saw one such throw in 76 room creations on a
+ * `retryable` is true, and never when `overloaded` is true. Spike 0003 saw one such throw in 62 room creations on a
  * Preview, which reached the client as Cloudflare's HTML error page (docs/spikes/0003-relay-load.md).
  */
 
