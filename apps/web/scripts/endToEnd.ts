@@ -22,7 +22,9 @@
  * - `latency`: 128 MB throughput through scripts/latencyProxy.ts at round trips of 0, 50, 150 and 300 ms (local only);
  * - `large`: one transfer of `E2E_LARGE_GB` gigabytes (default 10) from a sparse file with random markers every GiB,
  *   checked by size and by sampling the markers and the zeros between them, since a browser cannot hash 10 GB in
- *   memory; the parcel's labels already check every record's contents. Set `E2E_TIMEOUT_MS` to a few hours.
+ *   memory; the parcel's labels already check every record's contents. Set `E2E_TIMEOUT_MS` to a few hours;
+ * - `scenario`: one transfer scenario (`E2E_SCENARIO`, default half-open) `E2E_REPEAT` times (default 10), to chase a
+ *   failure that shows up in a few runs out of many.
  */
 import { createHash, randomBytes } from "node:crypto"
 import { closeSync, ftruncateSync, mkdtempSync, openSync, rmSync, writeFileSync, writeSync } from "node:fs"
@@ -74,6 +76,18 @@ const launchOptionsByBrowser = new Map<string, LaunchOptions>([
 ])
 
 const launchOptions: LaunchOptions = launchOptionsByBrowser.get(browserName) ?? {}
+
+/**
+ * WebKit sends data channel messages from a queue and, when a send fails there (the channel's transport went away under
+ * it, as when the other side replaces the direct path after a reconnect), logs "Error sending binary data through
+ * RTCDataChannel." to the console instead of throwing (WebCore RTCDataChannel::createMessageQueue). Playwright's WebKit
+ * driver reports every JavaScript console error as a page error (wkPage.ts, _onConsoleMessage), so this message would
+ * read as an uncaught exception. It is not one, and the app cannot catch it: the records it lost are requested again,
+ * and the transfer's byte-identical check covers that. Any other page error still fails the check.
+ */
+const webKitSendFailures = new Set(["Error sending binary data through RTCDataChannel.", "Error sending string through RTCDataChannel."])
+
+const isWebKitSendFailure = (message: string): boolean => browserName === "webkit" && webKitSendFailures.has(message)
 
 const suite = process.env.E2E_SUITE ?? "standard"
 const timeoutMilliseconds = Number(process.env.E2E_TIMEOUT_MS ?? 180_000)
@@ -235,7 +249,11 @@ const openPage = async (browser: Browser, routed = true, persistent = false, dir
   const observed: Observed = { urls: [], frames: [], sockets: [] }
   const errors: string[] = []
   page.on("request", (request) => observed.urls.push(request.url()))
-  page.on("pageerror", (error) => errors.push(error.message))
+  page.on("pageerror", (error) => {
+    if (!isWebKitSendFailure(error.message)) {
+      errors.push(error.message)
+    }
+  })
 
   if (routed) {
     await page.routeWebSocket(/\/api\/rooms\/.+\/socket/u, (socket) => {
@@ -394,7 +412,11 @@ const checkNothingLeaks = (link: string, files: readonly PayloadFile[], observed
   check(leaks.length === 0, "no request URL or socket frame carries the secret or a file name", leaks.slice(0, 5))
 }
 
-type TransferScenario = "basic" | "resume" | "half-open" | "throughput" | "latency"
+const transferScenarios = ["basic", "resume", "half-open", "throughput", "latency"] as const
+
+type TransferScenario = (typeof transferScenarios)[number]
+
+const isTransferScenario = (value: string): value is TransferScenario => transferScenarios.some((name) => name === value)
 
 /** File names and sizes per scenario. */
 type PayloadPlan = { readonly [Scenario in TransferScenario]: readonly (readonly [string, number])[] }
@@ -949,6 +971,18 @@ const browser = await browserType.launch(launchOptions)
 try {
   if (suite === "large") {
     await large(browser, base)
+  } else if (suite === "scenario") {
+    const scenario = process.env.E2E_SCENARIO ?? "half-open"
+    const repeats = Number(process.env.E2E_REPEAT ?? 10)
+
+    if (!isTransferScenario(scenario)) {
+      throw new Error(`E2E_SCENARIO must be one of ${transferScenarios.join(", ")}, not ${scenario}`)
+    }
+
+    for (let run = 1; run <= repeats; run++) {
+      console.log(`run ${run} of ${repeats}`)
+      await transfer(browser, base, scenario)
+    }
   } else if (suite === "latency") {
     check(local !== undefined, "the latency suite runs against the local server only")
     await latency(browser, base)
