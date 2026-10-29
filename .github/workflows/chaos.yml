@@ -1,0 +1,51 @@
+name: chaos
+
+# Transfers under seeded faults (apps/web/scripts/faultPlan.ts, the chaos suite of scripts/endToEnd.ts): sockets cut
+# cleanly or half-open, stalled, blackholed or slowed, records replayed by the relay, direct paths killed. Every night
+# on main with fresh seeds, and by hand with a seed to replay a failure:
+#   gh workflow run chaos.yml -f seed=1234 -f runs=1 -f browsers=webkit
+# A failing run prints its plan and the seed that replays it. Not a required check: new seeds find new failures, and
+# each one is a bug to fix, not a reason to block an unrelated pull request.
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      seed:
+        description: First seed (empty for a random one)
+        default: ""
+      runs:
+        description: Runs per browser
+        default: "8"
+      browsers:
+        description: Browsers, as a JSON list
+        default: '["chromium", "firefox", "webkit"]'
+
+permissions:
+  contents: read
+
+jobs:
+  chaos:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: ${{ fromJSON(inputs.browsers || '["chromium", "firefox", "webkit"]') }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bunx playwright install --with-deps ${{ matrix.browser }}
+        working-directory: apps/web
+      - name: Chaos runs against wrangler dev
+        working-directory: apps/web
+        env:
+          E2E_BROWSER: ${{ matrix.browser }}
+          E2E_SUITE: chaos
+          E2E_SEED: ${{ inputs.seed }}
+          E2E_RUNS: ${{ inputs.runs || '8' }}
+        run: |
+          # An empty E2E_SEED would read as 0; leave it unset for a random seed.
+          if [ -z "$E2E_SEED" ]; then unset E2E_SEED; fi
+          bun scripts/endToEnd.ts
