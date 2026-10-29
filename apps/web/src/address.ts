@@ -1,8 +1,9 @@
 /**
  * The page's address, read in one place. The URL fragment carries the link secret (docs/parcel.md, "Secrets and
  * link"), which must never reach a log, a request or a report by accident. Only `linkFragment` returns it, and a lint
- * rule (vite.config.ts) rejects `location` and the other properties that expose the page's URL in every other module
- * (a read through Reflect, or a computed property named by a variable, still gets past it).
+ * rule (vite.config.ts) rejects the common reads of the page's URL in every other module. It guards against a
+ * mistake, not a determined read (a form's `action` or a prototype getter still return the URL); the end-to-end leak
+ * check is the proof that nothing secret leaves the browser.
  */
 
 /** The page's origin, for building links: `https://host[:port]`, never with a path or fragment. */

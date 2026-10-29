@@ -80,13 +80,16 @@ export default defineConfig({
       {
         // The link secret lives in the URL fragment (docs/invariants.md, C1). Shipped browser code reads the page's
         // address only through apps/web/src/address.ts, so the fragment cannot reach a log, a request or a report from
-        // anywhere else by accident. The routes to the URL below are closed too; a read through Reflect, or a computed
-        // property whose name is a variable, still gets past a lint rule.
+        // anywhere else by accident. The common routes to the URL below are closed too; this guards against a mistake,
+        // not a determined read (a form's action, a prototype getter), which the end-to-end leak check catches.
         files: ["apps/web/src/**/*.ts", "libraries/*/src/**/*.ts"],
         rules: {
           "eslint/no-restricted-globals": [
             "error",
-            { name: "location", message: "Read the page's address through apps/web/src/address.ts: the fragment holds the link secret." },
+            {
+              name: "location",
+              message: "Read the page's address through apps/web/src/address.ts: the fragment holds the link secret.",
+            },
             { name: "navigation", message: "The Navigation API exposes the page's URL, fragment included; use apps/web/src/address.ts." },
           ],
           // Any object's property, not only window's or document's: `w.location` after `const w = window`,
@@ -96,7 +99,8 @@ export default defineConfig({
             ...["location", "URL", "documentURI", "baseURI", "navigation", "newURL", "oldURL", "getEntries", "getEntriesByType", "getEntriesByName"].map(
               (property) => ({
                 property,
-                message: "This exposes the page's URL, fragment and link secret included; read the address through apps/web/src/address.ts.",
+                message:
+                  "May expose the page's URL, link secret included: read the address through apps/web/src/address.ts. Bare `URL` and `performance.now()` are fine; for an unrelated object's property of this name, disable the line with a reason.",
               }),
             ),
           ],
