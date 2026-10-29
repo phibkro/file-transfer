@@ -13,6 +13,7 @@ import { mkdirSync, writeFileSync } from "node:fs"
 import nodePath from "node:path"
 import { chromium, firefox, webkit } from "playwright"
 import type { Browser, Page, WebSocketRoute } from "playwright"
+import { recordBlobBodies } from "../requestBodies.ts"
 
 const journeys = ["send-receive", "decline", "wrong-key", "resume"] as const
 
@@ -75,6 +76,10 @@ const openProfile = async (label: string) => {
     })
   }
 
+  // Blob and File bodies, which Playwright's request events do not carry in Chromium and WebKit (../requestBodies.ts).
+  await recordBlobBodies(context, (bytes) => {
+    sent.push({ page: label, kind: "body", text: bytes.toString("latin1") })
+  })
   const page = await context.newPage()
   page.on("request", (request) => {
     sent.push({ page: label, kind: "url", text: request.url() })

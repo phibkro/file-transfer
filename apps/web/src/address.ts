@@ -3,8 +3,8 @@
  * link"), which must never reach a log, a request or a report by accident. Only `linkFragment` returns it, and a lint
  * rule (vite.config.ts) rejects the common reads of the page's URL in every other module. It guards against a
  * mistake, not a determined read (a form's `action` or a prototype getter still return the URL); the end-to-end leak
- * check (every request URL and socket frame, and request bodies Playwright can see: Blob and File bodies only in
- * Firefox) is the evidence that nothing secret leaves the browser.
+ * check (every request URL, request body and socket frame; a ReadableStream body excepted) is the evidence that
+ * nothing secret leaves the browser.
  */
 
 /** The page's origin, for building links: `https://host[:port]`, never with a path or fragment. */

@@ -50,6 +50,7 @@ import { blackhole, browserInHome, build as buildLab, hasNetem, impair, moveRout
 import type { Impairment, LabSide, NatBehaviour } from "./networkLab.ts"
 import type { Fault, FaultPlan, Side } from "./faultPlan.ts"
 import { startLatencyProxy } from "./latencyProxy.ts"
+import { recordBlobBodies } from "./requestBodies.ts"
 
 declare global {
   interface Window {
@@ -71,8 +72,8 @@ interface PayloadFile {
 interface Observed {
   readonly urls: string[]
   /**
-   * Request bodies the page sent (round 3 review of #27: a body can carry the URL too). Playwright reports string and
-   * buffer bodies in every browser, but Blob and File bodies only in Firefox (round 4 review of #27).
+   * Request bodies the page sent (round 3 review of #27: a body can carry the URL too): what Playwright reports, plus
+   * Blob, File, FormData and Request bodies, which it does not report in Chromium and WebKit (requestBodies.ts).
    */
   readonly bodies: Buffer[]
   readonly frames: Buffer[]
@@ -387,8 +388,12 @@ const openPage = async (browser: Browser, routed = true, persistent = false, dir
       }
     }
   })
-  const page = await context.newPage()
   const observed: Observed = { urls: [], bodies: [], frames: [], sockets: [], cutBeforeText: undefined, silentSockets: 0 }
+  // Blob and File bodies, which Playwright's request events do not carry in Chromium and WebKit (requestBodies.ts).
+  await recordBlobBodies(context, (bytes) => {
+    observed.bodies.push(bytes)
+  })
+  const page = await context.newPage()
   const errors: string[] = []
   page.on("request", (request) => {
     observed.urls.push(request.url())
@@ -560,8 +565,8 @@ const offer = async (sender: Page, base: string, files: readonly PayloadFile[]) 
 }
 
 /**
- * The invariant from CLAUDE.md, as seen from the browsers: no request URL, socket frame or visible request body they
- * send carries the secret or a file name (Blob and File bodies are visible in Firefox only; see Observed.bodies).
+ * The invariant from CLAUDE.md, as seen from the browsers: no request URL, request body or socket frame they send
+ * carries the secret or a file name (a body sent as a ReadableStream is not read; see requestBodies.ts).
  */
 const checkNothingLeaks = (link: string, files: readonly PayloadFile[], observedList: readonly Observed[]) => {
   const secret = new URL(link).hash.slice(1)
