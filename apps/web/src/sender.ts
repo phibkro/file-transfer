@@ -125,12 +125,23 @@ const prepare = async (entries: readonly Entry[], onProgress: (done: number, tot
   return { sealer, contract: await sealer.sealContract(labels), readRecord, linkSecret }
 }
 
-const createRoom = async (roomTokenHash: string): Promise<string> => {
-  const response = await fetch("/api/rooms", {
+const requestRoom = async (roomTokenHash: string): Promise<Response> =>
+  await fetch("/api/rooms", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ roomTokenHash, maximumRecipients: 1 }),
   })
+
+const createRoom = async (roomTokenHash: string): Promise<string> => {
+  let response = await requestRoom(roomTokenHash)
+
+  // A server error names no room, so asking once more after a second is safe (docs/spikes/0003-relay-load.md).
+  if (response.status >= 500) {
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 1000)
+    })
+    response = await requestRoom(roomTokenHash)
+  }
 
   if (response.status === 429) {
     throw new TransferError("rate-limited", `Try again in ${waitText(response.headers.get("retry-after"))}.`)

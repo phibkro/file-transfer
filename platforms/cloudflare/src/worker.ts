@@ -15,6 +15,7 @@
 import type { DurableObjectNamespace, ExecutionContext, Fetcher } from "cloudflare:workers"
 import { constantTimeEqual, toHex } from "@file-transfer/parcel"
 import { countersEnabled } from "./counters.ts"
+import { unavailable, withOneRetry } from "./durableObjectCalls.ts"
 import { publicLimits, readLimits, retryAfterMillisecondsOf } from "./limits.ts"
 import type { LimitVariables, Limits } from "./limits.ts"
 import { counterStore, recordEvents } from "./recordEvents.ts"
@@ -58,21 +59,25 @@ const clientKeyOf = async (request: Request, environment: Environment, limits: L
   return toHex(new Uint8Array(await crypto.subtle.digest("SHA-256", material)))
 }
 
-/** Asks the client key's admission object for one more room; a `Response` when refused. */
+/** Asks the client key's admission object for one more room; a `Response` when refused or unreachable. */
 const admit = async (request: Request, environment: Environment, limits: Limits): Promise<Response | undefined> => {
   const clientKey = await clientKeyOf(request, environment, limits)
-  const admission = environment.ADMISSION.get(environment.ADMISSION.idFromName(clientKey))
+  const body = JSON.stringify({ maximumRoomsPerWindow: limits.roomsPerAddressPerHour, windowMilliseconds: hourMilliseconds })
 
-  const answer = await admission.fetch("https://admission/admit", {
-    method: "POST",
-    body: JSON.stringify({ maximumRoomsPerWindow: limits.roomsPerAddressPerHour, windowMilliseconds: hourMilliseconds }),
-  })
+  // A retry after a lost answer can count one room twice against the client; that errs on the strict side.
+  const answer = await withOneRetry(
+    async () => await environment.ADMISSION.get(environment.ADMISSION.idFromName(clientKey)).fetch("https://admission/admit", { method: "POST", body }),
+  )
 
-  if (answer.status === 204) {
+  if (!answer.reached) {
+    return unavailable()
+  }
+
+  if (answer.value.status === 204) {
     return undefined
   }
 
-  const retryAfterMilliseconds = retryAfterMillisecondsOf(await answer.json().catch(() => undefined), hourMilliseconds)
+  const retryAfterMilliseconds = retryAfterMillisecondsOf(await answer.value.json().catch(() => undefined), hourMilliseconds)
 
   const retryAfterSeconds = String(Math.max(1, Math.ceil(retryAfterMilliseconds / 1000)))
 
@@ -109,17 +114,25 @@ const createRoom = async (request: Request, environment: Environment, context: E
     return refused
   }
 
-  const roomIdentifier = encodeRoomIdentifier(crypto.getRandomValues(new Uint8Array(16)))
-  const room = environment.ROOMS.get(environment.ROOMS.idFromName(roomIdentifier))
-  const created = await room.fetch("https://room/create", { method: "POST", body: JSON.stringify(record) })
+  // Each attempt names a new room, so a retry never meets a half-created one.
+  const created = await withOneRetry(async () => {
+    const candidate = encodeRoomIdentifier(crypto.getRandomValues(new Uint8Array(16)))
 
-  if (created.status !== 201) {
-    return json(503, { error: "room not created" })
+    const answer = await environment.ROOMS.get(environment.ROOMS.idFromName(candidate)).fetch("https://room/create", {
+      method: "POST",
+      body: JSON.stringify(record),
+    })
+
+    return answer.status === 201 ? candidate : undefined
+  })
+
+  if (!created.reached || created.value === undefined) {
+    return unavailable()
   }
 
   context.waitUntil(recordEvents(environment, [{ kind: "room-created" }]))
 
-  return json(201, { roomIdentifier })
+  return json(201, { roomIdentifier: created.value })
 }
 
 /** Whether the request carries the operator's admin token; compared in constant time. */
@@ -194,7 +207,9 @@ export default {
         return json(426, { error: "expected a WebSocket upgrade" })
       }
 
-      return await environment.ROOMS.get(environment.ROOMS.idFromName(roomIdentifier)).fetch(request)
+      const answer = await withOneRetry(async () => await environment.ROOMS.get(environment.ROOMS.idFromName(roomIdentifier)).fetch(request))
+
+      return answer.reached ? answer.value : unavailable()
     }
 
     if (url.pathname.startsWith("/api/")) {

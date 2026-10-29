@@ -6,6 +6,7 @@
  * encrypted, because the relay neither knows nor cares.
  *
  * Usage: node --experimental-strip-types load.ts <base url> <scenario> [...]   (scenarios below; one JSON line per room on stdout)
+ * With COMPRESSION=on the clients offer permessage-deflate, as every browser does; by default they do not.
  *
  * Runs under Node, not Bun: Bun replaces the `ws` package with its own, which cannot stop reading. `ws` can pause its TCP socket, which a browser cannot do
  * on purpose; a paused reader is how a slow phone on a bad network looks to the relay.
@@ -13,6 +14,7 @@
 import WebSocket from "ws"
 
 const recordBytes = 64 * 1024
+const compression = process.env.COMPRESSION === "on"
 const window = 256
 const creditBatch = 64
 
@@ -47,7 +49,7 @@ const frame = (index: number, payload: Uint8Array): Uint8Array => {
 }
 
 const join = async (base: string, roomIdentifier: string, role: "sender" | "recipient", roomToken: Uint8Array) => {
-  const socket = new WebSocket(`${base.replace(/^http/u, "ws")}/api/rooms/${roomIdentifier}/socket`, { perMessageDeflate: false })
+  const socket = new WebSocket(`${base.replace(/^http/u, "ws")}/api/rooms/${roomIdentifier}/socket`, { perMessageDeflate: compression })
   socket.binaryType = "arraybuffer"
   await new Promise<void>((resolve, reject) => {
     socket.once("open", () => resolve())
@@ -77,6 +79,8 @@ interface RoomResult {
   readonly senderClose: string
   readonly recipientClose: string
   readonly pausedMilliseconds: number
+  /** The extensions the server answered with: what the clients actually negotiated. */
+  readonly extensions: string
 }
 
 /** One room: `records` records from sender to recipient; the recipient stops reading for `pauseMilliseconds` once. */
@@ -179,6 +183,7 @@ const runRoom = async (base: string, scenario: string, rooms: number, room: numb
     senderClose,
     recipientClose,
     pausedMilliseconds: pauseMilliseconds,
+    extensions: sender.extensions,
   }
 }
 

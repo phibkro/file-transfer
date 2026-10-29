@@ -59,7 +59,12 @@
         "platform": "portable"
       },
       {
-        "files": ["libraries/parcel/src/**", "tools/quality/src/moduleGraph.ts", "platforms/self-hosted/src/assetRouting.ts"],
+        "files": [
+          "libraries/parcel/src/**",
+          "tools/quality/src/moduleGraph.ts",
+          "platforms/self-hosted/src/assetRouting.ts",
+          "platforms/cloudflare/src/durableObjectCalls.ts"
+        ],
         "role": "pure-library",
         "platform": "portable"
       },

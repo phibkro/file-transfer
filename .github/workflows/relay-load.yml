@@ -11,6 +11,10 @@ on:
         description: Scenarios to run, separated by spaces (see spikes/0003-relay-load/load.ts)
         required: true
         default: single four sixteen slow slowEight slowThirtyTwo
+      compression:
+        description: Offer permessage-deflate, as browsers do (on or off)
+        required: true
+        default: "off"
 
 permissions:
   contents: read
@@ -55,6 +59,7 @@ jobs:
         env:
           PREVIEW_URL: ${{ steps.deploy.outputs.url }}
           SCENARIOS: ${{ inputs.scenarios }}
+          COMPRESSION: ${{ inputs.compression }}
         run: |
           npm install --no-audit --no-fund
           # shellcheck disable=SC2086
