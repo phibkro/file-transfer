@@ -75,6 +75,7 @@
           "tools/quality/src/changesets.ts",
           "tools/quality/src/releaseNotes.ts",
           "tools/quality/src/stateMachines.ts",
+          "tools/quality/src/lockfile.ts",
           "platforms/self-hosted/src/assetRouting.ts",
           "platforms/cloudflare/src/durableObjectCalls.ts",
           "platforms/cloudflare/src/directSettings.ts"
