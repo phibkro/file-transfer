@@ -19,7 +19,8 @@
     "check:vectors": "python3 -I libraries/parcel/test/vectors/verify.py",
     "check:changesets": "bun tools/quality/src/checkChangesets.ts",
     "release:prepare": "bun tools/quality/src/prepareRelease.ts",
-    "release:notes": "bun tools/quality/src/releaseNotesFor.ts"
+    "release:notes": "bun tools/quality/src/releaseNotesFor.ts",
+    "docs:machines": "bun tools/quality/src/writeStateMachines.ts"
   },
   "dependencies": {
     "effect": "^4.0.7"

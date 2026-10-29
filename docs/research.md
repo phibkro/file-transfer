@@ -57,6 +57,30 @@ This file keeps the numbers and findings that drove decisions, as read on 2026-1
 - Rust for native nodes (iroh 1.4.1) and CLI in phase 4, as a second implementation of parcels checked by shared vectors.
 - BEAM is strong for rooms and relays but would duplicate every service; it cannot run on Workers. JVM offers no decisive advantage.
 
+## Prior art for the protocol (2026-10-29)
+
+Checked against 17 systems (magic-wormhole, croc, Firefox Send, RFC 8188, Thunderbird Send, Wormhole.app, FilePizza, PairDrop, Tahoe-LAFS, BitTorrent v2, Hypercore, IPFS, iroh, Syncthing, age, STREAM, SIV). No system had more than about four of our eight properties.
+
+- Established, cite rather than claim: the key in the URL fragment (Firefox Send, Wormhole.app), streaming record encryption (RFC 8188, age STREAM), a direct path with relay fallback (magic-wormhole Dilation, croc, iroh; PairDrop is the same idea as our direct path), recipient-driven fetching of missing pieces (BitTorrent, Bitswap, iroh-blobs), deterministic authenticated encryption (SIV, RFC 8452).
+- Not found elsewhere: relays and stores that check ciphertext against public labels and Merkle pages without a key, inside a link-key end-to-end scheme. In parcel v1 the root is sealed in the manifest, so a keyless carrier checks that records and pages are consistent with one root, not that the root is the contract's (ADR 0024). Tahoe-LAFS and BitTorrent check without a key but have no link-key encryption; Wormhole.app encrypts its torrent metadata, so its server cannot check pieces; Syncthing's untrusted devices cannot verify at all.
+- A combination, not a primitive: deterministic per-record sealing that drives resume and repair. It reveals record equality only for the same record position in the same parcel, since the nonce binds the counter and the per-parcel salt (`parcel.md`).
+- Sources: magic-wormhole.readthedocs.io (transit, dilation-protocol), github.com/mozilla/send (docs/encryption.md), rfc-editor.org/rfc/rfc8188, wormhole.app/security, tahoe-lafs.readthedocs.io (architecture, file-encoding), bittorrent.org/beps/bep_0052.html, docs.rs/iroh-blobs, docs.syncthing.net/specs/untrusted.html, C2SP age.md, eprint.iacr.org/2015/189, rfc-editor.org/rfc/rfc8452.
+
+## Incentives for intermediaries (2026-10-29)
+
+Input to ADR 0024.
+
+- Storj: client-side encryption, paid operators, pays in USDC and "no longer pays out in STORJ tokens" (storj.dev/node/payouts); vets nodes and withholds early earnings against Sybil operators (static.storj.io/storjv3.pdf).
+- Filecoin: utilisation 7.6% of 12.2 EiB in Q2 2023 (Cointelegraph), 36% of 3.0 EiB in Q3 2025 (Messari, via KuCoin); retrieval is "a separate process that isn't always provable" (wp.filecointldr.io, ?p=2090); PDP proves possession with Merkle challenges (docs.filecoin.io/provide-storage/pdp/about).
+- Swarm: bandwidth cheques and postage stamps; 1,304 of 1,649 staking nodes in Finland in June 2026 (ethswarm.org blog).
+- Nym: "rewards from our finite mixmining pool do not match usage of the network" (nym.com/blog/nym-roadmap-2026); users pay with anonymous credentials.
+- Orchid: probabilistic tickets on Ethereum; winning tickets can link a user to providers (Orchid whitepaper).
+- Tor: 9,147 volunteer relays on 2026-10-26 (metrics.torproject.org); none of six incentive proposals deployed (blog.torproject.org, incentives research roundup).
+- Fair exchange per chunk: Fair Data Exchange over Lightning uses KZG commitments and a SNARK, research only (arXiv 2506.14944).
+- Metered relays: Cloudflare TURN $0.05/GB after 1,000 GB free; Twilio $0.40/GB in the US and Europe.
+- MiCA: Norway's implementing act in force since 2025-07-01 (Schjødt); utility token definition in Art. 3(1)(9) (EUR-Lex 32023R1114). Paying relay operators in an existing token: not verified, needs a lawyer.
+- Firefox Send was shut down over malware and phishing abuse (support.mozilla.org, what-happened-firefox-send).
+
 ## Business
 
 - Merchant of record when charging starts: Stripe Managed Payments (3.5% plus 0.7% Billing, Norway supported, eligibility review), else Paddle (5% plus $0.50).

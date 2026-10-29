@@ -14,7 +14,7 @@ One meaning per term, used the same way in code, docs and conversation. Code nam
 | Record          | The unit of encryption and resume: one AES-256-GCM sealed block with a synthetic nonce. Data records carry `2^recordSizeExponent` plaintext bytes (the last may be shorter); manifest records carry 4 KiB. Product docs call a data record a piece. | `sealRecord`, `sealData`, `openData`           |
 | Label           | A data record's RFC 6962 leaf hash, computed in the labelling pass before anything is sent.                                                                                                                                                         | `labelRecords`, `labelOf`                      |
 | Labelling pass  | The sender's first pass: seal every data record once and keep only its label. Deterministic sealing makes the sending pass reproduce the same records.                                                                                              | `labelRecords`                                 |
-| Root            | The RFC 6962 Merkle root over all labels, part of the contract. Lets recipients, stores and seeds verify each record without keys.                                                                                                                  | `rootHash`, `treeHash`                         |
+| Root            | The RFC 6962 Merkle root over all labels, sealed in the manifest. Lets recipients verify each record; stores and seeds without keys can check pieces only against a root they computed from label pages.                                            | `rootHash`, `treeHash`                         |
 | Label page      | Up to 1024 labels plus an audit path proving they belong to the root, sent in plaintext ahead of the records they cover.                                                                                                                            | `labelPage`, `verifyPage`                      |
 | Breach          | A data record that differs from its label: the recipient stops at that record, discards provisional output and reports it. The sender's own check is `source-changed`.                                                                              | `label-mismatch`                               |
 | Frame           | The unit a path carries: a record or page split (or several packed) to fit the path's message size. Not part of the parcel.                                                                                                                         | `Frame`, `frameRecord` (`libraries/transport`) |
@@ -33,16 +33,17 @@ One meaning per term, used the same way in code, docs and conversation. Code nam
 
 ## People and nodes
 
-| Term      | Meaning                                                                                          |
-| --------- | ------------------------------------------------------------------------------------------------ |
-| Sender    | The endpoint that seals a parcel.                                                                |
-| Recipient | An endpoint that opens it. A transfer may have several.                                          |
-| Endpoint  | A sender or recipient: the only nodes that ever hold keys.                                       |
-| Node      | Any participant. Roles: endpoint, relay, store, seed; one node may hold several (design R9).     |
-| Relay     | A node that forwards ciphertext frames between endpoints live, without storing them.             |
-| Store     | A node that keeps a parcel for later download (phase 2).                                         |
-| Seed      | A node that serves parts of a stored parcel to other nodes, verified by the root hash (phase 4). |
-| Network   | A declared set of relays, stores and seeds a transfer is allowed to use (design R10).            |
+| Term      | Meaning                                                                                            |
+| --------- | -------------------------------------------------------------------------------------------------- |
+| Sender    | The endpoint that seals a parcel.                                                                  |
+| Recipient | An endpoint that opens it. A transfer may have several.                                            |
+| Endpoint  | A sender or recipient: the only nodes that ever hold keys.                                         |
+| Node      | Any participant. Roles: endpoint, relay, store, seed; one node may hold several (design R9).       |
+| Relay     | A node that forwards ciphertext frames between endpoints live, without storing them.               |
+| Store     | A node that keeps a parcel for later download (phase 2).                                           |
+| Seed      | A node that serves parts of a stored parcel to other nodes, checked against label pages (phase 4). |
+| Carrier   | Any relay, store or seed: a node that carries ciphertext it can check but not read (ADR 0024).     |
+| Network   | A declared set of relays, stores and seeds a transfer is allowed to use (design R10).              |
 
 ## Moving a parcel (data and control planes)
 
