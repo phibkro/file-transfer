@@ -1228,6 +1228,10 @@ interface LabScenario {
 /** A home connection: 40 Mbit/s each way, so a transfer lasts long enough for a direct path to open and take over. */
 const broadband: Impairment = { rateMegabits: 40 }
 
+/** Applied at the router in each direction, so the round trip grows by twice the delay. */
+const mobileData: Impairment = { delayMilliseconds: 40, lossPercent: 1, rateMegabits: 20 }
+const badLink: Impairment = { delayMilliseconds: 100, lossPercent: 3 }
+
 /** The sender sits behind router a, the recipient behind router b. */
 const labScenarios: readonly LabScenario[] = [
   // A direct path through NAT takes a second or two to open, and a small transfer on a fast relay is done by then, so
@@ -1237,19 +1241,23 @@ const labScenarios: readonly LabScenario[] = [
   { name: "one symmetric NAT", nat: { a: "open", b: "symmetric" } },
   { name: "UDP blocked at the sender", nat: { a: "udp-blocked", b: "open" }, expectedPath: "relay" },
   { name: "8 Mbit/s uplink", nat: { a: "open", b: "open" }, impairment: { a: { rateMegabits: 8 } } },
+  // The recipient on a mobile-like link: its router adds 40 ms each way and drops 1% each way. No jitter: netem's
+  // jitter reorders packets far more than real networks do. Run twice, direct and relay only, to compare the paths.
+  { name: "mobile data (80 ms more round trip, 1% loss, 20 Mbit/s)", nat: { a: "open", b: "open" }, impairment: { b: mobileData }, needsNetem: true },
   {
-    name: "mobile data (60 ms, jitter 15 ms, 1% loss, 20 Mbit/s)",
-    nat: { a: "open", b: "open" },
-    impairment: {
-      a: { delayMilliseconds: 60, jitterMilliseconds: 15, lossPercent: 1, rateMegabits: 20 },
-      b: { delayMilliseconds: 60, jitterMilliseconds: 15, lossPercent: 1, rateMegabits: 20 },
-    },
+    name: "mobile data (80 ms more round trip, 1% loss, 20 Mbit/s), relay only",
+    nat: { a: "symmetric", b: "symmetric" },
+    impairment: { b: mobileData },
     needsNetem: true,
   },
+  // A poor link: 200 ms more round trip and 3% loss each way; slow by nature (about 60 KB/s for TCP by Mathis'
+  // estimate), so 4 MB, which must still arrive whole.
+  { name: "bad link (200 ms more round trip, 3% loss)", nat: { a: "open", b: "open" }, impairment: { b: badLink }, megabytes: 4, needsNetem: true },
   {
-    name: "bad link (150 ms, 5% loss), relay only",
+    name: "bad link (200 ms more round trip, 3% loss), relay only",
     nat: { a: "symmetric", b: "symmetric" },
-    impairment: { b: { delayMilliseconds: 150, lossPercent: 5 } },
+    impairment: { b: badLink },
+    megabytes: 4,
     needsNetem: true,
   },
   { name: "sender's router drops everything for 30 s", nat: { a: "open", b: "open" }, event: { at: 0.3, side: "a", kind: "blackhole", seconds: 30 } },

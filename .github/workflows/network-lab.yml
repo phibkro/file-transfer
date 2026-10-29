@@ -52,7 +52,8 @@ jobs:
         shell: bash
         run: |
           # sudo's secure_path would drop bun from PATH; env passes the runner's PATH and the settings through.
-          sudo env "PATH=$PATH" "PLAYWRIGHT_BROWSERS_PATH=$PLAYWRIGHT_BROWSERS_PATH" "E2E_SUITE=$E2E_SUITE" "E2E_BROWSER=$E2E_BROWSER" \
+          # Firefox refuses to run as root with the runner's XDG_RUNTIME_DIR or HOME, so root gets its own.
+          sudo env -u XDG_RUNTIME_DIR HOME=/root "PATH=$PATH" "PLAYWRIGHT_BROWSERS_PATH=$PLAYWRIGHT_BROWSERS_PATH" "E2E_SUITE=$E2E_SUITE" "E2E_BROWSER=$E2E_BROWSER" \
             ${E2E_LAB_ONLY:+"E2E_LAB_ONLY=$E2E_LAB_ONLY"} bun scripts/endToEnd.ts | tee "$RUNNER_TEMP/lab.log"
           grep '^{' "$RUNNER_TEMP/lab.log" > "$RUNNER_TEMP/lab-${{ matrix.browser }}.jsonl" || true
       - uses: actions/upload-artifact@v7
