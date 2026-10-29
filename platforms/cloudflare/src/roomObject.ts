@@ -5,8 +5,9 @@
  * ArrayBuffer frames, completing the close handshake in webSocketClose. Constraints it keeps:
  * - Storage holds the room record, written once at creation, and is never written per frame (docs/decisions/0004:
  *   on celld every write delays the frames behind it). The only other writes are the idle alarm, set at creation and
- *   when the last participant leaves, the relayed byte count, written when a socket closes, and the completed sequence
- *   number, written the first time a recipient reports `complete` (once per room).
+ *   when the last participant leaves; the relayed byte count and the bytes reported to the daily budget, written when
+ *   a socket closes; the counted outcome, once, when counting is on; and the completed sequence number, written the
+ *   first time a recipient reports `complete` (once per room).
  * - Relayed bytes (the operator's limit, limits.ts) are counted in memory on the frame path. The sender's attachment
  *   carries the count across hibernation (updated every `attachmentStepBytes`), and storage keeps it once a socket
  *   closes, so neither a pause nor a reconnect resets it.
