@@ -24,6 +24,7 @@ import {
 } from "@file-transfer/parcel"
 import type { Contract, ManifestFile, ParcelSealer, RecordReader } from "@file-transfer/parcel"
 import type { ControlMessage } from "@file-transfer/transport/protocol"
+import { pageOrigin } from "./address.ts"
 import { receiveCredit, spendCredit } from "./credits.ts"
 import type { CreditBalance } from "./credits.ts"
 import { openConnection } from "./connection.ts"
@@ -613,7 +614,7 @@ export const startSender = (root: HTMLElement) => {
       status.textContent = "Opening a room."
       const roomToken = await deriveRoomToken(prepared.linkSecret)
       const roomIdentifier = await createRoom(await hashRoomToken(roomToken))
-      const link = `${location.origin}/r/${roomIdentifier}#${encodeLinkSecret(prepared.linkSecret)}`
+      const link = `${pageOrigin()}/r/${roomIdentifier}#${encodeLinkSecret(prepared.linkSecret)}`
       progress.update(0, prepared.contract.recordCount, () => "")
       status.before(sharePanel(link))
       const direct = await directOption()

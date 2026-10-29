@@ -1,5 +1,23 @@
 # @file-transfer/platform-cloudflare
 
+## 0.5.1
+
+### Patch Changes
+
+- @file-transfer/service-quota@0.5.1
+  - @file-transfer/service-telemetry@0.5.1
+
+## 0.5.0
+
+### Minor Changes
+
+- 849482b: A room now remembers that a recipient completed and tells a sender that joins afterwards. A sender whose connection dropped just as the transfer finished, and that came back after the recipient had left, used to wait for the recipient forever; it now shows the transfer as delivered.
+
+### Patch Changes
+
+- @file-transfer/service-quota@0.5.0
+  - @file-transfer/service-telemetry@0.5.0
+
 ## 0.4.5
 
 ### Patch Changes
