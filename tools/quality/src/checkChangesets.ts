@@ -1,6 +1,8 @@
 /**
  * `bun run check:changesets`: on a pull request, fails unless it adds a changeset that names every package whose
  * shipped files it changes (changesets.ts, docs/versioning.md). Compares with `CHANGESET_BASE` (default origin/main).
+ * `CHANGESET_AUTHOR` is the pull request's author: Dependabot's updates may leave out the empty changeset when they
+ * change no shipped file, because Dependabot cannot write one.
  */
 import { Console, Effect } from "effect"
 import { parseChangeset, reviewChangesets } from "./changesets.ts"
@@ -9,6 +11,7 @@ import { loadWorkspace } from "./workspace.ts"
 
 const root = new URL("../../../", import.meta.url).pathname
 const base = process.env.CHANGESET_BASE ?? "origin/main"
+const automated = process.env.CHANGESET_AUTHOR === "dependabot[bot]"
 
 const program = Effect.gen(function* () {
   const { packages } = loadWorkspace(root)
@@ -18,6 +21,7 @@ const program = Effect.gen(function* () {
     addedChangesets: addedChangesetsSince(root, base).map(({ file, text }) => parseChangeset(file, text)),
     packages,
     ignored: ignoredPackages(root),
+    requireEmpty: !automated,
   })
 
   for (const violation of review.violations) {
