@@ -621,6 +621,17 @@ const serverKeptNoSecrets = async (scratch: string) => {
   const leaks: string[] = []
   const missingHashes: string[] = []
 
+  const texts = kept.map((file) => ({ path: file.path, text: file.bytes.toString("latin1") }))
+
+  /** Like `look`, for a needle whose spacing varies: tested against every kept file's text. */
+  const lookForPattern = (label: string, pattern: RegExp) => {
+    for (const file of texts) {
+      if (pattern.test(file.text)) {
+        leaks.push(`${file.path} holds ${label}`)
+      }
+    }
+  }
+
   const look = (label: string, needle: Buffer) => {
     for (const file of kept) {
       if (needle.length > 0 && file.bytes.includes(needle)) {
@@ -654,6 +665,9 @@ const serverKeptNoSecrets = async (scratch: string) => {
     look(`${label} (bytes)`, buffer)
     lookForText(`${label} (decimal list)`, first.join(", "))
     lookForText(`${label} (JSON array)`, first.join(","))
+    // The same values with any spacing, line breaks or index keys between them: workerd prints a byte array as a padded
+    // grid, and an object holding one serialises as {"0":89,"1":100,...} (round 3 review of #28).
+    lookForPattern(`${label} (printed bytes)`, new RegExp(`(?<![0-9])${first.join(String.raw`(?:[\s,]+|,\s*"\d{1,3}"\s*:\s*)`)}(?![0-9])`, "u"))
   }
 
   for (const [index, link] of [...leakNeedles.links].entries()) {
