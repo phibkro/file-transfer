@@ -1,5 +1,12 @@
 # @file-transfer/service-abuse
 
+## 0.4.0
+
+### Patch Changes
+
+- Updated dependencies [6fb7536]
+  - @file-transfer/conformance@0.2.0
+
 ## 0.3.0
 
 No changes in this release.
