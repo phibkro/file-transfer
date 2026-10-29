@@ -33,7 +33,8 @@
  * - `lab`: transfers between two homes behind emulated routers in Linux network namespaces (networkLab.ts): open,
  *   symmetric and UDP-blocking NATs, slow and lossy links, a router that drops everything or moves address; needs root,
  *   coturn's `turnserver`, and chromium or firefox; `E2E_LAB_ONLY` picks scenarios by name;
- * - `completion`: only the complete-in-flight check (also part of `standard`);
+ * - `completion`: only the complete-in-flight checks, with the recipient still there and after it left (also part of
+ *   `standard`);
  * - `life-cycle`: only the recipient life cycle checks (also part of `standard`);
  * - `scenario`: one transfer scenario (`E2E_SCENARIO`, default half-open) `E2E_REPEAT` times (default 10), to chase a
  *   failure that shows up in a few runs out of many.
@@ -70,6 +71,11 @@ interface PayloadFile {
 
 interface Observed {
   readonly urls: string[]
+  /**
+   * Request bodies the page sent (round 3 review of #27: a body can carry the URL too). Playwright reports string and
+   * buffer bodies in every browser, but Blob and File bodies only in Firefox (round 4 review of #27).
+   */
+  readonly bodies: Buffer[]
   readonly frames: Buffer[]
   readonly sockets: RoutedSocket[]
   /** When set, the first text frame from the server containing this is held back and the socket is cut cleanly instead. */
@@ -391,14 +397,21 @@ const openPage = async (browser: Browser, routed = true, persistent = false, dir
     }
   })
   const page = await context.newPage()
-  const observed: Observed = { urls: [], frames: [], sockets: [], cutBeforeText: undefined, silentSockets: 0 }
+  const observed: Observed = { urls: [], bodies: [], frames: [], sockets: [], cutBeforeText: undefined, silentSockets: 0 }
   const errors: string[] = []
   page.on("framenavigated", (frame) => {
     if (frame === page.mainFrame() && new URL(frame.url()).hash.length > 1) {
       leakNeedles.links.add(frame.url())
     }
   })
-  page.on("request", (request) => observed.urls.push(request.url()))
+  page.on("request", (request) => {
+    observed.urls.push(request.url())
+    const body = request.postDataBuffer()
+
+    if (body !== null) {
+      observed.bodies.push(body)
+    }
+  })
   page.on("pageerror", (error) => {
     if (!isWebKitSendFailure(error.message)) {
       errors.push(error.message)
@@ -595,8 +608,10 @@ const filesUnder = (directory: string): string[] =>
 /**
  * The invariant from CLAUDE.md, as seen from the server: after the suite's transfers, nothing the local server kept
  * (its Durable Object storage on disk and everything it printed) holds a link secret, a room token, a file name or a
- * file's contents. Each secret is looked for as the fragment text, hex and raw bytes; each token as hex and raw bytes,
- * since the server should keep only its hash; contents as a 32-byte sample from the middle of each file. As a control,
+ * file's contents. Each link's fragment, secret and room token (the server should keep only the token's hash) are
+ * looked for in the forms `lookForBytes` lists, names as text, contents as a 32-byte sample from the middle of each
+ * file; every text form as UTF-8 and UTF-16. Socket attachments are not covered (the local runtime keeps them in
+ * memory). As a control,
  * the probe must find each room token's hash in the stored state, which shows it is reading where the server keeps
  * things and not passing because it looked nowhere.
  */
@@ -615,23 +630,35 @@ const serverKeptNoSecrets = async (scratch: string) => {
   }
 
   /**
-   * The forms a byte string takes when code prints or stores it: hex, base64, base64url, raw, and the start of the
-   * decimal lists `console.log` prints for a Uint8Array and JSON writes for an array (eight bytes are enough to be unique).
+   * A text needle as UTF-8 and as UTF-16LE: V8 stores a string with any character above U+00FF as UTF-16, so a token
+   * inside a stored message with an arrow or a curly quote is not in the file as UTF-8 (round 2 review of #28).
+   */
+  const lookForText = (label: string, text: string) => {
+    look(label, Buffer.from(text))
+    look(`${label}, UTF-16`, Buffer.from(text, "utf16le"))
+  }
+
+  /**
+   * The forms a byte string takes when code prints or stores it: hex in either case, base64, base64url, raw, and the
+   * start of the decimal lists `console.log` prints for a Uint8Array and JSON writes for an array (eight bytes are
+   * enough to be unique). Every text form is looked for as UTF-8 and UTF-16.
    */
   const lookForBytes = (label: string, bytes: Uint8Array) => {
     const buffer = Buffer.from(bytes)
     const first = [...bytes.subarray(0, 8)]
-    look(`${label} (hex)`, Buffer.from(buffer.toString("hex")))
-    look(`${label} (base64)`, Buffer.from(buffer.toString("base64").replace(/=+$/u, "")))
-    look(`${label} (base64url)`, Buffer.from(buffer.toString("base64url")))
+    const hex = buffer.toString("hex")
+    lookForText(`${label} (hex)`, hex)
+    lookForText(`${label} (upper-case hex)`, hex.toUpperCase())
+    lookForText(`${label} (base64)`, buffer.toString("base64").replace(/=+$/u, ""))
+    lookForText(`${label} (base64url)`, buffer.toString("base64url"))
     look(`${label} (bytes)`, buffer)
-    look(`${label} (decimal list)`, Buffer.from(first.join(", ")))
-    look(`${label} (JSON array)`, Buffer.from(first.join(",")))
+    lookForText(`${label} (decimal list)`, first.join(", "))
+    lookForText(`${label} (JSON array)`, first.join(","))
   }
 
   for (const [index, link] of [...leakNeedles.links].entries()) {
     const fragment = new URL(link).hash
-    look(`link ${index}'s fragment`, Buffer.from(fragment.slice(1)))
+    lookForText(`link ${index}'s fragment`, fragment.slice(1))
 
     // A damaged link's fragment does not decode; its text above is all there is to look for.
     const secret = (() => {
@@ -658,7 +685,7 @@ const serverKeptNoSecrets = async (scratch: string) => {
   }
 
   for (const name of leakNeedles.names) {
-    look(`the name ${name}`, Buffer.from(name))
+    lookForText(`the name ${name}`, name)
   }
 
   for (const file of leakNeedles.files) {
@@ -675,7 +702,10 @@ const serverKeptNoSecrets = async (scratch: string) => {
   check(leaks.length === 0, "nothing the server kept holds a link secret, a room token, a file name or file contents", [...new Set(leaks)])
 }
 
-/** The invariant from CLAUDE.md, as seen from the browsers: nothing they send carries the secret or a file name. */
+/**
+ * The invariant from CLAUDE.md, as seen from the browsers: no request URL, socket frame or visible request body they
+ * send carries the secret or a file name (Blob and File bodies are visible in Firefox only; see Observed.bodies).
+ */
 const checkNothingLeaks = (link: string, files: readonly PayloadFile[], observedList: readonly Observed[]) => {
   const secret = new URL(link).hash.slice(1)
   check(secret.length >= 32, "the link carries its secret in the fragment")
@@ -698,9 +728,17 @@ const checkNothingLeaks = (link: string, files: readonly PayloadFile[], observed
         }
       }
     }
+
+    for (const body of observed.bodies) {
+      for (const needle of needles) {
+        if (body.includes(Buffer.from(needle))) {
+          leaks.push(`request body contains ${needle === secret ? "the secret" : needle}`)
+        }
+      }
+    }
   }
 
-  check(leaks.length === 0, "no request URL or socket frame carries the secret or a file name", leaks.slice(0, 5))
+  check(leaks.length === 0, "no request URL, request body or socket frame carries the secret or a file name", leaks.slice(0, 5))
 }
 
 const transferScenarios = ["basic", "resume", "half-open", "throughput", "latency"] as const
@@ -1138,6 +1176,46 @@ const completeInFlight = async (browser: Browser, base: string) => {
   } finally {
     await sender.close()
     await recipient.close()
+  }
+}
+
+/**
+ * The same drop, but the recipient is gone before the sender gets back (its linger ran out, or its tab closed): nobody
+ * is left to repeat `complete`, so the room tells the sender when it joins. The sender's first rejoin is blackholed, so
+ * it gets back only after its join timeout, by which time the recipient has left.
+ */
+const completeAfterRecipientLeft = async (browser: Browser, base: string) => {
+  const sender = await openPage(browser, true, false, false)
+  const recipient = await openPage(browser, false, false, false)
+  let recipientOpen = true
+
+  try {
+    const link = await offer(sender.page, base, payload([["lima-complete.bin", 50_000]]))
+    sender.observed.cutBeforeText = '"type":"complete"'
+    sender.observed.silentSockets = 1
+    await recipient.page.goto(link)
+    await waitForStatus(recipient.page, ["reviewing", "failed"])
+    await recipient.page.getByRole("button", { name: /^Accept/u }).click()
+    await waitForStatus(recipient.page, ["complete", "failed"])
+    const recipientEnd = await status(recipient.page)
+    await recipient.close()
+    recipientOpen = false
+
+    const senderEnd = await waitForStatus(sender.page, ["complete", "failed"], 45_000)
+      .then(async () => await status(sender.page))
+      .catch(async () => await status(sender.page))
+
+    check(
+      recipientEnd === "complete" && senderEnd === "complete" && sender.observed.sockets.length >= 3,
+      "a sender that gets back after the completed recipient left still learns the transfer completed",
+      { recipient: recipientEnd ?? "none", sender: senderEnd ?? "none", senderSockets: sender.observed.sockets.length },
+    )
+  } finally {
+    await sender.close()
+
+    if (recipientOpen) {
+      await recipient.close()
+    }
   }
 }
 
@@ -2023,6 +2101,7 @@ try {
     await chaos(browser, base)
   } else if (suite === "completion") {
     await completeInFlight(browser, base)
+    await completeAfterRecipientLeft(browser, base)
   } else if (suite === "life-cycle") {
     await recipientLifeCycle(browser, base)
   } else if (suite === "scenario") {
@@ -2056,6 +2135,7 @@ try {
     await transfer(browser, base, "throughput")
     await decline(browser, base)
     await completeInFlight(browser, base)
+    await completeAfterRecipientLeft(browser, base)
     await recipientLifeCycle(browser, base)
     await wrongKey(browser, base)
 

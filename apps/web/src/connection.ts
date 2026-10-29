@@ -17,6 +17,7 @@
  */
 import { decodeControlMessage, decodeUnit, encodeControlMessage, encodeUnit, pingFrame } from "@file-transfer/transport/protocol"
 import type { ControlMessage, Role, Unit } from "@file-transfer/transport/protocol"
+import { isSecurePage, pageHost } from "./address.ts"
 import { openDirectPath } from "./direct.ts"
 import type { DirectPath } from "./direct.ts"
 
@@ -61,8 +62,7 @@ export interface ConnectionOptions {
   readonly direct: { readonly iceServers: readonly RTCIceServer[] } | undefined
 }
 
-const socketUrl = (roomIdentifier: string): string =>
-  `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/api/rooms/${encodeURIComponent(roomIdentifier)}/socket`
+const socketUrl = (roomIdentifier: string): string => `${isSecurePage() ? "wss:" : "ws:"}//${pageHost()}/api/rooms/${encodeURIComponent(roomIdentifier)}/socket`
 
 const maximumBackoffMilliseconds = 5000
 
