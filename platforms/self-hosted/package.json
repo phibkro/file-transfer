@@ -5,10 +5,10 @@
   "license": "AGPL-3.0-only",
   "type": "module",
   "scripts": {
-    "build": "cd ../cloudflare && bun run build:all && cd ../self-hosted && mkdir -p dist && cp ../cloudflare/dist/worker.js dist/worker.js && esbuild src/assetsWorker.ts --bundle --format=esm --platform=neutral --target=es2022 --outfile=dist/assets-worker.js && rm -rf public && cp -r ../../apps/web/dist public",
+    "build": "bun scripts/build.ts",
     "start": "workerd serve workerd.capnp",
     "integration": "bun run build && cd ../cloudflare && INTEGRATION_RUNTIME=workerd bun scripts/integration.ts",
-    "compile": "bun run build && bun scripts/nodeConfig.ts && workerd compile dist/node.capnp > dist/file-transfer-node",
+    "compile": "bun scripts/build.ts && bun scripts/nodeConfig.ts && bun scripts/compile.ts",
     "smoke": "bun scripts/smokeNode.ts dist/file-transfer-node"
   },
   "dependencies": {},

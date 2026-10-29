@@ -37,18 +37,13 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run compile
         working-directory: platforms/self-hosted
-      # Apple silicon runs only signed code, and attaching the configuration invalidates workerd's signature.
-      - name: Sign it ad hoc (macOS)
-        if: runner.os == 'macOS'
-        run: codesign --force --sign - platforms/self-hosted/dist/file-transfer-node
       - name: Name the executable for its platform
         working-directory: platforms/self-hosted
         run: |
           binary="file-transfer-node"
           if [ "${{ matrix.platform }}" = windows-x64 ]; then binary="file-transfer-node.exe"; fi
           mkdir -p package
-          mv dist/file-transfer-node "package/$binary"
-          chmod +x "package/$binary"
+          mv "dist/$binary" "package/$binary"
           echo "BINARY=package/$binary" >> "$GITHUB_ENV"
       - run: bun scripts/smokeNode.ts "$BINARY"
         working-directory: platforms/self-hosted
