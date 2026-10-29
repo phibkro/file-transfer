@@ -21,7 +21,7 @@ The maintained source for verifying what a sender and a recipient can do in the 
 
 - Capture each side after each step: a full-page screenshot and an ARIA snapshot, named `NN-<side>-<state>`.
 - A transfer is proven by both sides at `complete` and identical SHA-256 per file, not by the progress bar.
-- A privacy claim is proven by `sent.json`: no request URL or socket frame either browser sent carries the link secret or a file name.
+- A privacy claim is proven by `sent.json`: no request URL, request body or socket frame either browser sent carries the link secret or a file name.
 - Record the journey, origin (local revision or preview commit) and browser with every artifact; `result.json` does this.
 - Report an unreachable path with the command tried and the unmet precondition (for example a browser without a folder picker).
 - Do not report a feature verified through a different entry point than the one the change touched.

@@ -59,7 +59,7 @@ Most changes that look risky are safe because of one fact (for example "the dead
 - **PASS+NOTES**: only low findings, nits or notes (a follow-up, a journey that could not run and why, a safety fact proven only to step 2).
 - **PASS**: no finding, the journeys pass at the head, and the safety fact proven to step 3 or further.
 
-Post it as one comment on the pull request (`gh api repos/{owner}/{repo}/issues/<n>/comments -f body=@<file>`), in this shape:
+Post it as one comment on the pull request (`gh api repos/{owner}/{repo}/issues/<n>/comments -F body=@<file>`; `-F` reads the file, while `-f` would post the literal text `@<file>`), in this shape:
 
 ```markdown
 <!-- review round=<n> head=<full head sha> verdict=<pass | pass-with-notes | fail> -->

@@ -15,9 +15,9 @@ Generated on 2026-10-29 by following pstack's `create-verification-skill` (curso
 bun apps/web/scripts/verify/launch.ts            # prints {"run": "<run directory>", "origin": "http://127.0.0.1:<port>"}
 ```
 
-It builds `apps/web` and `platforms/cloudflare`, starts `wrangler dev` on a random port with its Durable Object state under `<run>/state` (empty on every launch, so there is nothing to migrate or seed), and returns only once the page is the app (`<title>File transfer</title>`) and `GET /api/limits` answers JSON. It writes `<run>/server.json` (origin, process group, revision, a digest of uncommitted edits, `ready`) as soon as the server process exists, sets `ready` once it is usable, and logs to `<run>/server.log`. An interrupted or failed launch stops the server it started. A launch takes from a few seconds to half a minute, most of it building.
+It builds `apps/web` and `platforms/cloudflare`, copies the build and the wrangler configuration into `<run>/build` (so a later launch's rebuild cannot restart or crash a running instance), starts `wrangler dev` from that copy on a random port with its Durable Object state under `<run>/state` (empty on every launch, so there is nothing to migrate or seed), and returns only once the page is the app (`<title>File transfer</title>`) and `GET /api/limits` answers JSON. It writes `<run>/server.json` (origin, process group, revision, a digest of uncommitted edits, `ready`) as soon as the server process exists, sets `ready` once it is usable, and logs to `<run>/server.log`. An interrupted or failed launch stops the server it started. A launch takes from a few seconds to half a minute, most of it building.
 
-Instances are isolated by port and state directory, so two runs can live side by side. Never drive a server you did not start in this run, and never drive production (`send.phibkro.org`).
+Instances are isolated by port, state directory and build copy, so two runs can live side by side; launches themselves rebuild the checkout, so start them one at a time. The run directory must be outside the checkout (launch refuses one inside, symbolic links resolved, since its files would count as uncommitted edits) and must not already hold a server (stop it first, or relaunch into a new directory). Never drive a server you did not start in this run, and never drive production (`send.phibkro.org`).
 
 To verify a pull request without launching anything, use its preview: the `github-actions` bot comments `Preview: https://<hash>-file-transfer.philib-krogh-d23.workers.dev (commit <sha>)` on every pull request. Check that the commit in that comment is the pull request's head before trusting it.
 
@@ -51,7 +51,8 @@ Each journey writes to `<evidence>/<journey>/`:
 
 - `NN-<side>-<state>.png` and `NN-<side>-<state>.aria.yml`: a full-page screenshot and the ARIA snapshot after each step, so the proof shows the action and the state it left, with the app's heading visible.
 - `sent.json` (send-receive): every request URL, request body and socket frame either browser sent, checked for the link secret and the file names. This is CLAUDE.md's invariant seen from the endpoints.
-- `result.json`: journey, origin, browser, each step's action and observed outcome, and the failure if any.
+- `result.json`: journey, origin, browser, each step's action and observed outcome, the failure if any, and `failedSides`: each side's status, failure reason and detail when the journey failed.
+- `failed-<side>.png` and `failed-<side>.aria.yml`: each page as it was when a journey failed.
 
 Proof standards:
 

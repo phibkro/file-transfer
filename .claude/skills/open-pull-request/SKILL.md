@@ -34,7 +34,7 @@ End with the attribution lines the session asks for. Long evidence (logs, screen
 
 ## Opening
 
-- Use the REST API (`gh api repos/{owner}/{repo}/pulls -X POST -f head=... -f base=main -f title=... -f body=...`); GraphQL is unavailable in some sessions.
+- Use the REST API (`gh api repos/{owner}/{repo}/pulls -X POST -f head=... -f base=main -f title=... -F body=@<file>`); `-F` reads the body from the file, `-f` would send the text `@<file>` itself. GraphQL is unavailable in some sessions.
 - Open it ready, never as a draft.
 - Opening a pull request does not merge it. Merging needs the owner's approval for that pull request, every time.
 - After opening, the pull request needs an independent review: `review-pull-request`, run by an agent that did not write the change.
