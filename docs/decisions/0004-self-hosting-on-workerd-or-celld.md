@@ -24,3 +24,13 @@ Self-hosting must not require rewriting the Durable Object-based platform.
 - Clients must treat close code 1012 as "reconnect and resume", which resume already requires.
 - Location hints and jurisdictions are Cloudflare-only; self-hosted placement is the operator's choice of machines.
 - celld becomes a production option only once a spike measures relay throughput under the output gate and two-host durability holds.
+
+## Notes, 2026-10-29: scaling one install
+
+Checked against upstream sources while spike 0003 ran:
+
+- One workerd process serves on one thread. Its maintainer wrote "Currently workerd uses only a single thread, so to utilize multiple cores you would need to run multiple instances" (https://github.com/cloudflare/workerd/issues/72, 2022), and `src/workerd/server/AGENTS.md` still describes one event loop on a `current_thread` runtime. Locally, four rooms on one process carried about 87 MB/s each over loopback (spike 0003), so one process already saturates a 1 Gbit/s link.
+- Durable Objects in workerd are local to one process: `workerd.capnp` says "TODO(someday): Support distributing objects across a cluster. At present, objects are always local to one instance of the runtime." Nothing documents two processes sharing one `storage` directory, and we found nothing in the code that would coordinate object ownership between them, so each process gets its own. An upstream cluster mode (https://github.com/cloudflare/workerd/pull/6780) assumed a shared filesystem and appears not to have been merged.
+- celld is at v0.6.3, still beta (https://github.com/denoland/celld/blob/main/docs/limitations.md). It needs a bucket even for one node in fleet mode, and a single node "waits for the bucket on every write". It publishes no figures for high-throughput WebSocket forwarding.
+
+So, for the relay: rooms share nothing, so an install scales by running more identical workerd processes (or machines) and routing each room to the process that created it. That needs the room identifier to name its process, which is a small change to room creation and the proxy in front, made when an operator outgrows one process. Rate limits and counters then live per process (limits loosen by the number of processes; Prometheus sums the counters). celld's replication and placement buy durability and failover that a room, which lives for one transfer and keeps nothing, does not need, and its output gate costs latency on every write. celld fits the later store phase (offline delivery), where objects hold state that must survive a machine; its spike belongs to that phase.
