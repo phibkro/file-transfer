@@ -94,13 +94,9 @@
     "platforms/self-hosted": {
       "name": "@file-transfer/platform-self-hosted",
       "version": "0.0.0",
-      "dependencies": {
-        "@file-transfer/service-abuse": "workspace:*",
-        "@file-transfer/service-quota": "workspace:*",
-        "@file-transfer/service-relay": "workspace:*",
-        "@file-transfer/service-room": "workspace:*",
-        "@file-transfer/service-telemetry": "workspace:*",
-        "effect": "^4.0.7",
+      "devDependencies": {
+        "esbuild": "^0.28.0",
+        "workerd": "^1.20261028.1",
       },
     },
     "services/abuse": {

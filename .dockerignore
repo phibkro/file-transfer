@@ -1,0 +1,8 @@
+**/node_modules
+**/dist
+platforms/self-hosted/public
+platforms/self-hosted/storage
+.git
+.alchemy
+.claude
+spikes/*/state

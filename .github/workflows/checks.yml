@@ -36,6 +36,9 @@ jobs:
       # The Worker and its Durable Objects under wrangler dev: rooms, relaying, and the operator's limits.
       - run: bun run integration
         working-directory: platforms/cloudflare
+      # The same check on plain workerd: the self-hosted platform (platforms/self-hosted/workerd.capnp).
+      - run: bun run integration
+        working-directory: platforms/self-hosted
 
   secrets:
     if: github.event.action != 'closed'
@@ -73,6 +76,48 @@ jobs:
         working-directory: apps/web
         env:
           E2E_BROWSER: ${{ matrix.browser }}
+
+  container:
+    needs: [check]
+    if: github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - name: Build the self-hosted image
+        run: docker build -f platforms/self-hosted/Dockerfile -t file-transfer:ci .
+      - name: Start it
+        run: docker run -d --name file-transfer -p 8080:8080 file-transfer:ci
+      - name: Wait until it answers
+        run: |
+          for attempt in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:8080/api/instance; then exit 0; fi
+            sleep 2
+          done
+          docker logs file-transfer
+          exit 1
+      - run: bun install --frozen-lockfile
+      - run: bunx playwright install --with-deps chromium
+        working-directory: apps/web
+      # The whole end-to-end suite against the container, as against production.
+      - run: bun run e2e
+        working-directory: apps/web
+        env:
+          BASE_URL: http://127.0.0.1:8080
+      - name: Publish to GitHub's container registry
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          REGISTRY_TOKEN: ${{ github.token }}
+        run: |
+          echo "$REGISTRY_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          image="ghcr.io/${{ github.repository }}"
+          docker tag file-transfer:ci "$image:latest"
+          docker tag file-transfer:ci "$image:${{ github.sha }}"
+          docker push "$image:latest"
+          docker push "$image:${{ github.sha }}"
 
   preview:
     needs: [check, secrets]

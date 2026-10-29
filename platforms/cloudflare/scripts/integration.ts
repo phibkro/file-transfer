@@ -33,39 +33,60 @@ writeFileSync(nodePath.join(scratch, "index.html"), `<!doctype html><title>stub<
 
 const environment = { ...process.env, NO_PROXY: "127.0.0.1,localhost", no_proxy: "127.0.0.1,localhost", WRANGLER_SEND_METRICS: "false" }
 
-const wrangler = Bun.spawn(
-  [
-    "bunx",
-    "wrangler",
-    "dev",
-    "--ip",
-    "127.0.0.1",
-    "--port",
-    String(port),
-    "--inspector-port",
-    String(port + 1),
-    "--assets",
-    scratch,
-    "--persist-to",
-    nodePath.join(scratch, "state"),
-    "--show-interactive-dev-session=false",
-    "--log-level",
-    "warn",
-    // Small limits, so the check can reach them; addresses come from a header the check sets (limits.ts).
-    "--var",
-    `LIMIT_ROOMS_PER_ADDRESS_PER_HOUR:${roomsPerAddressPerHour}`,
-    "--var",
-    `LIMIT_RELAYED_BYTES_PER_ROOM:${relayedBytesPerRoom}`,
-    "--var",
-    "CLIENT_ADDRESS_HEADER:x-test-address",
-    // Counting on, and an admin token, so the check can read what was counted.
-    "--var",
-    "COUNTERS:on",
-    "--var",
-    `ADMIN_TOKEN:${adminToken}`,
-  ],
-  { cwd: packageDirectory, env: environment, stdout: "ignore", stderr: "pipe" },
-)
+/** The settings the check needs, as variables both runtimes read (limits.ts, counters.ts). */
+const settings = {
+  // Small limits, so the check can reach them; addresses come from a header the check sets (limits.ts).
+  LIMIT_ROOMS_PER_ADDRESS_PER_HOUR: String(roomsPerAddressPerHour),
+  LIMIT_RELAYED_BYTES_PER_ROOM: String(relayedBytesPerRoom),
+  CLIENT_ADDRESS_HEADER: "x-test-address",
+  // Counting on, and an admin token, so the check can read what was counted.
+  COUNTERS: "on",
+  ADMIN_TOKEN: adminToken,
+} satisfies Readonly<Record<string, string>>
+
+/**
+ * `INTEGRATION_RUNTIME=workerd` runs the same check against the self-hosted platform: the same built Worker on plain
+ * workerd (platforms/self-hosted/workerd.capnp, built with `bun run build` there first), with the stub page and a
+ * scratch storage directory swapped in for its disk services.
+ */
+const runtime = process.env.INTEGRATION_RUNTIME === "workerd" ? "workerd" : "wrangler"
+const selfHostedDirectory = new URL("../../self-hosted/", import.meta.url).pathname
+
+const server =
+  runtime === "workerd"
+    ? Bun.spawn(
+        [
+          nodePath.join(selfHostedDirectory, "node_modules/.bin/workerd"),
+          "serve",
+          "workerd.capnp",
+          `--socket-addr=http=127.0.0.1:${port}`,
+          `--directory-path=files=${scratch}`,
+          `--directory-path=storage=${mkdtempSync(nodePath.join(scratch, "storage-"))}`,
+        ],
+        { cwd: selfHostedDirectory, env: { ...environment, ...settings }, stdout: "ignore", stderr: "pipe" },
+      )
+    : Bun.spawn(
+        [
+          "bunx",
+          "wrangler",
+          "dev",
+          "--ip",
+          "127.0.0.1",
+          "--port",
+          String(port),
+          "--inspector-port",
+          String(port + 1),
+          "--assets",
+          scratch,
+          "--persist-to",
+          nodePath.join(scratch, "state"),
+          "--show-interactive-dev-session=false",
+          "--log-level",
+          "warn",
+          ...Object.entries(settings).flatMap(([name, value]) => ["--var", `${name}:${value}`]),
+        ],
+        { cwd: packageDirectory, env: environment, stdout: "ignore", stderr: "pipe" },
+      )
 
 let passed = 0
 
@@ -96,7 +117,7 @@ const waitForServer = async () => {
     await Bun.sleep(500)
   }
 
-  throw new Error("wrangler dev did not start within 60 s")
+  throw new Error(`${runtime} did not start within 60 s`)
 }
 
 /** A WebSocket client that queues what it receives, so the check can await messages in order. */
@@ -563,15 +584,15 @@ try {
   console.error(error instanceof Error ? error.message : error)
 }
 
-wrangler.kill()
+server.kill()
 
-await wrangler.exited
+await server.exited
 
 if (exitCode !== 0) {
-  const output = await new Response(wrangler.stderr).text()
+  const output = await new Response(server.stderr).text()
 
   if (output.length > 0) {
-    console.error(`\nwrangler stderr:\n${output.slice(-4000)}`)
+    console.error(`\n${runtime} stderr:\n${output.slice(-4000)}`)
   }
 }
 

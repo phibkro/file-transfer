@@ -17,3 +17,7 @@ __pycache__/
 
 # Alchemy local state, logs and version checks
 .alchemy/
+
+# Self-hosted build output and local state
+platforms/self-hosted/public/
+platforms/self-hosted/storage/

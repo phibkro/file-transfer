@@ -39,9 +39,13 @@
       <p>Coming soon: a Deploy to Cloudflare button that sets up an instance without installing anything.</p>
 
       <h2>On your own machine</h2>
+      <p>The same server code runs on workerd, Cloudflare's open-source runtime, in one container. Any machine or provider that runs Docker will do:</p>
+      <pre><code>docker run -p 8080:8080 -v file-transfer-storage:/srv/storage ghcr.io/phibkro/file-transfer</code></pre>
       <p>
-        Coming soon: the same server code runs on workerd, Cloudflare's open-source runtime, so an instance can run on any machine or provider with a Docker
-        image.
+        Put a proxy that terminates TLS in front of it (Caddy, Traefik or nginx), because browsers allow the encryption and storage this app needs only on
+        HTTPS. Set <code>CLIENT_ADDRESS_HEADER</code> to the header your proxy writes the client's address into, for example <code>x-real-ip</code>. The
+        settings below are environment variables there; the
+        <a href="https://github.com/phibkro/file-transfer/tree/main/platforms/self-hosted">self-hosting guide</a> has the details.
       </p>
 
       <h2>Limits you control</h2>
@@ -73,7 +77,10 @@
           </tbody>
         </table>
       </div>
-      <p>Set them in <code>platforms/cloudflare/wrangler.jsonc</code> before deploying, or in the Cloudflare dashboard afterwards.</p>
+      <p>
+        On Cloudflare, set them in <code>platforms/cloudflare/wrangler.jsonc</code> before deploying, or in the dashboard afterwards. In the container, pass
+        them as environment variables (<code>docker run -e COUNTERS=on ...</code>).
+      </p>
 
       <h2>Counters, if you want them</h2>
       <p>

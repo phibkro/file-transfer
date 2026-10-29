@@ -4,12 +4,14 @@
   "private": true,
   "license": "AGPL-3.0-only",
   "type": "module",
-  "dependencies": {
-    "@file-transfer/service-abuse": "workspace:*",
-    "@file-transfer/service-quota": "workspace:*",
-    "@file-transfer/service-relay": "workspace:*",
-    "@file-transfer/service-room": "workspace:*",
-    "@file-transfer/service-telemetry": "workspace:*",
-    "effect": "^4.0.7"
+  "scripts": {
+    "build": "cd ../cloudflare && bun run build:all && cd ../self-hosted && mkdir -p dist && cp ../cloudflare/dist/worker.js dist/worker.js && esbuild src/assetsWorker.ts --bundle --format=esm --platform=neutral --target=es2022 --outfile=dist/assets-worker.js && rm -rf public && cp -r ../../apps/web/dist public",
+    "start": "workerd serve workerd.capnp",
+    "integration": "bun run build && cd ../cloudflare && INTEGRATION_RUNTIME=workerd bun scripts/integration.ts"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "esbuild": "^0.28.0",
+    "workerd": "^1.20261028.1"
   }
 }
