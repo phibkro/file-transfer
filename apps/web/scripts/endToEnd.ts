@@ -10,6 +10,7 @@
  * - half-open: the same, but the server never hears the close, as after a network change;
  * - throughput: 256 MB without socket routing, to report the relay's speed rather than Playwright's;
  * - decline: the sender sees the refusal;
+ * - complete in flight: a sender whose socket drops with the recipient's `complete` in flight rejoins and completes;
  * - wrong key: a damaged link fails on the recipient, and a well-formed wrong key is refused by the room;
  * - invariant: no request URL and no socket frame either browser sends carries the link secret or a file name.
  *
@@ -28,6 +29,7 @@
  * - `lab`: transfers between two homes behind emulated routers in Linux network namespaces (networkLab.ts): open,
  *   symmetric and UDP-blocking NATs, slow and lossy links, a router that drops everything or moves address; needs root,
  *   coturn's `turnserver`, and chromium or firefox; `E2E_LAB_ONLY` picks scenarios by name;
+ * - `completion`: only the complete-in-flight check (also part of `standard`);
  * - `scenario`: one transfer scenario (`E2E_SCENARIO`, default half-open) `E2E_REPEAT` times (default 10), to chase a
  *   failure that shows up in a few runs out of many.
  */
@@ -64,6 +66,8 @@ interface Observed {
   readonly urls: string[]
   readonly frames: Buffer[]
   readonly sockets: RoutedSocket[]
+  /** When set, the first text frame from the server containing this is held back and the socket is cut cleanly instead. */
+  cutBeforeText: string | undefined
 }
 
 /** What the chaos suite does to one routed socket (faultPlan.ts); untouched, frames pass straight through. */
@@ -371,7 +375,7 @@ const openPage = async (browser: Browser, routed = true, persistent = false, dir
     }
   })
   const page = await context.newPage()
-  const observed: Observed = { urls: [], frames: [], sockets: [] }
+  const observed: Observed = { urls: [], frames: [], sockets: [], cutBeforeText: undefined }
   const errors: string[] = []
   page.on("request", (request) => observed.urls.push(request.url()))
   page.on("pageerror", (error) => {
@@ -394,6 +398,17 @@ const openPage = async (browser: Browser, routed = true, persistent = false, dir
         })
       })
       server.onMessage((message) => {
+        const cutBefore = observed.cutBeforeText
+
+        if (cutBefore !== undefined && !Buffer.isBuffer(message) && message.includes(cutBefore)) {
+          // The frame is lost with the socket, as when a connection drops with it in flight.
+          observed.cutBeforeText = undefined
+          void socket.close({ code: 1012, reason: "e2e cut" })
+          void server.close({ code: 1000, reason: "e2e cut" })
+
+          return
+        }
+
         if (Buffer.isBuffer(message)) {
           fromServer.push(message)
           fromServer.splice(0, Math.max(0, fromServer.length - 64))
@@ -950,6 +965,37 @@ const transfer = async (browser: Browser, base: string, scenario: TransferScenar
     }
 
     check(sender.errors.length === 0 && recipient.errors.length === 0, `${scenario}: no uncaught page errors`, [...sender.errors, ...recipient.errors])
+  } finally {
+    await sender.close()
+    await recipient.close()
+  }
+}
+
+/**
+ * The sender's socket drops cleanly with the recipient's `complete` in flight, so the sender never sees it. The sender
+ * rejoins, and the completed recipient, still connected for its linger, repeats `complete` (found in review of #20).
+ */
+const completeInFlight = async (browser: Browser, base: string) => {
+  const sender = await openPage(browser, true, false, false)
+  const recipient = await openPage(browser, false, false, false)
+
+  try {
+    const link = await offer(sender.page, base, payload([["kilo-complete.bin", 50_000]]))
+    sender.observed.cutBeforeText = '"type":"complete"'
+    await recipient.page.goto(link)
+    await waitForStatus(recipient.page, ["reviewing", "failed"])
+    await recipient.page.getByRole("button", { name: /^Accept/u }).click()
+    await waitForStatus(recipient.page, ["complete", "failed"])
+
+    const senderEnd = await waitForStatus(sender.page, ["complete", "failed"], 30_000)
+      .then(async () => await status(sender.page))
+      .catch(async () => await status(sender.page))
+
+    check(senderEnd === "complete" && sender.observed.sockets.length >= 2, "a sender whose socket drops with complete in flight rejoins and completes", {
+      sender: senderEnd,
+      recipient: await status(recipient.page),
+      senderSockets: sender.observed.sockets.length,
+    })
   } finally {
     await sender.close()
     await recipient.close()
@@ -1533,6 +1579,8 @@ try {
     await lab()
   } else if (suite === "chaos") {
     await chaos(browser, base)
+  } else if (suite === "completion") {
+    await completeInFlight(browser, base)
   } else if (suite === "scenario") {
     const scenario = process.env.E2E_SCENARIO ?? "half-open"
     const repeats = Number(process.env.E2E_REPEAT ?? 10)
@@ -1563,6 +1611,7 @@ try {
 
     await transfer(browser, base, "throughput")
     await decline(browser, base)
+    await completeInFlight(browser, base)
     await wrongKey(browser, base)
 
     if (local !== undefined) {

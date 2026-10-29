@@ -610,11 +610,11 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
       const senderJoined =
         (message.type === "joined" && message.senderPresent) || (message.type === "peer" && message.role === "sender" && message.event === "joined")
 
+      // The sender leaving says nothing about whether it heard `complete`: its socket may have dropped with `complete`
+      // in flight. So the recipient stays for its whole linger and repeats `complete` whenever the sender comes back
+      // (docs/spikes/0006, R4).
       if (senderJoined) {
         announceCompletion()
-      } else if (message.type === "peer" && message.role === "sender" && message.event === "left") {
-        // The sender has finished and gone; nothing more to say.
-        connection?.close()
       }
 
       return
