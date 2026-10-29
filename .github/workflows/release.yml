@@ -3,7 +3,8 @@ name: release
 # Releases from main, automatically (docs/versioning.md, docs/decisions/0023). When `checks` passes on a push to main
 # and changesets are waiting in .changeset/, this:
 #   1. runs `changeset version`, which bumps each named package by its declared semantic version and writes its
-#      CHANGELOG.md, refreshes bun.lock (which records each workspace's version), then gathers the release notes into the root CHANGELOG.md (tools/quality/src/prepareRelease.ts);
+#      CHANGELOG.md; then refreshes bun.lock, which records each workspace's version and which Changesets leaves
+#      stale; then gathers the release notes into the root CHANGELOG.md (tools/quality/src/prepareRelease.ts);
 #   2. commits that as "Release vX.Y.Z" on main and tags it: `vX.Y.Z` for the product (apps, platforms and services
 #      share one version) and `<package>@<version>` for every package bumped, libraries included;
 #   3. pushes the commit and the tags; the `vX.Y.Z` tag's push starts publish.yml, which builds what the tag points to
