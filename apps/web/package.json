@@ -4,6 +4,9 @@
   "private": true,
   "license": "AGPL-3.0-only",
   "type": "module",
+  "exports": {
+    "./recipientPhase": "./src/recipientPhase.ts"
+  },
   "scripts": {
     "dev": "vp dev",
     "build": "vp build",
