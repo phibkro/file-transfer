@@ -30,6 +30,8 @@ jobs:
           - { runner: ubuntu-latest, platform: linux-x64 }
           - { runner: ubuntu-24.04-arm, platform: linux-arm64 }
           - { runner: macos-latest, platform: macos-arm64 }
+          # GitHub runs Intel macOS until about August 2027 (runner-images changelog, 2025-09-19).
+          - { runner: macos-15-intel, platform: macos-x64 }
           - { runner: windows-latest, platform: windows-x64 }
     runs-on: ${{ matrix.runner }}
     defaults:
@@ -72,6 +74,30 @@ jobs:
           name: node-${{ matrix.platform }}
           path: ${{ runner.temp }}/out/*
           retention-days: 7
+
+  windows-arm64:
+    # workerd publishes no Windows arm64 binary and maps Windows on arm64 to the x64 one, so the x64 executable is the
+    # Windows arm64 release too; this starts it on an arm64 machine, under Windows' x64 emulation.
+    needs: [node]
+    runs-on: windows-11-arm
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/download-artifact@v4
+        with:
+          name: node-windows-x64
+          path: ${{ runner.temp }}/node
+      - name: Smoke-test the x64 executable on arm64
+        working-directory: platforms/self-hosted
+        run: |
+          archive="$(ls "$RUNNER_TEMP"/node/*.zip)"
+          pwsh -NoProfile -Command "Expand-Archive -Path '$archive' -DestinationPath '$RUNNER_TEMP/unpacked'"
+          bun scripts/smokeNode.ts "$RUNNER_TEMP/unpacked/file-transfer-node.exe"
 
   web-client:
     runs-on: ubuntu-latest
