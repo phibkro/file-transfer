@@ -75,6 +75,21 @@
       </div>
       <p>Set them in <code>platforms/cloudflare/wrangler.jsonc</code> before deploying, or in the Cloudflare dashboard afterwards.</p>
 
+      <h2>Counters, if you want them</h2>
+      <p>
+        Counting is off by default. Set <code>COUNTERS</code> to <code>on</code> to keep hourly counts of rooms, recipients, completed and failed transfers,
+        size buckets and megabytes relayed, with nothing that identifies anyone (kept for <code>COUNTERS_RETENTION_DAYS</code>, 90 by default). Then set an
+        admin token, <code>bunx wrangler secret put ADMIN_TOKEN</code>, and read them:
+      </p>
+      <ul>
+        <li><code>/api/admin/counters</code>: totals and hourly counts as JSON.</li>
+        <li>
+          <code>/api/admin/metrics</code>: totals in OpenMetrics, which Prometheus and Grafana read. Scrape it with
+          <code>authorization: Bearer &lt;your token&gt;</code>.
+        </li>
+      </ul>
+      <p>Without an admin token those addresses do not exist. Visitors can see whether your instance counts at <code>/api/instance</code>.</p>
+
       <h2>If you change the code</h2>
       <p>
         The AGPL asks you to offer the source of your modified version to the people who use your instance. Point the "Source code" link at your repository

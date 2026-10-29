@@ -17,13 +17,21 @@ import { DurableObject } from "cloudflare:workers"
 import type { HibernatableWebSocket, UpgradeResponseInit, WebSocketPairConstructor } from "cloudflare:workers"
 import { fromHex, hashRoomToken } from "@file-transfer/parcel"
 import { encodeControlMessage } from "@file-transfer/transport"
+import { megabytesFor, sizeBucketFor } from "@file-transfer/service-telemetry"
+import type { TelemetryEvent } from "@file-transfer/service-telemetry"
+import { countersEnabled } from "./counters.ts"
 import { readLimits, withinRelayLimit } from "./limits.ts"
 import type { LimitVariables } from "./limits.ts"
-import { decide, decodeCreateRoom, errorReasons, joinTokenOf, relayLimitCloseCode, replacedCloseCode } from "./room.ts"
+import { recordEvents } from "./recordEvents.ts"
+import type { CountingEnvironment } from "./recordEvents.ts"
+import { decide, decodeCreateRoom, errorReasons, joinTokenOf, messageType, relayLimitCloseCode, replacedCloseCode } from "./room.ts"
 import type { Attachment, Instruction, Participant, RoomRecord } from "./room.ts"
 
 const recordKey = "room"
 const relayedKey = "relayedBytes"
+
+/** Set once a transfer's outcome was counted, so a repeated `complete` (sent again after a reconnect) counts once. */
+const outcomeKey = "outcome"
 
 /** The sender's attachment is brought up to date with the relayed count after every this many bytes. */
 const attachmentStepBytes = 16 * 1024 * 1024
@@ -61,11 +69,14 @@ const closeQuietly = (socket: WebSocket, code: number, reason: string) => {
   }
 }
 
-export class RoomObject extends DurableObject<LimitVariables> {
+export class RoomObject extends DurableObject<LimitVariables & CountingEnvironment> {
   private record: RoomRecord | undefined
   /** Bytes relayed for this room so far; undefined until read from attachments or storage after a wake. */
   private relayedBytes: number | undefined
   private readonly relayLimit = readLimits(this.env).relayedBytesPerRoom
+  /** Counter events waiting to be sent; only filled when the operator turned counting on (counters.ts). */
+  private readonly pendingEvents: TelemetryEvent[] = []
+  private relayLimitReached = false
   /** Admitted sockets by participant identifier, rebuilt from attachments after a wake from hibernation. */
   private sockets: Map<string, HibernatableWebSocket> | undefined
   private participants: readonly Participant[] = []
@@ -112,8 +123,22 @@ export class RoomObject extends DurableObject<LimitVariables> {
       return
     }
 
-    if (this.attachmentOf(socket).admitted) {
-      this.carryOut(socket, decide(this.attachmentOf(socket), this.admittedParticipants(), { type: "text", text: message }))
+    const sender = this.attachmentOf(socket)
+
+    if (sender.admitted) {
+      this.carryOut(socket, decide(sender, this.admittedParticipants(), { type: "text", text: message }))
+
+      if (countersEnabled(this.env)) {
+        const type = messageType(message)
+
+        if (type === "complete" && sender.role === "recipient") {
+          await this.countOutcome("completed")
+        } else if (type === "abort") {
+          await this.countOutcome("failed")
+        }
+
+        await this.flushEvents()
+      }
 
       return
     }
@@ -135,6 +160,7 @@ export class RoomObject extends DurableObject<LimitVariables> {
         : { record, presentedTokenHash: await hashRoomToken(fromHex(token)), participantIdentifier: crypto.randomUUID() }
 
     // Decided after the last await, so no other event interleaves between reading the participants and admitting.
+    // Counting waits until after, below.
     this.carryOut(
       socket,
       decide(
@@ -143,12 +169,19 @@ export class RoomObject extends DurableObject<LimitVariables> {
         admission === undefined ? { type: "text", text: message } : { type: "text", text: message, admission },
       ),
     )
+    await this.flushEvents()
   }
 
   override async webSocketClose(socket: HibernatableWebSocket, _code: number, _reason: string, _wasClean: boolean): Promise<void> {
     this.depart(socket)
     closeQuietly(socket, 1000, "closed")
     await this.saveRelayed()
+
+    if (this.relayLimitReached) {
+      await this.countOutcome("failed")
+    }
+
+    await this.flushEvents()
     await this.scheduleIdleCleanupIfEmpty()
   }
 
@@ -223,8 +256,32 @@ export class RoomObject extends DurableObject<LimitVariables> {
     }
   }
 
+  /** Counts how a transfer ended, once per room, with its relayed volume (only when counting is on). */
+  private async countOutcome(outcome: "completed" | "failed") {
+    if (!countersEnabled(this.env) || (await this.ctx.storage.get<string>(outcomeKey)) !== undefined) {
+      return
+    }
+
+    await this.ctx.storage.put(outcomeKey, outcome)
+    const relayed = await this.loadRelayed()
+    const relayedMegabytes = megabytesFor(relayed)
+    this.pendingEvents.push(
+      outcome === "completed"
+        ? { kind: "transfer-completed", sizeBucket: sizeBucketFor(relayed), relayedMegabytes }
+        : { kind: "transfer-failed", relayedMegabytes },
+      { kind: "path-relayed" },
+    )
+  }
+
+  private async flushEvents() {
+    if (this.pendingEvents.length > 0) {
+      await recordEvents(this.env, this.pendingEvents.splice(0))
+    }
+  }
+
   /** Tells every participant the limit was reached and closes the room to them; storage keeps the count. */
   private endForRelayLimit() {
+    this.relayLimitReached = true
     this.relayedBytes = Math.max(this.relayedSoFar(), this.relayLimit)
 
     for (const socket of this.ctx.getWebSockets()) {
@@ -322,6 +379,11 @@ export class RoomObject extends DurableObject<LimitVariables> {
         case "admit": {
           // The new participant carries the room's relayed count, so a wake after hibernation finds it.
           this.setAttachment(socket, { admitted: true, ...instruction.participant, relayedBytes: this.relayedSoFar() })
+
+          if (instruction.participant.role === "recipient" && countersEnabled(this.env)) {
+            this.pendingEvents.push({ kind: "recipient-joined" })
+          }
+
           this.admittedSockets().set(instruction.participant.participantIdentifier, socket)
           this.participants = this.listParticipants()
           break

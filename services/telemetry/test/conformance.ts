@@ -9,7 +9,11 @@ import type { TelemetryEvent, TelemetryGuarantee } from "../src/index.ts"
 
 const eventArbitrary: fc.Arbitrary<TelemetryEvent> = fc.oneof(
   fc.record({ kind: fc.constantFrom(...eventKinds) }),
-  fc.record({ kind: fc.constant("transfer-completed" as const), sizeBucket: fc.constantFrom(...sizeBuckets) }),
+  fc.record({
+    kind: fc.constant("transfer-completed" as const),
+    sizeBucket: fc.constantFrom(...sizeBuckets),
+    relayedMegabytes: fc.integer({ min: 0, max: 20_000 }),
+  }),
 )
 
 const recordAll = async (layer: Layer.Layer<Telemetry>, events: readonly TelemetryEvent[]) =>
@@ -41,6 +45,8 @@ export const telemetrySuite = conformanceSuite<Telemetry, TelemetryGuarantee>({
           for (const bucket of sizeBuckets) {
             expect(snapshot.bySizeBucket[bucket]).toBe(events.filter((event) => event.sizeBucket === bucket).length)
           }
+
+          expect(snapshot.relayedMegabytes).toBe(events.reduce((sum, event) => sum + (event.relayedMegabytes ?? 0), 0))
         }),
         { numRuns: 50 },
       )
@@ -50,11 +56,11 @@ export const telemetrySuite = conformanceSuite<Telemetry, TelemetryGuarantee>({
       await fc.assert(
         fc.asyncProperty(fc.array(eventArbitrary, { minLength: 1, maxLength: 20 }), async (events) => {
           const snapshot = await recordAll(layer, events)
-          expect(Object.keys(snapshot).toSorted()).toEqual(["byKind", "bySizeBucket"])
+          expect(Object.keys(snapshot).toSorted()).toEqual(["byKind", "bySizeBucket", "relayedMegabytes"])
           expect(Object.keys(snapshot.byKind).toSorted()).toEqual([...eventKinds].toSorted())
           expect(Object.keys(snapshot.bySizeBucket).toSorted()).toEqual([...sizeBuckets].toSorted())
 
-          for (const count of [...Object.values(snapshot.byKind), ...Object.values(snapshot.bySizeBucket)]) {
+          for (const count of [...Object.values(snapshot.byKind), ...Object.values(snapshot.bySizeBucket), snapshot.relayedMegabytes]) {
             expect(Number.isSafeInteger(count)).toBe(true)
           }
         }),

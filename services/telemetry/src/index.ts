@@ -1,6 +1,7 @@
 /**
- * Aggregate counters only. Events carry no identifiers, names, keys, sizes in
- * bytes or addresses; sizes are reduced to coarse buckets before recording.
+ * Aggregate counters only, and only when the operator opts in (docs/decisions/0019). Events carry no identifiers,
+ * names, keys or addresses. A transfer's size is reduced to a coarse bucket; relayed volume is counted in whole
+ * megabytes, rounded up, and only ever kept as a sum (the relay carries those bytes, so it learns nothing new).
  */
 import { declareGuarantees } from "@file-transfer/conformance/guarantee"
 import { Context, Effect, Layer, Ref } from "effect"
@@ -12,12 +13,18 @@ export type SizeBucket = "under-10-megabytes" | "under-1-gigabyte" | "under-10-g
 export interface TelemetryEvent {
   readonly kind: TelemetryEventKind
   readonly sizeBucket?: SizeBucket
+  /** Megabytes the relay carried for the transfer, rounded up; only on the event that ends a transfer. */
+  readonly relayedMegabytes?: number
 }
 
 export interface TelemetrySnapshot {
   readonly byKind: Readonly<Record<TelemetryEventKind, number>>
   readonly bySizeBucket: Readonly<Record<SizeBucket, number>>
+  readonly relayedMegabytes: number
 }
+
+/** Bytes as whole megabytes, rounded up, for `relayedMegabytes`. */
+export const megabytesFor = (bytes: number): number => Math.ceil(Math.max(0, bytes) / 1_000_000)
 
 export const sizeBucketFor = (bytes: number): SizeBucket => {
   if (bytes < 10 * 1000 ** 2) {
@@ -55,13 +62,29 @@ export class Telemetry extends Context.Service<
 >()("file-transfer/Telemetry") {}
 
 // SAFETY: fromEntries over every member of eventKinds (and of sizeBuckets) yields exactly the keys of each Record.
-const emptySnapshot = (): TelemetrySnapshot => ({
+export const emptySnapshot = (): TelemetrySnapshot => ({
   byKind: Object.fromEntries(eventKinds.map((kind) => [kind, 0])) as Record<TelemetryEventKind, number>,
   bySizeBucket: Object.fromEntries(sizeBuckets.map((bucket) => [bucket, 0])) as Record<SizeBucket, number>,
+  relayedMegabytes: 0,
+})
+
+/**
+ * Counts one event into a snapshot: the rule every layer applies (the reference layer here, the counters Durable
+ * Object in each platform). `increment` exists only for the negative control that double counts.
+ */
+export const applyEvent = (snapshot: TelemetrySnapshot, event: TelemetryEvent, increment = 1): TelemetrySnapshot => ({
+  byKind: { ...snapshot.byKind, [event.kind]: snapshot.byKind[event.kind] + increment },
+  bySizeBucket:
+    event.sizeBucket === undefined ? snapshot.bySizeBucket : { ...snapshot.bySizeBucket, [event.sizeBucket]: snapshot.bySizeBucket[event.sizeBucket] + 1 },
+  relayedMegabytes: snapshot.relayedMegabytes + (event.relayedMegabytes ?? 0),
 })
 
 export const telemetryGuarantees = declareGuarantees([
-  { identifier: "telemetry/exact-counts", property: "every recorded event is counted exactly once, by kind and by size bucket", strength: "port-enforced" },
+  {
+    identifier: "telemetry/exact-counts",
+    property: "every recorded event is counted exactly once, by kind and by size bucket, and its relayed megabytes are summed",
+    strength: "port-enforced",
+  },
   {
     identifier: "telemetry/aggregate-only",
     property: "a snapshot holds only counters over the declared kinds and buckets, never anything per event",
@@ -87,13 +110,7 @@ export const makeTelemetryReference = (faults: ReadonlySet<TelemetryGuarantee> =
         record: (event) =>
           Effect.andThen(
             Ref.update(recent, (events) => [...events, event]),
-            Ref.update(counters, (current) => ({
-              byKind: { ...current.byKind, [event.kind]: current.byKind[event.kind] + increment },
-              bySizeBucket:
-                event.sizeBucket === undefined
-                  ? current.bySizeBucket
-                  : { ...current.bySizeBucket, [event.sizeBucket]: current.bySizeBucket[event.sizeBucket] + 1 },
-            })),
+            Ref.update(counters, (current) => applyEvent(current, event, increment)),
           ),
         snapshot: faults.has("telemetry/aggregate-only")
           ? Effect.map(Effect.all([Ref.get(counters), Ref.get(recent)]), ([snapshot, events]): TelemetrySnapshot => {

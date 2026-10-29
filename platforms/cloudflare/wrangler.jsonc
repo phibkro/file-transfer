@@ -14,11 +14,14 @@
       { "name": "ROOMS", "class_name": "RoomObject" },
       // One per client key (a salted hash of an address): counts room creations per hour (src/admissionObject.ts).
       { "name": "ADMISSION", "class_name": "AdmissionObject" },
+      // One per instance: opt-in aggregate counters (src/countersObject.ts), empty unless COUNTERS is "on".
+      { "name": "COUNTER_STORE", "class_name": "CountersObject" },
     ],
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["RoomObject"] },
     { "tag": "v2", "new_sqlite_classes": ["AdmissionObject"] },
+    { "tag": "v3", "new_sqlite_classes": ["CountersObject"] },
   ],
   // The operator's limits (src/limits.ts, docs/decisions/0019-open-source-first.md). Change them here, in the
   // Cloudflare dashboard, or at deploy time. Set ADDRESS_SALT as a secret (`wrangler secret put ADDRESS_SALT`).
@@ -26,6 +29,10 @@
     "LIMIT_ROOMS_PER_ADDRESS_PER_HOUR": "100",
     "LIMIT_RELAYED_BYTES_PER_ROOM": "10000000000",
     "CLIENT_ADDRESS_HEADER": "cf-connecting-ip",
+    // Aggregate counters are off unless the operator opts in with "on". Read them at /api/admin/counters and
+    // /api/admin/metrics with `wrangler secret put ADMIN_TOKEN` set.
+    "COUNTERS": "off",
+    "COUNTERS_RETENTION_DAYS": "90",
   },
   "assets": {
     "directory": "../../apps/web/dist",

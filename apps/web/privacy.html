@@ -43,9 +43,12 @@
               <td>The end of that hour</td>
             </tr>
             <tr>
-              <td>Counts per hour, with nothing that identifies anyone (coming with the operator dashboard)</td>
+              <td>
+                Only if the operator turns counting on: counts per hour of rooms, recipients, completed and failed transfers, size buckets and megabytes
+                relayed, with nothing that identifies anyone
+              </td>
               <td>So the operator can see that the service works</td>
-              <td>Set by the operator</td>
+              <td>90 days by default, set by the operator</td>
             </tr>
           </tbody>
         </table>
@@ -69,6 +72,7 @@
       <ul>
         <li>No analytics, no advertising, no third-party scripts or fonts.</li>
         <li>Nothing is sent to the people who make this software. An instance never phones home.</li>
+        <li>Counting is off unless the operator turns it on. Any instance tells you whether it counts at <code>/api/instance</code>.</li>
       </ul>
     </main>
     <!-- layout:footer -->

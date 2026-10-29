@@ -35,6 +35,10 @@
         "reason": "the transport package's protocol entry, without Effect, for the browser (docs/decisions/0020); tools/quality checks the edge"
       },
       {
+        "specifier": "@file-transfer/service-telemetry",
+        "reason": "workspace service package; the platform imports its pure event kinds and buckets, governed by the services group; tools/quality checks the edge"
+      },
+      {
         "specifier": "@file-transfer/machine",
         "reason": "workspace package governed by its own group below; tools/quality checks the edge"
       }
@@ -48,7 +52,8 @@
           "libraries/transport/src/**",
           "libraries/conformance/src/guarantee.ts",
           "platforms/cloudflare/src/room.ts",
-          "platforms/cloudflare/src/limits.ts"
+          "platforms/cloudflare/src/limits.ts",
+          "platforms/cloudflare/src/counters.ts"
         ],
         "role": "effect-library",
         "platform": "portable"

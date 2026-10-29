@@ -5,26 +5,36 @@
  *                                          client address has created its hourly allowance of rooms
  *   GET  /api/rooms/<roomIdentifier>/socket WebSocket upgrade, forwarded to the room's Durable Object
  *   GET  /api/limits                       the operator's limits a sender can act on (limits.ts)
+ *   GET  /api/instance                     the limits and whether this instance counts anything (counters.ts)
+ *   GET  /api/admin/counters               totals and hourly counts as JSON      } with `Authorization: Bearer <ADMIN_TOKEN>`;
+ *   GET  /api/admin/metrics                totals in OpenMetrics, for Prometheus } 404 when no ADMIN_TOKEN is set
  *   anything else                          static assets, with the single-page fallback (wrangler.jsonc)
  *
  * The one invariant: request bodies and URLs are never logged; the fragment never reaches this code at all.
  */
-import type { DurableObjectNamespace, Fetcher } from "cloudflare:workers"
-import { toHex } from "@file-transfer/parcel"
+import type { DurableObjectNamespace, ExecutionContext, Fetcher } from "cloudflare:workers"
+import { constantTimeEqual, toHex } from "@file-transfer/parcel"
+import { countersEnabled } from "./counters.ts"
 import { publicLimits, readLimits, retryAfterMillisecondsOf } from "./limits.ts"
 import type { LimitVariables, Limits } from "./limits.ts"
+import { counterStore, recordEvents } from "./recordEvents.ts"
+import type { CountingEnvironment } from "./recordEvents.ts"
 import { decodeCreateRoom, encodeRoomIdentifier, roomIdentifierPattern } from "./room.ts"
 
 export { AdmissionObject } from "./admissionObject.ts"
 
+export { CountersObject } from "./countersObject.ts"
+
 export { RoomObject } from "./roomObject.ts"
 
-export interface Environment extends LimitVariables {
+export interface Environment extends LimitVariables, CountingEnvironment {
   readonly ROOMS: DurableObjectNamespace
   readonly ADMISSION: DurableObjectNamespace
   readonly ASSETS: Fetcher
   /** Optional secret mixed into client keys, so a key cannot be matched to an address by hashing every address. */
   readonly ADDRESS_SALT?: string
+  /** Secret that opens `/api/admin/*`; without it those paths do not exist. */
+  readonly ADMIN_TOKEN?: string
 }
 
 const hourMilliseconds = 60 * 60 * 1000
@@ -72,7 +82,7 @@ const admit = async (request: Request, environment: Environment, limits: Limits)
   )
 }
 
-const createRoom = async (request: Request, environment: Environment): Promise<Response> => {
+const createRoom = async (request: Request, environment: Environment, context: ExecutionContext): Promise<Response> => {
   const text = await request.text()
 
   if (text.length > maximumCreateBodyLength) {
@@ -107,11 +117,45 @@ const createRoom = async (request: Request, environment: Environment): Promise<R
     return json(503, { error: "room not created" })
   }
 
+  context.waitUntil(recordEvents(environment, [{ kind: "room-created" }]))
+
   return json(201, { roomIdentifier })
 }
 
+/** Whether the request carries the operator's admin token; compared in constant time. */
+const isOperator = (request: Request, environment: Environment): boolean => {
+  const token = environment.ADMIN_TOKEN ?? ""
+  const presented = request.headers.get("authorization")?.replace(/^Bearer /u, "") ?? ""
+
+  return token.length > 0 && constantTimeEqual(presented, token)
+}
+
+/** `/api/admin/*`: only for the operator, and only when the operator set an admin token. */
+const admin = async (request: Request, environment: Environment, path: string): Promise<Response> => {
+  if ((environment.ADMIN_TOKEN ?? "") === "") {
+    return json(404, { error: "not found" })
+  }
+
+  if (!isOperator(request, environment)) {
+    return Response.json({ error: "unauthorized" }, { status: 401, headers: { "cache-control": "no-store", "www-authenticate": "Bearer" } })
+  }
+
+  if (!countersEnabled(environment)) {
+    return Response.json({ counters: false }, { headers: { "cache-control": "no-store" } })
+  }
+
+  // The counters object answers both paths itself; the Worker only checks who is asking.
+  const target = path === "/api/admin/metrics" ? "https://counters/metrics" : `https://counters/snapshot${new URL(request.url).search}`
+  const answer = await counterStore(environment).fetch(target)
+
+  return new Response(answer.body, {
+    status: answer.status,
+    headers: { "content-type": answer.headers.get("content-type") ?? "application/json", "cache-control": "no-store" },
+  })
+}
+
 export default {
-  async fetch(request: Request, environment: Environment): Promise<Response> {
+  async fetch(request: Request, environment: Environment, context: ExecutionContext): Promise<Response> {
     const url = new URL(request.url)
 
     if (url.pathname === "/api/rooms") {
@@ -119,7 +163,18 @@ export default {
         return json(405, { error: "method not allowed" })
       }
 
-      return await createRoom(request, environment)
+      return await createRoom(request, environment, context)
+    }
+
+    if (url.pathname === "/api/instance") {
+      return Response.json(
+        { limits: publicLimits(readLimits(environment)), counters: countersEnabled(environment) },
+        { headers: { "cache-control": "no-store" } },
+      )
+    }
+
+    if (url.pathname === "/api/admin/counters" || url.pathname === "/api/admin/metrics") {
+      return await admin(request, environment, url.pathname)
     }
 
     if (url.pathname === "/api/limits") {

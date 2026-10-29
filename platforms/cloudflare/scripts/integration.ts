@@ -20,6 +20,11 @@ const stubMarker = "integration-stub-app"
 const port = 20_000 + Math.floor(Math.random() * 20_000)
 const roomsPerAddressPerHour = 3
 const relayedBytesPerRoom = 4 * 1024 * 1024
+const adminToken = "integration-admin-token"
+
+/** Rooms this check created, to compare with what the counters say. */
+let roomsCreated = 0
+const createdIdentifiers: string[] = []
 const origin = `http://127.0.0.1:${port}`
 const packageDirectory = new URL("..", import.meta.url).pathname
 const scratch = mkdtempSync(nodePath.join(tmpdir(), "file-transfer-integration-"))
@@ -53,6 +58,11 @@ const wrangler = Bun.spawn(
     `LIMIT_RELAYED_BYTES_PER_ROOM:${relayedBytesPerRoom}`,
     "--var",
     "CLIENT_ADDRESS_HEADER:x-test-address",
+    // Counting on, and an admin token, so the check can read what was counted.
+    "--var",
+    "COUNTERS:on",
+    "--var",
+    `ADMIN_TOKEN:${adminToken}`,
   ],
   { cwd: packageDirectory, env: environment, stdout: "ignore", stderr: "pipe" },
 )
@@ -208,6 +218,11 @@ const requestRoom = async (maximumRecipients: number, address = crypto.randomUUI
 
 const createRoom = async (maximumRecipients: number): Promise<string> => {
   const response = await requestRoom(maximumRecipients)
+
+  if (response.status === 201) {
+    roomsCreated++
+  }
+
   const body: unknown = await response.json()
   const roomIdentifier = isCreatedRoom(body) ? body.roomIdentifier : ""
   check(
@@ -215,6 +230,7 @@ const createRoom = async (maximumRecipients: number): Promise<string> => {
     `POST /api/rooms (maximumRecipients ${maximumRecipients}) answers 201 with a room identifier`,
     { status: response.status, roomIdentifier },
   )
+  createdIdentifiers.push(roomIdentifier)
 
   return roomIdentifier
 }
@@ -391,6 +407,76 @@ const run = async () => {
   check(await returningSender.nothingWithin(300), "nothing else reaches the sender")
   returningSender.socket.close(1000, "done")
   await returningSender.closed
+
+  // The operator's opt-in counters (counters.ts) and the admin endpoints.
+  const instanceResponse = await fetch(`${origin}/api/instance`)
+  const instance: unknown = await instanceResponse.json()
+  check(
+    JSON.stringify(instance) === JSON.stringify({ limits: { roomsPerAddressPerHour, relayedBytesPerRoom }, counters: true }),
+    "GET /api/instance says this instance counts",
+    JSON.stringify(instance),
+  )
+  const anonymous = await fetch(`${origin}/api/admin/metrics`)
+  const guessed = await fetch(`${origin}/api/admin/metrics`, { headers: { authorization: "Bearer guess" } })
+  check(anonymous.status === 401 && guessed.status === 401, "the admin endpoints refuse requests without the operator's token", {
+    anonymous: anonymous.status,
+    guessed: guessed.status,
+  })
+
+  const metricsText = async () => {
+    const response = await fetch(`${origin}/api/admin/metrics`, { headers: { authorization: `Bearer ${adminToken}` } })
+
+    return await response.text()
+  }
+
+  let metrics = await metricsText()
+
+  for (let attempt = 0; attempt < 20 && !metrics.includes(`file_transfer_events_total{kind="room-created"} ${roomsCreated}`); attempt++) {
+    await Bun.sleep(250)
+    metrics = await metricsText()
+  }
+
+  check(
+    metrics.includes(`file_transfer_events_total{kind="room-created"} ${roomsCreated}`) && metrics.endsWith("# EOF\n"),
+    `the counters saw every room this check created (${roomsCreated}), in OpenMetrics`,
+    metrics,
+  )
+  check(/file_transfer_events_total\{kind="recipient-joined"\} [1-9]/u.test(metrics), "the counters saw recipients join", metrics)
+  // A completed transfer counts once, even when the recipient repeats `complete` after a reconnect.
+  const completedRoom = await createRoom(1)
+  const completingSender = connect(completedRoom)
+  const completingRecipient = connect(completedRoom)
+  await joinRoom(completingSender, "sender")
+  await joinRoom(completingRecipient, "recipient")
+  await nextControl(completingSender)
+  completingRecipient.sendControl({ type: "complete", sequence: 0 })
+  completingRecipient.sendControl({ type: "complete", sequence: 0 })
+  await nextControl(completingSender)
+  await nextControl(completingSender)
+  const completedLine = 'file_transfer_events_total{kind="transfer-completed"} 1'
+  metrics = await metricsText()
+
+  for (let attempt = 0; attempt < 20 && !metrics.includes(completedLine); attempt++) {
+    await Bun.sleep(250)
+    metrics = await metricsText()
+  }
+
+  const countOf = (kind: string) => Number(new RegExp(`kind="${kind}"\\} (\\d+)`, "u").exec(metrics)?.[1] ?? "-1")
+  check(
+    metrics.includes(completedLine) && countOf("path-relayed") === countOf("transfer-completed") + countOf("transfer-failed"),
+    "a completed transfer counts once, and every ended transfer counts as relayed",
+    metrics,
+  )
+  completingSender.socket.close(1000, "done")
+  completingRecipient.socket.close(1000, "done")
+
+  const countersResponse = await fetch(`${origin}/api/admin/counters?hours=2`, { headers: { authorization: `Bearer ${adminToken}` } })
+  const countersText = await countersResponse.text()
+  check(
+    countersResponse.status === 200 && countersText.includes('"hours"') && !createdIdentifiers.some((identifier) => countersText.includes(identifier)),
+    "the JSON counters hold hourly totals and no room identifier",
+    countersText.slice(0, 300),
+  )
 
   // The operator's limits (limits.ts).
   const limitsResponse = await fetch(`${origin}/api/limits`)

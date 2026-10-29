@@ -14,6 +14,8 @@ declare module "cloudflare:workers" {
   export interface DurableObjectStorage {
     get<T>(key: string): Promise<T | undefined>
     put<T>(key: string, value: T): Promise<void>
+    delete(keys: readonly string[]): Promise<number>
+    list<T>(options?: { readonly prefix?: string; readonly end?: string; readonly limit?: number }): Promise<Map<string, T>>
     deleteAll(): Promise<void>
     getAlarm(): Promise<number | null>
     setAlarm(scheduledTime: number): Promise<void>
@@ -56,6 +58,11 @@ declare module "cloudflare:workers" {
   export interface DurableObjectNamespace {
     idFromName(name: string): DurableObjectId
     get(id: DurableObjectId): DurableObjectStub
+  }
+
+  /** The third argument of a Worker's `fetch`: work that may finish after the response is sent. */
+  export interface ExecutionContext {
+    waitUntil(promise: Promise<unknown>): void
   }
 
   /** A service binding such as the static assets binding. */

@@ -83,7 +83,12 @@ export default defineConfig({
         rules: { "typescript/promise-function-async": "off" },
       },
       {
-        files: ["libraries/parcel/src/manifest.ts", "platforms/cloudflare/src/room.ts", "platforms/cloudflare/src/limits.ts"],
+        files: [
+          "libraries/parcel/src/manifest.ts",
+          "platforms/cloudflare/src/room.ts",
+          "platforms/cloudflare/src/limits.ts",
+          "platforms/cloudflare/src/counters.ts",
+        ],
         // Parsers of untrusted JSON (the manifest, room creation, control messages, admission bodies): the I/O boundary anti-slop asks
         // code to parse at, so they take unknown and narrow it with typeof.
         rules: {

@@ -117,7 +117,7 @@ const recipientToSenderTypeSet: ReadonlySet<string> = new Set(recipientToSenderT
 const opposite = (role: Role): Role => (role === "sender" ? "recipient" : "sender")
 
 /** Reads only the `type` of an admitted participant's control message; the room forwards the text as is. */
-const messageType = (text: string): string | undefined => {
+export const messageType = (text: string): string | undefined => {
   try {
     const parsed: unknown = JSON.parse(text)
 

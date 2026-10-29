@@ -55,8 +55,8 @@ Startup phase: prove that people want this, then that some will pay, before stab
 
 ## M3 Operators and distribution (ADR 0019)
 
-- [ ] Operator limits enforced by the room server: rooms per client address per window, relayed bytes per room, optional Turnstile; `GET /api/limits` read by the app before sealing
-- [ ] Counters in a SQLite-backed Durable Object (hourly buckets, no identifiers), `services/telemetry` layers for both platforms
+- [x] Operator limits enforced by the room server: rooms per client address per hour, relayed bytes per room; `GET /api/limits` read by the app before sealing (Turnstile still to come, opt-in)
+- [x] Counters in a SQLite-backed Durable Object (hourly buckets, no identifiers), opt-in with `COUNTERS=on`; JSON and OpenMetrics at `/api/admin/*` behind `ADMIN_TOKEN` (self-hosted layer still to come)
 - [ ] `/admin` behind `ADMIN_TOKEN` (and optionally Cloudflare Access): activity, relayed bytes against the free plan's daily budget, limits
 - [ ] Deploy to Cloudflare: CI publishes a prebuilt, self-contained bundle repository for the button
 - [ ] `platforms/self-hosted` on workerd, Docker image (Nix module after)
