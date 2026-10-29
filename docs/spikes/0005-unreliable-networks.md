@@ -51,6 +51,30 @@ flowchart TB
 
 Through NAT the direct path takes a second or two to open, so a small transfer on a fast relay finishes before it does; the open-NAT scenario uses a 40 Mbit/s link and 48 MB so that the transfer starts on the relay and moves to the direct path. One open and one symmetric NAT do not connect directly without a TURN relay, as expected; the room's relay carries those. 4. **Two lab artifacts, worth knowing about real routers too.** Linux records an unsolicited inbound packet (a peer's ICE check arriving before this side's own) and gives the outbound packet that follows a different external port, which breaks hole punching; Chromium happened to win that race and Firefox lost it. Home routers drop unsolicited packets in their firewall, so the lab's routers do too. Separately, Firefox gathers no usable ICE candidates on a page served from localhost, so lab pages load from the server's address with the browsers told to treat it as a secure context.
 
+## Results on GitHub's runner (netem available)
+
+Chromium, 2026-10-29 (`network-lab.yml`), all 112 checks passed:
+
+| Scenario                                                           | Path           | Seconds     | MB/s         |
+| ------------------------------------------------------------------ | -------------- | ----------- | ------------ |
+| Open NATs, 40 Mbit/s, 48 MB                                        | direct         | 16.4        | 3.1          |
+| Symmetric NATs / one symmetric / UDP blocked                       | relay          | 0.5         | 30.7 to 31.5 |
+| 8 Mbit/s uplink                                                    | direct         | 17.5        | 1.0          |
+| Mobile data (80 ms longer round trip, 1% loss each way, 20 Mbit/s) | direct         | 44.5        | 0.4          |
+| Same, relay only                                                   | relay          | 60.5        | 0.3          |
+| Bad link (200 ms longer round trip, 3% loss each way), 4 MB        | direct         | 54.6        | 0.1          |
+| Same, relay only                                                   | relay          | 53.7        | 0.1          |
+| Router drops everything for 30 s                                   | direct / relay | 36.5 / 34.3 | 0.5          |
+| Router moves to a new address                                      | direct         | 10.9        | 1.5          |
+
+Loss sets the pace on both paths: 1% each way limits TCP to roughly 0.2 to 0.3 MB/s at these round trips (Mathis et al.'s estimate, MSS / RTT times 1.22 / square root of the loss rate), and the data channel's SCTP does about as well, slightly better at 1% loss. Real mobile radio retransmits below IP, so the loss TCP sees there is usually far lower than 1%; these are pessimistic profiles meant to prove completion, not to predict speed.
+
+Two machines (`two-machines.yml`): two GitHub runners, Chromium, 64 MiB through the production Worker went **direct** at 14.9 MB/s, every byte verified.
+
+## Open questions
+
+- In the runner's lab only, Firefox's answering side starts gathering ICE candidates and never yields one, not even a host candidate, so its direct path never opens there; signaling completes on both sides. Firefox goes direct in the same lab on a local machine and between two pages on a plain runner (spike 0004). The lab asserts the direct path on Chromium and reports Firefox's.
+
 ## Not covered yet
 
 Netem scenarios (mobile data, a lossy link) need the netem kernel module and run on GitHub's runners (`network-lab.yml`); the two-machine numbers come from `two-machines.yml`. Phones, carrier NAT, corporate firewalls and Safari on iOS need real devices (docs/network-testing.md).
