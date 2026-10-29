@@ -37,6 +37,8 @@ jobs:
         run: |
           sudo apt-get update -q
           sudo apt-get install -y -q coturn conntrack
+          # apt starts coturn as a service on every address; the lab runs its own on the lab's address.
+          sudo systemctl stop coturn || true
           sudo modprobe sch_netem || echo "no netem module; the netem scenarios will be skipped"
       - run: bunx playwright install --with-deps ${{ matrix.browser }}
         working-directory: apps/web

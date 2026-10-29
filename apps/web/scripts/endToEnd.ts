@@ -309,6 +309,11 @@ const openPage = async (browser: Browser, routed = true, persistent = false, dir
             window.peerStates?.push(`${Math.round(performance.now())} ms: connection ${index} ${what}`)
           }
 
+          log("created")
+
+          this.addEventListener("signalingstatechange", () => {
+            log(`signaling ${this.signalingState}`)
+          })
           this.addEventListener("iceconnectionstatechange", () => {
             log(`ice ${this.iceConnectionState}`)
           })
