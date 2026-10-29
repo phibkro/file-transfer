@@ -81,7 +81,7 @@ export default defineConfig({
         // The link secret lives in the URL fragment (docs/invariants.md, C1). Shipped browser code reads the page's
         // address only through apps/web/src/address.ts, so the fragment cannot reach a log, a request or a report from
         // anywhere else by accident. The common routes to the URL below are closed too; this guards against a mistake,
-        // not a determined read (a form's action, a prototype getter), which the end-to-end leak check catches.
+        // not a determined read (a form's action, a prototype getter); the end-to-end leak check catches one that is sent.
         files: ["apps/web/src/**/*.ts", "libraries/*/src/**/*.ts"],
         rules: {
           "eslint/no-restricted-globals": [
