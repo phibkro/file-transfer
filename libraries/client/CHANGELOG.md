@@ -1,5 +1,12 @@
 # @file-transfer/client
 
+## 0.1.2
+
+### Patch Changes
+
+- Updated dependencies [cc21d36]
+  - @file-transfer/transport@1.1.0
+
 ## 0.1.1
 
 ### Patch Changes

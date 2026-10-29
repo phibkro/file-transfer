@@ -25,6 +25,9 @@
  *   memory; the parcel's labels already check every record's contents. Set `E2E_TIMEOUT_MS` to a few hours;
  * - `chaos`: transfers under seeded faults (faultPlan.ts): sockets cut cleanly or half-open, stalled, blackholed or
  *   slowed, records replayed by the relay, direct paths killed; `E2E_SEED` and `E2E_RUNS` choose the plans;
+ * - `lab`: transfers between two homes behind emulated routers in Linux network namespaces (networkLab.ts): open,
+ *   symmetric and UDP-blocking NATs, slow and lossy links, a router that drops everything or moves address; needs root,
+ *   coturn's `turnserver`, and chromium or firefox; `E2E_LAB_ONLY` picks scenarios by name;
  * - `scenario`: one transfer scenario (`E2E_SCENARIO`, default half-open) `E2E_REPEAT` times (default 10), to chase a
  *   failure that shows up in a few runs out of many.
  */
@@ -35,6 +38,8 @@ import nodePath from "node:path"
 import { chromium, firefox, webkit } from "playwright"
 import type { Browser, BrowserContext, LaunchOptions, Page, WebSocketRoute } from "playwright"
 import { describePlan, faultPlan } from "./faultPlan.ts"
+import { blackhole, browserInHome, build as buildLab, hasNetem, impair, moveRouter, serverAddress, setNat, tearDown as tearDownLab } from "./networkLab.ts"
+import type { Impairment, LabSide, NatBehaviour } from "./networkLab.ts"
 import type { Fault, FaultPlan, Side } from "./faultPlan.ts"
 import { startLatencyProxy } from "./latencyProxy.ts"
 
@@ -44,6 +49,8 @@ declare global {
     negotiatedSocketExtensions?: string[]
     /** Set by the chaos init script: kills every data channel and peer connection on the page. */
     chaosDropDirect?: () => number
+    /** Set by the chaos init script: each peer connection's state changes, with milliseconds since the page loaded. */
+    peerStates?: string[]
   }
 }
 
@@ -108,6 +115,7 @@ const forward = (faults: SocketFaults, direction: "toServer" | "toPage", deliver
 
 const appDirectory = new URL("..", import.meta.url).pathname
 const platformDirectory = new URL("../../../platforms/cloudflare/", import.meta.url).pathname
+const selfHostedDirectory = new URL("../../../platforms/self-hosted/", import.meta.url).pathname
 const configuredBase = process.env.BASE_URL
 const browserName = process.env.E2E_BROWSER ?? "chromium"
 
@@ -289,11 +297,32 @@ const openPage = async (browser: Browser, routed = true, persistent = false, dir
     await context.addInitScript(() => {
       const connections: RTCPeerConnection[] = []
       const channels: RTCDataChannel[] = []
+      window.peerStates = []
       const Native = window.RTCPeerConnection
       window.RTCPeerConnection = class extends Native {
         constructor(configuration?: RTCConfiguration) {
           super(configuration)
           connections.push(this)
+          const index = connections.length
+
+          const log = (what: string) => {
+            window.peerStates?.push(`${Math.round(performance.now())} ms: connection ${index} ${what}`)
+          }
+
+          log("created")
+
+          this.addEventListener("signalingstatechange", () => {
+            log(`signaling ${this.signalingState}`)
+          })
+          this.addEventListener("iceconnectionstatechange", () => {
+            log(`ice ${this.iceConnectionState}`)
+          })
+          this.addEventListener("icegatheringstatechange", () => {
+            log(`gathering ${this.iceGatheringState}`)
+          })
+          this.addEventListener("icecandidate", (event) => {
+            log(`candidate ${event.candidate?.candidate.split(" ").slice(4, 8).join(" ") ?? "end"}`)
+          })
           this.addEventListener("datachannel", (event) => {
             channels.push(event.channel)
           })
@@ -1187,7 +1216,307 @@ const chaos = async (browser: Browser, base: string) => {
   }
 }
 
-const local = configuredBase === undefined ? await startLocalServer() : undefined
+/** A network situation for the lab suite (networkLab.ts): both routers' NATs and impairments, and an event. */
+interface LabScenario {
+  readonly name: string
+  readonly nat: Readonly<Record<LabSide, NatBehaviour>>
+  readonly impairment?: Partial<Readonly<Record<LabSide, Impairment>>>
+  /** Struck when the recipient's progress passes `at`: a blackhole for `seconds`, or a move to a new address. */
+  readonly event?: { readonly at: number; readonly side: LabSide; readonly kind: "blackhole" | "move"; readonly seconds?: number }
+  /** The path the transfer must take, when the NATs decide it. */
+  readonly expectedPath?: "direct" | "relay"
+  readonly needsNetem?: boolean
+  /** Megabytes to send; default 16. */
+  readonly megabytes?: number
+}
+
+/** A home connection: 40 Mbit/s each way, so a transfer lasts long enough for a direct path to open and take over. */
+const broadband: Impairment = { rateMegabits: 40 }
+
+/** Applied at the router in each direction, so the round trip grows by twice the delay. */
+const mobileData: Impairment = { delayMilliseconds: 40, lossPercent: 1, rateMegabits: 20 }
+const badLink: Impairment = { delayMilliseconds: 100, lossPercent: 3 }
+
+/** The sender sits behind router a, the recipient behind router b. */
+const labScenarios: readonly LabScenario[] = [
+  // A direct path through NAT takes a second or two to open, and a small transfer on a fast relay is done by then, so
+  // this one is long enough to start on the relay and move to the direct path.
+  { name: "open NATs", nat: { a: "open", b: "open" }, impairment: { a: broadband, b: broadband }, megabytes: 48, expectedPath: "direct" },
+  { name: "symmetric NATs", nat: { a: "symmetric", b: "symmetric" }, expectedPath: "relay" },
+  { name: "one symmetric NAT", nat: { a: "open", b: "symmetric" } },
+  { name: "UDP blocked at the sender", nat: { a: "udp-blocked", b: "open" }, expectedPath: "relay" },
+  { name: "8 Mbit/s uplink", nat: { a: "open", b: "open" }, impairment: { a: { rateMegabits: 8 } } },
+  // The recipient on a mobile-like link: its router adds 40 ms each way and drops 1% each way. No jitter: netem's
+  // jitter reorders packets far more than real networks do. Run twice, direct and relay only, to compare the paths.
+  { name: "mobile data (80 ms more round trip, 1% loss, 20 Mbit/s)", nat: { a: "open", b: "open" }, impairment: { b: mobileData }, needsNetem: true },
+  {
+    name: "mobile data (80 ms more round trip, 1% loss, 20 Mbit/s), relay only",
+    nat: { a: "symmetric", b: "symmetric" },
+    impairment: { b: mobileData },
+    needsNetem: true,
+  },
+  // A poor link: 200 ms more round trip and 3% loss each way; slow by nature (about 60 KB/s for TCP by Mathis'
+  // estimate), so 4 MB, which must still arrive whole.
+  { name: "bad link (200 ms more round trip, 3% loss)", nat: { a: "open", b: "open" }, impairment: { b: badLink }, megabytes: 4, needsNetem: true },
+  {
+    name: "bad link (200 ms more round trip, 3% loss), relay only",
+    nat: { a: "symmetric", b: "symmetric" },
+    impairment: { b: badLink },
+    megabytes: 4,
+    needsNetem: true,
+  },
+  { name: "sender's router drops everything for 30 s", nat: { a: "open", b: "open" }, event: { at: 0.3, side: "a", kind: "blackhole", seconds: 30 } },
+  { name: "recipient's router moves to a new address", nat: { a: "open", b: "open" }, event: { at: 0.3, side: "b", kind: "move" } },
+  {
+    name: "sender's router drops everything for 30 s, relay only",
+    nat: { a: "symmetric", b: "symmetric" },
+    event: { at: 0.3, side: "a", kind: "blackhole", seconds: 30 },
+  },
+]
+
+/** The self-hosted node on the lab's internet, with the lab's STUN server; built first, app included. */
+const startLabServer = async () => {
+  for (const directory of [appDirectory, selfHostedDirectory]) {
+    const built = Bun.spawnSync([process.execPath, "run", "build"], { cwd: directory, stdout: "ignore", stderr: "pipe" })
+
+    if (built.exitCode !== 0) {
+      throw new Error(`build in ${directory} failed:\n${built.stderr.toString()}`)
+    }
+  }
+
+  const port = labPort
+  const storage = mkdtempSync(nodePath.join(tmpdir(), "file-transfer-lab-"))
+
+  const stun = Bun.spawn(
+    [
+      "turnserver",
+      "--stun-only",
+      "--listening-ip",
+      serverAddress,
+      "--listening-port",
+      "3478",
+      "--no-cli",
+      "--no-tls",
+      "--no-dtls",
+      "--log-file",
+      "stdout",
+      "--simple-log",
+    ],
+    { stdout: "ignore", stderr: "ignore" },
+  )
+
+  const node = Bun.spawn(
+    [
+      nodePath.join(selfHostedDirectory, "node_modules/.bin/workerd"),
+      "serve",
+      "workerd.capnp",
+      `--socket-addr=http=${serverAddress}:${port}`,
+      `--directory-path=storage=${storage}`,
+    ],
+    {
+      cwd: selfHostedDirectory,
+      env: { ...process.env, LIMIT_ROOMS_PER_ADDRESS_PER_HOUR: "100000", STUN_URLS: `stun:${serverAddress}:3478` },
+      stdout: "ignore",
+      stderr: "inherit",
+    },
+  )
+
+  for (let attempt = 0; attempt < 60; attempt++) {
+    const answer = await fetch(`http://${serverAddress}:${port}/api/instance`).catch(() => undefined)
+
+    if (answer?.ok === true) {
+      return {
+        port,
+        stop: () => {
+          node.kill()
+          stun.kill()
+          rmSync(storage, { recursive: true, force: true })
+        },
+      }
+    }
+
+    await Bun.sleep(500)
+  }
+
+  node.kill()
+  stun.kill()
+  throw new Error("the lab's node did not start within 30 s")
+}
+
+/** One lab transfer, 16 MB unless the scenario says otherwise, in two files from home a to home b under its network. */
+const labTransfer = async (senderBrowser: Browser, recipientBrowser: Browser, scenario: LabScenario) => {
+  for (const side of ["a", "b"] as const) {
+    setNat(side, scenario.nat[side])
+    impair(side, scenario.impairment?.[side])
+  }
+
+  const files = payload([
+    ["mike-capture.bin", (scenario.megabytes ?? 16) * 1024 * 1024 + 11],
+    ["november-notes.txt", 9000],
+  ])
+
+  const total = files.reduce((sum, file) => sum + file.buffer.length, 0)
+  const sender = await openPage(senderBrowser, false, false, true, true)
+  const recipient = await openPage(recipientBrowser, false, false, true, true)
+  const label = `lab ${scenario.name}`
+  let restore: (() => void) | undefined
+
+  try {
+    const link = await offer(sender.page, labOrigin, files)
+    await recipient.page.goto(link)
+    await waitForStatus(recipient.page, ["reviewing", "failed"])
+    await recipient.page.getByRole("button", { name: /^Accept/u }).click()
+    const started = performance.now()
+    const { event } = scenario
+
+    if (event !== undefined) {
+      await waitForProgress(recipient.page, event.at)
+
+      if (event.kind === "blackhole") {
+        blackhole(event.side, true)
+
+        const timer = setTimeout(
+          () => {
+            blackhole(event.side, false)
+          },
+          (event.seconds ?? 30) * 1000,
+        )
+
+        restore = () => {
+          clearTimeout(timer)
+          blackhole(event.side, false)
+        }
+      } else {
+        moveRouter(event.side, true)
+        restore = () => {
+          moveRouter(event.side, false)
+        }
+      }
+    }
+
+    await waitForStatus(recipient.page, ["complete", "failed"])
+    await waitForStatus(sender.page, ["complete", "failed"])
+    const seconds = (performance.now() - started) / 1000
+    check((await status(recipient.page)) === "complete" && (await status(sender.page)) === "complete", `${label}: both sides complete`, {
+      recipient: await recipient.page.evaluate(() => window.fileTransferTest?.failure()),
+      sender: await sender.page.evaluate(() => window.fileTransferTest?.failure()),
+    })
+    const hashes = await recipient.page.evaluate(async () => await window.fileTransferTest?.fileHashes())
+    check(JSON.stringify(hashes) === JSON.stringify(files.map((file) => sha256(file.buffer))), `${label}: every file arrives byte-identical`, hashes)
+    check(sender.errors.length === 0 && recipient.errors.length === 0, `${label}: no uncaught page errors`, [...sender.errors, ...recipient.errors])
+    const wentDirect = (await sender.page.evaluate(() => window.fileTransferTest?.wentDirect())) === true
+    const path = wentDirect ? "direct" : "relay"
+
+    if (scenario.expectedPath !== undefined && path !== scenario.expectedPath) {
+      console.log(`   sender's peer connections:\n     ${((await sender.page.evaluate(() => window.peerStates)) ?? []).join("\n     ")}`)
+      console.log(`   recipient's peer connections:\n     ${((await recipient.page.evaluate(() => window.peerStates)) ?? []).join("\n     ")}`)
+    }
+
+    // Firefox's direct path fails in this lab on GitHub's runners only: the answering side starts gathering and
+    // never yields a candidate (docs/spikes/0005-unreliable-networks.md, open questions). It still has to complete
+    // and arrive whole above; its path is reported, and asserted on Chromium.
+    const directIsAsserted = scenario.expectedPath === "relay" || browserName === "chromium"
+
+    if (scenario.expectedPath !== undefined && directIsAsserted) {
+      check(path === scenario.expectedPath, `${label}: goes ${scenario.expectedPath}`, path)
+    }
+
+    console.log(
+      JSON.stringify({
+        lab: scenario.name,
+        browser: browserName,
+        path,
+        seconds: Math.round(seconds * 10) / 10,
+        megabytesPerSecond: Math.round((total / 1e6 / seconds) * 10) / 10,
+      }),
+    )
+  } finally {
+    restore?.()
+    await sender.close()
+    await recipient.close()
+  }
+}
+
+/**
+ * The origin both pages load from: the lab's node itself, which each browser is told to treat as a secure context
+ * (Chromium's `--unsafely-treat-insecure-origin-as-secure`, Firefox's `dom.securecontext.allowlist`). Not localhost:
+ * Firefox gathers no usable ICE candidates on a localhost page, so its direct path would fail for a reason no real
+ * page has.
+ */
+const labPort = 8787
+const labOrigin = `http://${serverAddress}:${labPort}`
+
+const labLaunchOptions = (): LaunchOptions =>
+  browserName === "firefox"
+    ? { firefoxUserPrefs: { ...launchOptions.firefoxUserPrefs, "dom.securecontext.allowlist": serverAddress } }
+    : { args: [...(launchOptions.args ?? []), `--unsafely-treat-insecure-origin-as-secure=${labOrigin}`] }
+
+/**
+ * The lab suite: transfers between two homes behind emulated routers (networkLab.ts). Needs root and Linux; skips
+ * the netem scenarios when the kernel lacks netem. Chromium and Firefox only: WebKit's persistent profiles do not take
+ * a launch wrapper.
+ */
+const lab = async () => {
+  check(process.getuid?.() === 0, "the lab suite runs as root (it builds network namespaces)")
+  check(browserName !== "webkit", "the lab suite runs in chromium or firefox")
+  const scratch = mkdtempSync(nodePath.join(tmpdir(), "file-transfer-lab-browsers-"))
+  buildLab()
+  const server = await startLabServer()
+  const browsers: Browser[] = []
+
+  // A killed run must not leave the node, the STUN server or the namespaces behind for the next one.
+  const stopLab = () => {
+    server.stop()
+    tearDownLab()
+  }
+
+  const onSignal = () => {
+    stopLab()
+    process.exit(130)
+  }
+
+  process.once("SIGINT", onSignal)
+  process.once("SIGTERM", onSignal)
+
+  try {
+    const netem = hasNetem()
+    const only = process.env.E2E_LAB_ONLY
+
+    const launchIn = async (side: LabSide) => {
+      const launched = await browserType.launch({ ...labLaunchOptions(), executablePath: browserInHome(side, browserType.executablePath(), scratch) })
+      browsers.push(launched)
+
+      return launched
+    }
+
+    const senderBrowser = await launchIn("a")
+    const recipientBrowser = await launchIn("b")
+
+    for (const scenario of labScenarios) {
+      if (only !== undefined && !scenario.name.includes(only)) {
+        continue
+      }
+
+      if (scenario.needsNetem === true && !netem) {
+        console.log(`skip lab ${scenario.name}: this kernel has no netem`)
+        continue
+      }
+
+      await labTransfer(senderBrowser, recipientBrowser, scenario)
+    }
+  } finally {
+    for (const browser of browsers) {
+      await browser.close()
+    }
+
+    process.off("SIGINT", onSignal)
+    process.off("SIGTERM", onSignal)
+    stopLab()
+    rmSync(scratch, { recursive: true, force: true })
+  }
+}
+
+const local = configuredBase === undefined && suite !== "lab" ? await startLocalServer() : undefined
 const base = configuredBase ?? local?.origin ?? ""
 
 console.log(`end to end against ${base} in ${browserName}, suite ${suite}`)
@@ -1197,6 +1526,8 @@ const browser = await browserType.launch(launchOptions)
 try {
   if (suite === "large") {
     await large(browser, base)
+  } else if (suite === "lab") {
+    await lab()
   } else if (suite === "chaos") {
     await chaos(browser, base)
   } else if (suite === "scenario") {
