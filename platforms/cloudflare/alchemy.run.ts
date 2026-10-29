@@ -16,7 +16,10 @@
  */
 import * as Alchemy from "alchemy"
 import * as Cloudflare from "alchemy/Cloudflare"
+import * as Config from "effect/Config"
 import * as Effect from "effect/Effect"
+import * as Option from "effect/Option"
+import * as Redacted from "effect/Redacted"
 import * as Schema from "effect/Schema"
 
 const productionStage = "production"
@@ -55,6 +58,27 @@ const wranglerPath = "./wrangler.jsonc"
 
 const WranglerModule = Schema.Struct({ default: WranglerConfiguration })
 
+/**
+ * Secrets the Worker reads (worker.ts), taken from the deploying environment when set (CI passes them from GitHub
+ * secrets). Alchemy uploads the Worker's whole set of bindings, so a secret set by hand with `wrangler secret put`
+ * would be removed by the next deploy; declaring them here keeps them. An unset or empty one is left out.
+ */
+const secretNames = ["ADMIN_TOKEN", "ADDRESS_SALT"] as const
+
+const loadSecrets = Effect.gen(function* () {
+  const entries: (readonly [string, Redacted.Redacted])[] = []
+
+  for (const name of secretNames) {
+    const value = yield* Config.option(Config.Redacted(name))
+
+    if (Option.isSome(value) && Redacted.value(value.value).length > 0) {
+      entries.push([name, value.value])
+    }
+  }
+
+  return Object.fromEntries(entries)
+}).pipe(Effect.orDie)
+
 const loadWrangler = Effect.promise(async () => {
   const module: unknown = await import(wranglerPath)
 
@@ -87,7 +111,7 @@ export default Alchemy.Stack(
       bundle: false as const,
       compatibility: { date: wrangler.compatibility_date, flags: [...wrangler.compatibility_flags] },
       // Plain-text variables (the operator's limits) next to the Durable Object bindings.
-      env: { ...wrangler.vars, ...durableObjects },
+      env: { ...wrangler.vars, ...(yield* loadSecrets), ...durableObjects },
       assets: {
         directory: wrangler.assets.directory,
         notFoundHandling: wrangler.assets.not_found_handling,

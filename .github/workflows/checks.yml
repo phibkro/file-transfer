@@ -163,6 +163,9 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # Optional Worker secrets (alchemy.run.ts): set them as repository secrets to keep them across deploys.
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+          ADDRESS_SALT: ${{ secrets.ADDRESS_SALT }}
         run: |
           bun run deploy --yes 2>&1 | tee "$RUNNER_TEMP/deploy.log"
           url="$(grep -oE 'https://[a-z0-9.-]+\.workers\.dev' "$RUNNER_TEMP/deploy.log" | tail -n 1)"
