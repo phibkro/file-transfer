@@ -14,6 +14,9 @@ Adapted from the machine module of phibkro/vektorprogrammet-reimagined (its ADR 
 - Layers ask the table (`Machine.can`, `Machine.next`) instead of re-deriving legality.
 - `Machine.problems` reports unreachable states, undeclared dead ends, terminal states with an exit, and commands without a transition; every machine has a test that its problem list is empty.
 - `Machine.toMermaid` renders a top-to-bottom state diagram from the same table.
+- `Machine.matrix` lists every (state, command) pair, the boundary row included, with what the table says happens: the target state, a guarded choice, or `rejected`. `Machine.toTable` renders it as Markdown. `docs/state-machines.md` is generated from the tables (`bun run docs:machines`) and a test fails when it drifts. The table, not the diagram, is normative, as in RFC 9293 and RFC 9113: it is the one that shows every illegal input.
+- `Machine.problems` also reports a command with more than one transition from one state unless every one of them has a guard.
+- Every service with a machine declares a `follows-machine` guarantee, checked by `transitionTableCheck` from `@file-transfer/conformance` over every cell: an allowed command succeeds and leaves the declared state, and a rejected one fails with a typed error and leaves the state unchanged. Rejected cells are Binder's "sneak paths", the illegal inputs a list of transitions never tests. Pairs an interface cannot express (creating a resource that already exists) are listed with a reason, and the table must reject them.
 
 ## Consequences
 
