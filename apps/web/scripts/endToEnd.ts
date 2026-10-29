@@ -33,7 +33,8 @@
  * - `lab`: transfers between two homes behind emulated routers in Linux network namespaces (networkLab.ts): open,
  *   symmetric and UDP-blocking NATs, slow and lossy links, a router that drops everything or moves address; needs root,
  *   coturn's `turnserver`, and chromium or firefox; `E2E_LAB_ONLY` picks scenarios by name;
- * - `completion`: only the complete-in-flight check (also part of `standard`);
+ * - `completion`: only the complete-in-flight checks, with the recipient still there and after it left (also part of
+ *   `standard`);
  * - `life-cycle`: only the recipient life cycle checks (also part of `standard`);
  * - `scenario`: one transfer scenario (`E2E_SCENARIO`, default half-open) `E2E_REPEAT` times (default 10), to chase a
  *   failure that shows up in a few runs out of many.
@@ -1010,6 +1011,46 @@ const completeInFlight = async (browser: Browser, base: string) => {
   }
 }
 
+/**
+ * The same drop, but the recipient is gone before the sender gets back (its linger ran out, or its tab closed): nobody
+ * is left to repeat `complete`, so the room tells the sender when it joins. The sender's first rejoin is blackholed, so
+ * it gets back only after its join timeout, by which time the recipient has left.
+ */
+const completeAfterRecipientLeft = async (browser: Browser, base: string) => {
+  const sender = await openPage(browser, true, false, false)
+  const recipient = await openPage(browser, false, false, false)
+  let recipientOpen = true
+
+  try {
+    const link = await offer(sender.page, base, payload([["lima-complete.bin", 50_000]]))
+    sender.observed.cutBeforeText = '"type":"complete"'
+    sender.observed.silentSockets = 1
+    await recipient.page.goto(link)
+    await waitForStatus(recipient.page, ["reviewing", "failed"])
+    await recipient.page.getByRole("button", { name: /^Accept/u }).click()
+    await waitForStatus(recipient.page, ["complete", "failed"])
+    const recipientEnd = await status(recipient.page)
+    await recipient.close()
+    recipientOpen = false
+
+    const senderEnd = await waitForStatus(sender.page, ["complete", "failed"], 45_000)
+      .then(async () => await status(sender.page))
+      .catch(async () => await status(sender.page))
+
+    check(
+      recipientEnd === "complete" && senderEnd === "complete" && sender.observed.sockets.length >= 3,
+      "a sender that gets back after the completed recipient left still learns the transfer completed",
+      { recipient: recipientEnd ?? "none", sender: senderEnd ?? "none", senderSockets: sender.observed.sockets.length },
+    )
+  } finally {
+    await sender.close()
+
+    if (recipientOpen) {
+      await recipient.close()
+    }
+  }
+}
+
 /** Abort control frame the "room" sends a recipient, as the sender's abort would arrive. */
 const abortFrame = JSON.stringify({ type: "abort", reason: "verification-abort" })
 
@@ -1892,6 +1933,7 @@ try {
     await chaos(browser, base)
   } else if (suite === "completion") {
     await completeInFlight(browser, base)
+    await completeAfterRecipientLeft(browser, base)
   } else if (suite === "life-cycle") {
     await recipientLifeCycle(browser, base)
   } else if (suite === "scenario") {
@@ -1925,6 +1967,7 @@ try {
     await transfer(browser, base, "throughput")
     await decline(browser, base)
     await completeInFlight(browser, base)
+    await completeAfterRecipientLeft(browser, base)
     await recipientLifeCycle(browser, base)
     await wrongKey(browser, base)
 
