@@ -1,6 +1,6 @@
 # Security policy
 
-This project moves people's files, so security reports are welcome and taken seriously. What the software protects, and what it does not, is described on the site's security page (`apps/web/security.html`) and in `docs/parcel.md` (the encrypted format) and `docs/design.md` (threat model).
+This project moves people's files, so security reports are welcome and taken seriously. What the software protects, and what it does not, is described in `docs/threat-model.md` (assets, attackers, threats and the risks we accept), `docs/invariants.md` (what must always hold, and the tests that show it), `docs/parcel.md` (the encrypted format) and on the site's security page (`apps/web/security.html`).
 
 ## Reporting a vulnerability
 

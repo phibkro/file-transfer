@@ -150,6 +150,8 @@ Services are declared once as Effect services with an in-memory reference layer 
 
 ## Security posture
 
+The current threat model, with every threat's status and residual risk, is `threat-model.md`; the invariants it relies on, with their tests, are in `invariants.md`. The table below is the summary.
+
 | Adversary                              | Reads contents    | Tampers undetected                         | Learns metadata                   |
 | -------------------------------------- | ----------------- | ------------------------------------------ | --------------------------------- |
 | Relay, seed, volunteer node            | no                | no                                         | IPs, sizes, timing                |
