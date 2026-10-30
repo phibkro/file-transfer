@@ -67,8 +67,15 @@ export type Violation =
   | { readonly rule: "runtime-module-in-source"; readonly packageName: string; readonly file: string; readonly specifier: string }
   | { readonly rule: "test-only-in-source"; readonly packageName: string; readonly file: string; readonly specifier: string }
   | { readonly rule: "escaping-relative-import"; readonly packageName: string; readonly file: string; readonly specifier: string }
+  | { readonly rule: "computed-import-in-source"; readonly packageName: string; readonly file: string }
   | { readonly rule: "unused-dependency"; readonly packageName: string; readonly dependency: string }
   | { readonly rule: "dependency-cycle"; readonly packages: readonly string[] }
+
+/**
+ * The specifier recorded for `import(expression)` whose module is not a plain string: the check cannot tell what it
+ * loads, so shipped code may not use one (development-only files may, to load a configuration file by path).
+ */
+export const computedImportSpecifier = "<computed import>"
 
 /** Modules the runtime provides rather than a package: Node and Bun built-ins, and the Workers runtime's `cloudflare:*`. */
 const runtimeModulePrefixes = ["node:", "bun:", "cloudflare:"]
@@ -131,6 +138,14 @@ export const checkModuleGraph = (packages: readonly PackageFacts[], rootDevelopm
     for (const fact of facts.imports) {
       const { file, specifier, developmentOnly } = fact
       const shipped = !developmentOnly && !facts.testSupportFiles.includes(file)
+
+      if (specifier === computedImportSpecifier) {
+        if (shipped) {
+          violations.push({ rule: "computed-import-in-source", packageName: facts.name, file })
+        }
+
+        continue
+      }
 
       if (isRelative(specifier)) {
         if (!staysInside(file, specifier)) {
@@ -248,6 +263,10 @@ export const describeViolation = (violation: Violation): string => {
 
     case "escaping-relative-import": {
       return `${violation.packageName} (${violation.file}): ${violation.specifier} reaches outside the package`
+    }
+
+    case "computed-import-in-source": {
+      return `${violation.packageName} (${violation.file}): import() of a module that is not a plain string; the graph cannot see what it loads`
     }
 
     case "unused-dependency": {

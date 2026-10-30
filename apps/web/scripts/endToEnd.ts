@@ -33,15 +33,17 @@
  * - `lab`: transfers between two homes behind emulated routers in Linux network namespaces (networkLab.ts): open,
  *   symmetric and UDP-blocking NATs, slow and lossy links, a router that drops everything or moves address; needs root,
  *   coturn's `turnserver`, and chromium or firefox; `E2E_LAB_ONLY` picks scenarios by name;
- * - `completion`: only the complete-in-flight check (also part of `standard`);
+ * - `completion`: only the complete-in-flight checks, with the recipient still there and after it left (also part of
+ *   `standard`);
  * - `life-cycle`: only the recipient life cycle checks (also part of `standard`);
  * - `scenario`: one transfer scenario (`E2E_SCENARIO`, default half-open) `E2E_REPEAT` times (default 10), to chase a
  *   failure that shows up in a few runs out of many.
  */
 import { createHash, randomBytes } from "node:crypto"
-import { closeSync, ftruncateSync, mkdtempSync, openSync, rmSync, writeFileSync, writeSync } from "node:fs"
+import { closeSync, ftruncateSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync, writeSync } from "node:fs"
 import { tmpdir } from "node:os"
 import nodePath from "node:path"
+import { decodeLinkSecret, deriveRoomToken, hashRoomToken } from "@file-transfer/parcel"
 import { chromium, firefox, webkit } from "playwright"
 import type { Browser, BrowserContext, LaunchOptions, Page, WebSocketRoute } from "playwright"
 import { describePlan, faultPlan } from "./faultPlan.ts"
@@ -75,6 +77,11 @@ interface PayloadFile {
 
 interface Observed {
   readonly urls: string[]
+  /**
+   * Request bodies the page sent (round 3 review of #27: a body can carry the URL too). Playwright reports string and
+   * buffer bodies in every browser, but Blob and File bodies only in Firefox (round 4 review of #27).
+   */
+  readonly bodies: Buffer[]
   readonly frames: Buffer[]
   readonly sockets: RoutedSocket[]
   /** When set, the first text frame from the server containing this is held back and the socket is cut cleanly instead. */
@@ -223,15 +230,21 @@ const startLocalServer = async () => {
       "--persist-to",
       nodePath.join(scratch, "state"),
       "--show-interactive-dev-session=false",
+      // Everything the server prints goes to files the leak probe reads (serverKeptNoSecrets).
       "--log-level",
-      "warn",
+      "log",
       // Counting on with a known admin token, so the operator page can be checked (src/admin.ts).
       "--var",
       "COUNTERS:on",
       "--var",
       `ADMIN_TOKEN:${localAdminToken}`,
     ],
-    { cwd: platformDirectory, env: environment, stdout: "ignore", stderr: "pipe" },
+    {
+      cwd: platformDirectory,
+      env: environment,
+      stdout: Bun.file(nodePath.join(scratch, "wrangler.out.log")),
+      stderr: Bun.file(nodePath.join(scratch, "wrangler.err.log")),
+    },
   )
 
   const origin = `http://127.0.0.1:${port}`
@@ -243,6 +256,8 @@ const startLocalServer = async () => {
       if (response.ok) {
         return {
           origin,
+          /** Holds the server's state (`state/`) and everything it printed (`wrangler.*.log`). */
+          scratch,
           stop: async () => {
             wrangler.kill()
             await wrangler.exited
@@ -388,9 +403,21 @@ const openPage = async (browser: Browser, routed = true, persistent = false, dir
     }
   })
   const page = await context.newPage()
-  const observed: Observed = { urls: [], frames: [], sockets: [], cutBeforeText: undefined, silentSockets: 0 }
+  const observed: Observed = { urls: [], bodies: [], frames: [], sockets: [], cutBeforeText: undefined, silentSockets: 0 }
   const errors: string[] = []
-  page.on("request", (request) => observed.urls.push(request.url()))
+  page.on("framenavigated", (frame) => {
+    if (frame === page.mainFrame() && new URL(frame.url()).hash.length > 1) {
+      leakNeedles.links.add(frame.url())
+    }
+  })
+  page.on("request", (request) => {
+    observed.urls.push(request.url())
+    const body = request.postDataBuffer()
+
+    if (body !== null) {
+      observed.bodies.push(body)
+    }
+  })
   page.on("pageerror", (error) => {
     if (!isWebKitSendFailure(error.message)) {
       errors.push(error.message)
@@ -536,6 +563,7 @@ const offer = async (sender: Page, base: string, files: readonly PayloadFile[]) 
   await sender.getByRole("button", { name: "Show link" }).click()
   const link = await sender.inputValue("#link")
   check(new URL(link).hash.length > 32, "Show link reveals the full link")
+  rememberOffer(link, files)
   await sender.getByRole("button", { name: "Show QR code" }).click()
 
   // The encoder loads on first use (src/share.ts), so the code appears a moment after the click.
@@ -552,7 +580,152 @@ const offer = async (sender: Page, base: string, files: readonly PayloadFile[]) 
   return link
 }
 
-/** The invariant from CLAUDE.md, as seen from the browsers: nothing they send carries the secret or a file name. */
+/**
+ * What the server-side leak probe looks for: every link a page opened or the suite created (a wrong key's included),
+ * the links that created a room (whose token hash the server must keep), and every file and name the suite used.
+ */
+interface LeakNeedles {
+  readonly links: Set<string>
+  readonly roomLinks: Set<string>
+  readonly files: PayloadFile[]
+  readonly names: Set<string>
+}
+
+const leakNeedles: LeakNeedles = { links: new Set(), roomLinks: new Set(), files: [], names: new Set() }
+
+const rememberOffer = (link: string, files: readonly PayloadFile[]) => {
+  leakNeedles.links.add(link)
+  leakNeedles.roomLinks.add(link)
+  leakNeedles.files.push(...files)
+
+  for (const file of files) {
+    leakNeedles.names.add(file.name)
+  }
+}
+
+/** Every file under a directory, recursively. */
+const filesUnder = (directory: string): string[] =>
+  readdirSync(directory).flatMap((entry) => {
+    const path = nodePath.join(directory, entry)
+
+    return statSync(path).isDirectory() ? filesUnder(path) : [path]
+  })
+
+/**
+ * The invariant from CLAUDE.md, as seen from the server: after the suite's transfers, nothing the local server kept
+ * (its Durable Object storage on disk and everything it printed) holds a link secret, a room token, a file name or a
+ * file's contents. Each link's fragment, secret and room token (the server should keep only the token's hash) are
+ * looked for in the forms `lookForBytes` lists, names as text, contents as a 32-byte sample from the middle of each
+ * file; every text form as UTF-8 and UTF-16. Socket attachments are not covered (the local runtime keeps them in
+ * memory). As a control,
+ * the probe must find each room token's hash in the stored state, which shows it is reading where the server keeps
+ * things and not passing because it looked nowhere.
+ */
+const serverKeptNoSecrets = async (scratch: string) => {
+  const kept = filesUnder(scratch).map((path) => ({ path: nodePath.relative(scratch, path), bytes: readFileSync(path) }))
+  const stateBytes = kept.filter((file) => file.path.startsWith("state")).reduce((total, file) => total + file.bytes.length, 0)
+  const leaks: string[] = []
+  const missingHashes: string[] = []
+
+  const texts = kept.map((file) => ({ path: file.path, text: file.bytes.toString("latin1") }))
+
+  /** Like `look`, for a needle whose spacing varies: tested against every kept file's text. */
+  const lookForPattern = (label: string, pattern: RegExp) => {
+    for (const file of texts) {
+      if (pattern.test(file.text)) {
+        leaks.push(`${file.path} holds ${label}`)
+      }
+    }
+  }
+
+  const look = (label: string, needle: Buffer) => {
+    for (const file of kept) {
+      if (needle.length > 0 && file.bytes.includes(needle)) {
+        leaks.push(`${file.path} holds ${label}`)
+      }
+    }
+  }
+
+  /**
+   * A text needle as UTF-8 and as UTF-16LE: V8 stores a string with any character above U+00FF as UTF-16, so a token
+   * inside a stored message with an arrow or a curly quote is not in the file as UTF-8 (round 2 review of #28).
+   */
+  const lookForText = (label: string, text: string) => {
+    look(label, Buffer.from(text))
+    look(`${label}, UTF-16`, Buffer.from(text, "utf16le"))
+  }
+
+  /**
+   * The forms a byte string takes when code prints or stores it: hex in either case, base64, base64url, raw, and the
+   * start of the decimal lists `console.log` prints for a Uint8Array and JSON writes for an array (eight bytes are
+   * enough to be unique). Every text form is looked for as UTF-8 and UTF-16.
+   */
+  const lookForBytes = (label: string, bytes: Uint8Array) => {
+    const buffer = Buffer.from(bytes)
+    const first = [...bytes.subarray(0, 8)]
+    const hex = buffer.toString("hex")
+    lookForText(`${label} (hex)`, hex)
+    lookForText(`${label} (upper-case hex)`, hex.toUpperCase())
+    lookForText(`${label} (base64)`, buffer.toString("base64").replace(/=+$/u, ""))
+    lookForText(`${label} (base64url)`, buffer.toString("base64url"))
+    look(`${label} (bytes)`, buffer)
+    lookForText(`${label} (decimal list)`, first.join(", "))
+    lookForText(`${label} (JSON array)`, first.join(","))
+    // The same values with any spacing, line breaks or index keys between them: workerd prints a byte array as a padded
+    // grid, and an object holding one serialises as {"0":89,"1":100,...} (round 3 review of #28).
+    lookForPattern(`${label} (printed bytes)`, new RegExp(`(?<![0-9])${first.join(String.raw`(?:[\s,]+|,\s*"\d{1,3}"\s*:\s*)`)}(?![0-9])`, "u"))
+  }
+
+  for (const [index, link] of [...leakNeedles.links].entries()) {
+    const fragment = new URL(link).hash
+    lookForText(`link ${index}'s fragment`, fragment.slice(1))
+
+    // A damaged link's fragment does not decode; its text above is all there is to look for.
+    const secret = (() => {
+      try {
+        return decodeLinkSecret(fragment)
+      } catch {
+        return undefined
+      }
+    })()
+
+    if (secret !== undefined) {
+      const token = await deriveRoomToken(secret)
+      lookForBytes(`link ${index}'s secret`, secret)
+      lookForBytes(`link ${index}'s room token`, token)
+
+      if (leakNeedles.roomLinks.has(link)) {
+        const hash = Buffer.from(await hashRoomToken(token))
+
+        if (!kept.some((file) => file.path.startsWith("state") && file.bytes.includes(hash))) {
+          missingHashes.push(`link ${index}`)
+        }
+      }
+    }
+  }
+
+  for (const name of leakNeedles.names) {
+    lookForText(`the name ${name}`, name)
+  }
+
+  for (const file of leakNeedles.files) {
+    const middle = Math.max(0, Math.floor(file.buffer.length / 2) - 16)
+    look(`contents of ${file.name}`, file.buffer.subarray(middle, middle + 32))
+  }
+
+  check(leakNeedles.roomLinks.size > 0 && missingHashes.length === 0, "the leak probe finds every room's token hash where the server keeps state", {
+    rooms: leakNeedles.roomLinks.size,
+    links: leakNeedles.links.size,
+    missing: missingHashes.join(", "),
+    stateBytes,
+  })
+  check(leaks.length === 0, "nothing the server kept holds a link secret, a room token, a file name or file contents", [...new Set(leaks)])
+}
+
+/**
+ * The invariant from CLAUDE.md, as seen from the browsers: no request URL, socket frame or visible request body they
+ * send carries the secret or a file name (Blob and File bodies are visible in Firefox only; see Observed.bodies).
+ */
 const checkNothingLeaks = (link: string, files: readonly PayloadFile[], observedList: readonly Observed[]) => {
   const secret = new URL(link).hash.slice(1)
   check(secret.length >= 32, "the link carries its secret in the fragment")
@@ -575,9 +748,17 @@ const checkNothingLeaks = (link: string, files: readonly PayloadFile[], observed
         }
       }
     }
+
+    for (const body of observed.bodies) {
+      for (const needle of needles) {
+        if (body.includes(Buffer.from(needle))) {
+          leaks.push(`request body contains ${needle === secret ? "the secret" : needle}`)
+        }
+      }
+    }
   }
 
-  check(leaks.length === 0, "no request URL or socket frame carries the secret or a file name", leaks.slice(0, 5))
+  check(leaks.length === 0, "no request URL, request body or socket frame carries the secret or a file name", leaks.slice(0, 5))
 }
 
 const transferScenarios = ["basic", "resume", "half-open", "throughput", "latency"] as const
@@ -766,6 +947,8 @@ const previewsAndNames = async (browser: Browser, base: string) => {
     )
     await sender.page.getByRole("button", { name: "Show link" }).click()
     const link = await sender.page.inputValue("#link")
+    rememberOffer(link, files)
+    leakNeedles.names.add("packing list.txt").add("holiday.png")
 
     await recipient.page.goto(link)
     await waitForStatus(recipient.page, ["reviewing", "failed"])
@@ -1013,6 +1196,46 @@ const completeInFlight = async (browser: Browser, base: string) => {
   } finally {
     await sender.close()
     await recipient.close()
+  }
+}
+
+/**
+ * The same drop, but the recipient is gone before the sender gets back (its linger ran out, or its tab closed): nobody
+ * is left to repeat `complete`, so the room tells the sender when it joins. The sender's first rejoin is blackholed, so
+ * it gets back only after its join timeout, by which time the recipient has left.
+ */
+const completeAfterRecipientLeft = async (browser: Browser, base: string) => {
+  const sender = await openPage(browser, true, false, false)
+  const recipient = await openPage(browser, false, false, false)
+  let recipientOpen = true
+
+  try {
+    const link = await offer(sender.page, base, payload([["lima-complete.bin", 50_000]]))
+    sender.observed.cutBeforeText = '"type":"complete"'
+    sender.observed.silentSockets = 1
+    await recipient.page.goto(link)
+    await waitForStatus(recipient.page, ["reviewing", "failed"])
+    await recipient.page.getByRole("button", { name: /^Accept/u }).click()
+    await waitForStatus(recipient.page, ["complete", "failed"])
+    const recipientEnd = await status(recipient.page)
+    await recipient.close()
+    recipientOpen = false
+
+    const senderEnd = await waitForStatus(sender.page, ["complete", "failed"], 45_000)
+      .then(async () => await status(sender.page))
+      .catch(async () => await status(sender.page))
+
+    check(
+      recipientEnd === "complete" && senderEnd === "complete" && sender.observed.sockets.length >= 3,
+      "a sender that gets back after the completed recipient left still learns the transfer completed",
+      { recipient: recipientEnd ?? "none", sender: senderEnd ?? "none", senderSockets: sender.observed.sockets.length },
+    )
+  } finally {
+    await sender.close()
+
+    if (recipientOpen) {
+      await recipient.close()
+    }
   }
 }
 
@@ -1921,6 +2144,7 @@ try {
     await chaos(browser, base)
   } else if (suite === "completion") {
     await completeInFlight(browser, base)
+    await completeAfterRecipientLeft(browser, base)
   } else if (suite === "life-cycle") {
     await recipientLifeCycle(browser, base)
   } else if (suite === "scenario") {
@@ -1954,11 +2178,13 @@ try {
     await transfer(browser, base, "throughput")
     await decline(browser, base)
     await completeInFlight(browser, base)
+    await completeAfterRecipientLeft(browser, base)
     await recipientLifeCycle(browser, base)
     await wrongKey(browser, base)
 
     if (local !== undefined) {
       await operatorPage(browser, base)
+      await serverKeptNoSecrets(local.scratch)
     }
   }
 

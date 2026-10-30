@@ -49,6 +49,10 @@
       {
         "specifier": "@file-transfer/machine",
         "reason": "workspace package governed by its own group below; tools/quality checks the edge"
+      },
+      {
+        "specifier": "@file-transfer/web/recipientPhase",
+        "reason": "the web app's recipient table, a pure-library file; tools/quality reads it to generate docs/state-machines.md; tools/quality checks the edge"
       }
     ],
     "groups": [
@@ -120,6 +124,7 @@
       },
       {
         "files": [
+          "apps/web/src/address.ts",
           "apps/web/src/connection.ts",
           "apps/web/src/storage.ts",
           "apps/web/src/report.ts",

@@ -2,6 +2,7 @@
  * Entry point: `/` sends, `/r/<room>` receives. The link secret lives in the URL fragment, which browsers never
  * send to a server; this app reads it once and never puts it in a request (apps/web/README.md).
  */
+import { pagePath } from "./address.ts"
 import { startRecipient } from "./recipient.ts"
 import { directPanel } from "./directSettings.ts"
 import { installLeaveGuard } from "./leaveGuard.ts"
@@ -19,7 +20,7 @@ if (root !== null) {
   // Received files from tabs that are gone are deleted before anything else touches storage (storage.ts).
   await sweepStaleTransfers()
   root.after(storagePanel(), directPanel())
-  const recipientPath = /^\/r\/(?<roomIdentifier>[A-Za-z0-9_-]{22})\/?$/u.exec(location.pathname)
+  const recipientPath = /^\/r\/(?<roomIdentifier>[A-Za-z0-9_-]{22})\/?$/u.exec(pagePath())
   const roomIdentifier = recipientPath?.groups?.roomIdentifier
 
   if (roomIdentifier === undefined) {
