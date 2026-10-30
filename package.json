@@ -13,17 +13,15 @@
   "scripts": {
     "test": "vp test run",
     "check:graph": "bun tools/quality/src/checkModuleGraph.ts",
+    "check:dependencies": "knip",
     "check:effect": "effx check",
     "check:secrets": "gitleaks git --redact --config .gitleaks.toml",
-    "check": "vp check --deny-warnings && bun run check:graph && bun run check:effect && vp test run",
+    "check": "vp check --deny-warnings && bun run check:graph && bun run check:dependencies && bun run check:effect && vp test run",
     "check:vectors": "python3 -I libraries/parcel/test/vectors/verify.py",
     "check:changesets": "bun tools/quality/src/checkChangesets.ts",
     "release:prepare": "bun tools/quality/src/prepareRelease.ts",
     "release:notes": "bun tools/quality/src/releaseNotesFor.ts",
     "docs:machines": "bun tools/quality/src/writeStateMachines.ts"
-  },
-  "dependencies": {
-    "effect": "^4.0.7"
   },
   "devDependencies": {
     "@changesets/cli": "3.0.3",
@@ -31,6 +29,7 @@
     "@phibkro/oxlint-effect-plugin": "0.2.0",
     "@types/bun": "latest",
     "fast-check": "^4.0.0",
+    "knip": "6.43.0",
     "oxlint": "1.86.0",
     "typescript": "7.0.2",
     "ultracite": "8.1.0",

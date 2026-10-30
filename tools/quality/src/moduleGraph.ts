@@ -55,7 +55,6 @@ export interface PackageFacts {
   readonly developmentDependencies: readonly string[]
   /** Shipped files allowed to import test-only specifiers, from `fileTransfer.testSupportFiles` in package.json. */
   readonly testSupportFiles: readonly string[]
-  readonly sourceFileCount: number
   readonly imports: readonly ImportFact[]
 }
 
@@ -68,7 +67,6 @@ export type Violation =
   | { readonly rule: "test-only-in-source"; readonly packageName: string; readonly file: string; readonly specifier: string }
   | { readonly rule: "escaping-relative-import"; readonly packageName: string; readonly file: string; readonly specifier: string }
   | { readonly rule: "computed-import-in-source"; readonly packageName: string; readonly file: string }
-  | { readonly rule: "unused-dependency"; readonly packageName: string; readonly dependency: string }
   | { readonly rule: "dependency-cycle"; readonly packages: readonly string[] }
 
 /**
@@ -119,7 +117,6 @@ export const checkModuleGraph = (packages: readonly PackageFacts[], rootDevelopm
   for (const facts of packages) {
     const rule = kindRules[facts.kind]
     const declared = new Set(facts.dependencies)
-    const used = new Set<string>()
 
     for (const dependency of facts.dependencies) {
       const target = byName.get(dependency)
@@ -178,22 +175,10 @@ export const checkModuleGraph = (packages: readonly PackageFacts[], rootDevelopm
         continue
       }
 
-      used.add(dependency)
       const providedForTests = !shipped && (rootDevelopmentDependencies.includes(dependency) || facts.developmentDependencies.includes(dependency))
 
       if (!declared.has(dependency) && !providedForTests) {
         violations.push({ rule: "undeclared-dependency", packageName: facts.name, file, dependency })
-      }
-    }
-
-    // A package with no source yet may declare the edges it will need; the kind rules above still apply to them.
-    if (facts.sourceFileCount > 0) {
-      for (const dependency of facts.dependencies) {
-        const unknown = dependency.startsWith(workspaceScope) && !byName.has(dependency)
-
-        if (!used.has(dependency) && !unknown) {
-          violations.push({ rule: "unused-dependency", packageName: facts.name, dependency })
-        }
       }
     }
   }
@@ -267,10 +252,6 @@ export const describeViolation = (violation: Violation): string => {
 
     case "computed-import-in-source": {
       return `${violation.packageName} (${violation.file}): import() of a module that is not a plain string; the graph cannot see what it loads`
-    }
-
-    case "unused-dependency": {
-      return `${violation.packageName}: declares ${violation.dependency} but never imports it`
     }
 
     case "dependency-cycle": {

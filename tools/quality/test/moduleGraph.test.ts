@@ -20,7 +20,6 @@ const library: PackageFacts = {
   dependencies: [],
   developmentDependencies: [],
   testSupportFiles: [],
-  sourceFileCount: 1,
   imports: [{ file: "src/index.ts", specifier: "./constants.ts", developmentOnly: false }],
 }
 
@@ -31,7 +30,6 @@ const service: PackageFacts = {
   dependencies: ["@file-transfer/parcel", "effect"],
   developmentDependencies: [],
   testSupportFiles: [],
-  sourceFileCount: 2,
   imports: [
     { file: "src/index.ts", specifier: "@file-transfer/parcel", developmentOnly: false },
     { file: "src/index.ts", specifier: "effect", developmentOnly: false },
@@ -47,7 +45,6 @@ const platform: PackageFacts = {
   dependencies: ["@file-transfer/service-room"],
   developmentDependencies: [],
   testSupportFiles: [],
-  sourceFileCount: 1,
   imports: [
     { file: "src/index.ts", specifier: "@file-transfer/service-room", developmentOnly: false },
     { file: "src/index.ts", specifier: "node:crypto", developmentOnly: false },
@@ -127,12 +124,8 @@ describe("module graph negative controls", () => {
     ])
   })
 
-  it("rejects a declared dependency that nothing imports, unless the package has no source yet", () => {
+  it("rejects a declared dependency on a workspace package that does not exist", () => {
     expect(rulesBroken(replace(service, { dependencies: [...service.dependencies, "@file-transfer/machine"] }))).toEqual(["unknown-workspace-package"])
-    const unused = [...valid, { ...library, name: "@file-transfer/machine", directory: "libraries/machine" }]
-    const withUnused = unused.map((facts) => (facts === service ? { ...facts, dependencies: [...facts.dependencies, "@file-transfer/machine"] } : facts))
-    expect(rulesBroken(withUnused)).toEqual(["unused-dependency"])
-    expect(rulesBroken(withUnused.map((facts) => (facts.name === service.name ? { ...facts, sourceFileCount: 0, imports: [] } : facts)))).toEqual([])
   })
 
   it("records an import whose module is not a plain string as computed", () => {
