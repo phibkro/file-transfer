@@ -1,0 +1,21 @@
+{
+  // Dependency hygiene (docs/decisions/0009): unused and unlisted packages, unresolved imports, undeclared binaries.
+  // The package-kind rules stay in `bun run check:graph`; file cycles are oxlint's import/no-cycle.
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "include": ["dependencies", "unlisted", "unresolved", "binaries"],
+  // Spikes are throwaway measurements with their own package.json files, outside the workspace.
+  "ignore": ["spikes/**"],
+  // Installed by CI, not by bun.
+  "ignoreBinaries": ["gitleaks"],
+  // The effect-tsgo version the effx coordinator pins (docs/decisions/0009), and the language service plugin tsconfig.json names,
+  // which effect-tsgo provides.
+  "ignoreDependencies": ["@effect/tsgo", "@effect/language-service"],
+  "workspaces": {
+    ".": { "entry": [] },
+    "apps/web": { "entry": ["scripts/**/*.ts"] },
+    // knip reads the Workers runtime module `cloudflare:workers` as a package named `cloudflare`.
+    "platforms/cloudflare": { "entry": ["alchemy.run.ts", "scripts/**/*.ts"], "ignoreDependencies": ["cloudflare"] },
+    "platforms/self-hosted": { "entry": ["src/*.ts", "scripts/**/*.ts"] },
+    "tools/quality": { "entry": ["src/check*.ts", "src/write*.ts", "src/prepareRelease.ts", "src/releaseNotesFor.ts"] },
+  },
+}

@@ -108,7 +108,6 @@ export const loadWorkspace = (root: string): Workspace => {
         dependencies: Object.keys(manifest.dependencies ?? {}).toSorted(),
         developmentDependencies: Object.keys(manifest.devDependencies ?? {}).toSorted(),
         testSupportFiles: manifest.fileTransfer?.testSupportFiles ?? [],
-        sourceFileCount: files.length,
         imports: files.flatMap((path) => {
           const file = nodePath.relative(packageDirectory, path)
 
