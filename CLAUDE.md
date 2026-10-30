@@ -19,7 +19,7 @@ Every package belongs to exactly one kind. Put new code in the right one.
 | App         | `apps/*`         | User-facing applications built on `libraries/client` (`apps/web`)                                                                                                           | libraries                                               |
 | Tool        | `tools/*`        | Repository checks and generators (`tools/quality`); never imported by other kinds                                                                                           | any kind, runtime APIs                                  |
 
-`bun run check:graph` enforces this table: each `package.json` declares a package's edges and `tools/quality/src/moduleGraph.ts` holds the rules (docs/decisions/0009). Declare every dependency you import; `bun run check:dependencies` (knip) fails on any you stop using.
+`bun run check:graph` enforces this table: each `package.json` declares a package's edges and `tools/quality/src/moduleGraph.ts` holds the rules (docs/decisions/0009). Declare every dependency you import; `bun run check:dependencies` (knip) fails on any you stop using, except the two effect-tsgo packages it ignores everywhere.
 
 Platforms are isomorphic: `cloudflare` and `self-hosted` provide a Layer for the same set of service tags. A platform is complete only when it passes every service's conformance suite.
 

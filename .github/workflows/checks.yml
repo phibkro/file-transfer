@@ -31,7 +31,7 @@ jobs:
         with:
           node-version: 22
       - run: bun install --frozen-lockfile
-      # Vite+ check (format, lint, types), module graph, Effect profile (effx), tests (Vitest).
+      # Vite+ check (format, lint, types), module graph, dependency hygiene (knip), Effect profile (effx), tests (Vitest).
       - run: bun run check
       # Independent re-implementation of parcel v1 (Python, OpenSSL) must reproduce every test vector byte.
       - uses: actions/setup-python@v6
