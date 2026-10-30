@@ -4,7 +4,7 @@ Input for a decision on `tools/quality`'s module graph check (docs/decisions/000
 
 ## Method
 
-Each tool ran with the smallest configuration that matches this repository, then against planted violations, one at a time, next to `bun run check:graph`. Plants were removed after each run. Timings are wall clock on a shared two-core machine, second of two runs.
+Each tool ran with the smallest configuration that matches this repository, then against planted violations, one at a time, next to `bun run check:graph`. Plants were removed after each run. The configurations were scratch files: the knip one became `knip.jsonc` (#32), and the plugin's used one element type per kind directory with the kind table as its allow-matrix. Timings are wall clock on a shared two-core machine, second of two runs.
 
 ## What each tool caught
 
@@ -36,7 +36,7 @@ Each tool ran with the smallest configuration that matches this repository, then
 | oxlint with only `import/no-cycle`, whole repo      | 1.0 s              |
 | `vp run --cache check:graph`, first run, then a hit | 1.7 s, then 0.09 s |
 
-`vp run --cache` runs in this Bun workspace, which its install guide does not list (only pnpm, npm and Yarn): a modified input (`libraries/sink/src/index.ts`, or a `package.json`) made it miss, and reverting the file made it hit again. A newly added file did not: the cached run replayed a pass ("cache hit, replaying", 0 violations) where a direct run failed. The miss is specific to Bun: a `readdirSync` probe run under Node with `vp run --cache` missed when a file was added ("cache miss: 'b-node.txt' added in 'probe-dir'"), and the same probe under Bun replayed the stale result. So a Bun task that discovers files by listing directories, `check:graph` included, should not be cached that way.
+`vp run --cache` runs in this Bun workspace, which its install guide does not list (only pnpm, npm and Yarn): a modified input (`libraries/sink/src/index.ts`, or a `package.json`) made it miss; after reverting the file, the next run missed once more and the one after hit. A newly added file did not: the cached run replayed a pass ("cache hit, replaying", 0 violations) where a direct run failed. The miss is specific to Bun: a `readdirSync` probe run under Node with `vp run --cache` missed when a file was added ("cache miss: 'b-node.txt' added in 'probe-dir'"), and the same probe under Bun replayed the stale result. So a Bun task that discovers files by listing directories, `check:graph` included, should not be cached that way.
 
 ## Findings
 
@@ -48,11 +48,10 @@ Each tool ran with the smallest configuration that matches this repository, then
 
 ## Proposal
 
-Decided by the owner on 2026-10-30: contribute upstream first.
+Decided by the owner on 2026-10-30, after round 2 of this spike's review: adopt knip and oxlint's cycle rule, and put every other rule in one tool of our own, `ox-dep-lint`. oxlint-plugin-boundaries is not adopted (finding 3), and the pull request prepared for it is not sent.
 
-- Adopt knip (dependencies, unlisted, cycles) with this spike's entry points, and oxlint's `import/no-cycle` (Ultracite's core preset already turns it on). Adopt oxlint-plugin-boundaries for kind edges only with one element type per package and a matrix generated from the kind table, or once it can forbid edges between elements of one type.
-- Send oxlint-plugin-boundaries a pull request so it visits re-exports (`export ... from`, `export * from`) and literal dynamic `import()`.
-- Build `ox-dep-lint` as an oxlint plugin for the rules nothing else covers: outside packages per kind, runtime and test-only modules in shipped code, relative imports that leave a package, computed `import()`, undeclared imports (workspace packages, root-only dependencies, devDependencies in shipped code), and layers inside a package with a shrink-only baseline. Then move vektorprogrammet-reimagined and reebeat onto the same set, with pull requests to each.
+- Adopt knip for dependency hygiene (unused and unlisted packages, unresolved imports, binaries) with this spike's entry points, and oxlint's `import/no-cycle` for file cycles (Ultracite's core preset already turns it on). knip's own `cycles` type only warns unless its rule is set to `error`, so `import/no-cycle` is the check.
+- Build `ox-dep-lint` as an oxlint plugin for the rest: kind edges between packages, read from imports, re-exports and literal `import()`; outside packages per kind; runtime and test-only modules in shipped code; relative imports that leave a package; computed `import()`; undeclared imports (workspace packages, root-only dependencies, devDependencies in shipped code); and layers inside a package with a shrink-only baseline. Then move vektorprogrammet-reimagined and reebeat onto the same set, with pull requests to each.
 - Keep `check:graph` until each rule it enforces has a replacement that a negative control proves.
 
 ## Sources
