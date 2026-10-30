@@ -11,7 +11,7 @@
         "@types/bun": "latest",
         "fast-check": "^4.0.0",
         "knip": "6.43.0",
-        "ox-dep-lint": "0.1.1",
+        "ox-dep-lint": "0.2.0",
         "oxlint": "1.86.0",
         "typescript": "7.0.2",
         "ultracite": "8.1.0",
@@ -153,7 +153,7 @@
         "@file-transfer/service-room": "workspace:*",
         "@file-transfer/web": "workspace:*",
         "effect": "^4.0.7",
-        "ox-dep-lint": "0.1.1",
+        "ox-dep-lint": "0.2.0",
       },
     },
   },
@@ -1147,7 +1147,7 @@
 
     "onetime": ["onetime@7.0.0", "", { "dependencies": { "mimic-function": "^5.0.0" } }, "sha512-VXJjc87FScF88uafS3JllDgvAm+c/Slfz06lorj2uAY34rlUu0Nt+v8wreiImcrgAjjIHp1rXpTDlLOGw29WwQ=="],
 
-    "ox-dep-lint": ["ox-dep-lint@0.1.1", "", { "dependencies": { "oxc-parser": "0.153.0", "oxc-resolver": "11.24.2" }, "peerDependencies": { "oxlint": ">=1.86.0" }, "optionalPeers": ["oxlint"], "bin": { "ox-dep-lint": "dist/cli.mjs" } }, "sha512-Ir+2DlkldNlmwbkpUQTsKdgHSS3FKwlJiKQykw/r7IMqTLFBiQpJGcDAT4PLnAkgRiWev1TuFEW4zO0WV7cj7g=="],
+    "ox-dep-lint": ["ox-dep-lint@0.2.0", "", { "dependencies": { "oxc-parser": "0.153.0", "oxc-resolver": "11.24.2" }, "peerDependencies": { "oxlint": ">=1.86.0" }, "optionalPeers": ["oxlint"], "bin": { "ox-dep-lint": "dist/cli.mjs" } }, "sha512-yvb5p6+gZ6wxTwKyNjbMgnycnu3DVJE4vwzNJMkyv0CtObaqYNscChcPb49bkdNWZoJEbXn8yF74SATEsMMzsg=="],
 
     "oxc-parser": ["oxc-parser@0.95.0", "", { "dependencies": { "@oxc-project/types": "^0.95.0" }, "optionalDependencies": { "@oxc-parser/binding-android-arm64": "0.95.0", "@oxc-parser/binding-darwin-arm64": "0.95.0", "@oxc-parser/binding-darwin-x64": "0.95.0", "@oxc-parser/binding-freebsd-x64": "0.95.0", "@oxc-parser/binding-linux-arm-gnueabihf": "0.95.0", "@oxc-parser/binding-linux-arm-musleabihf": "0.95.0", "@oxc-parser/binding-linux-arm64-gnu": "0.95.0", "@oxc-parser/binding-linux-arm64-musl": "0.95.0", "@oxc-parser/binding-linux-riscv64-gnu": "0.95.0", "@oxc-parser/binding-linux-s390x-gnu": "0.95.0", "@oxc-parser/binding-linux-x64-gnu": "0.95.0", "@oxc-parser/binding-linux-x64-musl": "0.95.0", "@oxc-parser/binding-wasm32-wasi": "0.95.0", "@oxc-parser/binding-win32-arm64-msvc": "0.95.0", "@oxc-parser/binding-win32-x64-msvc": "0.95.0" } }, "sha512-Te8fE/SmiiKWIrwBwxz5Dod87uYvsbcZ9JAL5ylPg1DevyKgTkxCXnPEaewk1Su2qpfNmry5RHoN+NywWFCG+A=="],
 

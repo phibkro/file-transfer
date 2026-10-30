@@ -23,7 +23,7 @@ export default defineConfig({
   fileClasses: [{ files: ["test/**", "scripts/**", "**/*.test.ts", "alchemy.run.ts"], policy: "development" }],
   testOnlySpecifiers: ["vite-plus/test", "bun:test", "fast-check", "effect/testing", "@file-transfer/conformance"],
   // Shipped code takes outside packages from dependencies only.
-  imports: { shippedFields: ["dependencies"] },
+  imports: { shippedFields: ["dependencies"], typeOnly: "as-values" },
   // The self-hosted platform's built web client, copied in by its build.
   ignore: ["platforms/self-hosted/public/**"],
 })
