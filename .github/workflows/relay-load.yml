@@ -35,6 +35,14 @@ jobs:
         with:
           node-version: 22
       - run: bun install --frozen-lockfile
+      # Before `--yes`, which would also let Alchemy bootstrap, upgrade or downgrade the account's shared state store
+      # (docs/decisions/0025).
+      - uses: ./.github/actions/state-store-preflight
+        with:
+          working-directory: platforms/cloudflare
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       - id: deploy
         working-directory: platforms/cloudflare
         env:
@@ -69,8 +77,18 @@ jobs:
         with:
           name: relay-load-results
           path: ${{ runner.temp }}/results.jsonl
+      # The destroy runs even after a failed step, so it has its own check and runs only when that check passes. Nothing
+      # was deployed when the deploy step was skipped.
+      - id: store-before-destroy
+        if: always() && steps.deploy.outcome != 'skipped'
+        uses: ./.github/actions/state-store-preflight
+        with:
+          working-directory: platforms/cloudflare
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       - name: Destroy the Preview
-        if: always()
+        if: always() && steps.store-before-destroy.outcome == 'success'
         working-directory: platforms/cloudflare
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

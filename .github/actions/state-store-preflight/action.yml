@@ -1,0 +1,55 @@
+name: The state store answers at this Alchemy's version
+description: >-
+  Fails unless the account's shared Alchemy state store answers at exactly the version the installed Alchemy expects.
+  Run it before every `alchemy deploy --yes` and `alchemy destroy --yes` (docs/decisions/0025). Needs
+  CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID in the step's environment, and `bun install` done.
+
+inputs:
+  working-directory:
+    description: The directory whose node_modules holds the Alchemy that deploys (it runs `alchemy` from there).
+    required: true
+
+runs:
+  using: composite
+  steps:
+    # `--yes` lets Alchemy bootstrap or upgrade the account's shared state store, and Alchemy treats a failed probe as a
+    # missing store and any other version (older or newer) as one to replace. So deploy or destroy only when the store
+    # answers at exactly this Alchemy's version. This narrows, not closes, the window: Alchemy's own probe can still fail
+    # in the seconds after this one. Bootstrap or upgrade the store deliberately from a machine, for every repository
+    # that shares it at once (platforms/cloudflare/README.md). Adapted from the same step in heim, filmder and finnbydel.
+    - name: The state store answers at this Alchemy's version
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        set -euo pipefail
+        # The Cloudflare store's own contract version (alchemy's State/HttpStateApi.ts has an unrelated one of the same
+        # name). Alchemy 2.0.0-beta.84 ships it in @alchemy.run/cloudflare, as TypeScript source and as compiled lib.
+        expected=""
+        for api in $(find -L node_modules/@alchemy.run/cloudflare node_modules/alchemy \
+          \( -path '*StateStore/Api.ts' -o -path '*StateStore/Api.js' \) 2>/dev/null | sort); do
+          expected=$(sed -nE 's/^export const STATE_STORE_VERSION = ([0-9]+)( as const)?;$/\1/p' "$api")
+          if [ -n "$expected" ]; then break; fi
+        done
+        test -n "$expected" || { echo "::error::cannot read the state store version this Alchemy expects"; exit 1; }
+        # Cloudflare's error codes and messages are printed when this fails (they hold no credentials).
+        response=$(curl -sS --max-time 20 -w '\n%{http_code}' -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+          "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain" || true)
+        status=${response##*$'\n'}
+        body=${response%$'\n'*}
+        subdomain=$(printf '%s' "$body" | jq -r '.result.subdomain // empty' 2>/dev/null || true)
+        if [ -z "$subdomain" ]; then
+          errors=$(printf '%s' "$body" | jq -c '[.errors[]? | {code, message}]' 2>/dev/null || echo "not JSON")
+          echo "::error::cannot read the account's workers.dev subdomain (HTTP $status, $errors). Check that CLOUDFLARE_ACCOUNT_ID is the account ID and that the token can read Workers in that account."
+          exit 1
+        fi
+        observed=""
+        for attempt in 1 2 3 4 5 6 7 8 9 10; do
+          observed=$(curl -fsS --max-time 10 "https://alchemy-state-store.$subdomain.workers.dev/version" | jq -r '.version // empty' || true)
+          [ -n "$observed" ] && break
+          sleep 3
+        done
+        if [ "$observed" != "$expected" ]; then
+          echo "::error::The state store answers v${observed:-nothing}; this Alchemy expects v$expected. Bootstrap or upgrade it from a machine, then rerun."
+          exit 1
+        fi
+        echo "State store v$observed"

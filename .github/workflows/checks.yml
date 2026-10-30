@@ -206,6 +206,13 @@ jobs:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
+      # Before `--yes`, which would also let Alchemy bootstrap, upgrade or downgrade the account's shared state store.
+      - uses: ./.github/actions/state-store-preflight
+        with:
+          working-directory: platforms/cloudflare
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       - id: deploy
         working-directory: platforms/cloudflare
         env:
@@ -253,6 +260,14 @@ jobs:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
+      # A destroy opens the stack's state like a deploy, so its `--yes` too would let Alchemy bootstrap, upgrade or
+      # downgrade the account's shared state store.
+      - uses: ./.github/actions/state-store-preflight
+        with:
+          working-directory: platforms/cloudflare
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       - working-directory: platforms/cloudflare
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -273,6 +288,13 @@ jobs:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
+      # Before `--yes`, which would also let Alchemy bootstrap, upgrade or downgrade the account's shared state store.
+      - uses: ./.github/actions/state-store-preflight
+        with:
+          working-directory: platforms/cloudflare
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       - id: deploy
         working-directory: platforms/cloudflare
         env:
