@@ -2,6 +2,21 @@
 
 Every release of this repository, newest first, written from the changesets each pull request adds (docs/versioning.md). Each package also keeps its own CHANGELOG.md.
 
+## v0.5.4
+
+### @file-transfer/web 0.5.4
+
+#### Patch Changes
+
+- 6b8ee0b: The browser leak checks now read Blob, File and FormData request bodies in every browser; in the app, only a comment in the address module changes. Nothing changes for people using the app.
+
+### @file-transfer/platform-cloudflare 0.5.4
+
+#### Patch Changes
+
+- @file-transfer/service-quota@0.5.4
+  - @file-transfer/service-telemetry@0.5.4
+
 ## v0.5.3
 
 ### @file-transfer/platform-cloudflare 0.5.3

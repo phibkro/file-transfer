@@ -1,5 +1,12 @@
 # @file-transfer/platform-cloudflare
 
+## 0.5.4
+
+### Patch Changes
+
+- @file-transfer/service-quota@0.5.4
+  - @file-transfer/service-telemetry@0.5.4
+
 ## 0.5.3
 
 ### Patch Changes
