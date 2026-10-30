@@ -1,8 +1,8 @@
 /**
  * Drives one user journey against a running instance the way two people would, in two isolated browser profiles, and
  * writes the evidence (.claude/skills/verify-file-transfer, features/): a screenshot and an ARIA snapshot of each page
- * after each step, every request URL, request body and socket frame the browsers sent, and `result.json` with each step's action
- * and observed outcome. Exits non-zero when the journey fails; the evidence stays either way.
+ * after each step, every request URL, request body and socket frame the browsers sent (not a body sent from a worker, a
+ * just-created about:blank frame or as a stream), and `result.json` with each step's action and observed outcome. Exits non-zero when the journey fails; the evidence stays either way.
  *
  *   bun apps/web/scripts/verify/drive.ts <journey> <origin> <evidence directory> [chromium | firefox | webkit]
  *
@@ -14,6 +14,7 @@ import nodePath from "node:path"
 import { chromium, firefox, webkit } from "playwright"
 import type { Browser, Page, WebSocketRoute } from "playwright"
 import { recordBlobBodies } from "../requestBodies.ts"
+import type { BodyRecorder } from "../requestBodies.ts"
 
 const journeys = ["send-receive", "decline", "wrong-key", "resume"] as const
 
@@ -43,6 +44,9 @@ const steps: Step[] = []
 /** Text frames (control messages) each page received, with the time, for checks on what the room told whom. */
 const controlReceived: { readonly page: string; readonly at: number; readonly text: string }[] = []
 const sent: { readonly page: string; readonly kind: "url" | "body" | "frame"; readonly text: string }[] = []
+
+/** One per browser profile: waits for the request bodies its pages are still reading (../requestBodies.ts). */
+const bodyRecorders: BodyRecorder[] = []
 
 const step = (action: string, observed: string, ok: boolean) => {
   steps.push({ action, observed, ok })
@@ -77,9 +81,11 @@ const openProfile = async (label: string) => {
   }
 
   // Blob and File bodies, which Playwright's request events do not carry in Chromium and WebKit (../requestBodies.ts).
-  await recordBlobBodies(context, (bytes) => {
+  const bodyRecorder = await recordBlobBodies(context, (bytes) => {
     sent.push({ page: label, kind: "body", text: bytes.toString("latin1") })
   })
+
+  bodyRecorders.push(bodyRecorder)
   const page = await context.newPage()
   page.on("request", (request) => {
     sent.push({ page: label, kind: "url", text: request.url() })
@@ -160,11 +166,22 @@ const offer = async (sender: Page, files: ReturnType<typeof makeFiles>) => {
   return link
 }
 
-/** CLAUDE.md's invariant as the browsers see it: no URL, request body or frame they send carries the secret or a file name. */
-const checkNothingLeaks = (link: string, files: ReturnType<typeof makeFiles>) => {
+/**
+ * CLAUDE.md's invariant as the browsers see it: no URL, request body or frame they send carries the secret or a file
+ * name. Bodies sent from a worker, a just-created about:blank frame or as a ReadableStream are not seen (requestBodies.ts).
+ */
+const checkNothingLeaks = async (link: string, files: ReturnType<typeof makeFiles>) => {
   const secret = new URL(link).hash.slice(1)
   const needles = [secret, ...files.map((file) => file.name)]
-  const leaks = sent.filter((item) => needles.some((needle) => item.text.includes(needle)))
+  // A body is read at about 10 MB/s; wait for every read in flight before looking.
+  const unreadPerProfile = await Promise.all(bodyRecorders.map(async (recorder) => await recorder.settled()))
+  const unread = unreadPerProfile.reduce((total, count) => total + count, 0)
+
+  const leaks = [
+    ...sent.filter((item) => needles.some((needle) => item.text.includes(needle))),
+    ...(unread > 0 ? [{ page: "both", kind: "body" as const, text: `${unread} request bodies were still being read` }] : []),
+  ]
+
   writeFileSync(
     nodePath.join(evidence, "sent.json"),
     `${JSON.stringify(
@@ -220,7 +237,7 @@ try {
     await capture(recipient, "02-recipient-reviewing")
     step("open the link", `recipient status ${reviewing}`, reviewing === "reviewing")
     await receiveAll(sender, recipient, files)
-    checkNothingLeaks(link, files)
+    await checkNothingLeaks(link, files)
   }
 
   if (journey === "decline") {

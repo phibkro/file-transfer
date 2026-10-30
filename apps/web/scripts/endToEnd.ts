@@ -77,6 +77,8 @@ interface Observed {
    * Blob, File, FormData and Request bodies, which it does not report in Chromium and WebKit (requestBodies.ts).
    */
   readonly bodies: Buffer[]
+  /** Waits for body reads still in flight (requestBodies.ts); returns how many were left at the limit. */
+  bodiesSettled: () => Promise<number>
   readonly frames: Buffer[]
   readonly sockets: RoutedSocket[]
   /** When set, the first text frame from the server containing this is held back and the socket is cut cleanly instead. */
@@ -397,11 +399,23 @@ const openPage = async (browser: Browser, routed = true, persistent = false, dir
       }
     }
   })
-  const observed: Observed = { urls: [], bodies: [], frames: [], sockets: [], cutBeforeText: undefined, silentSockets: 0 }
+
+  const observed: Observed = {
+    urls: [],
+    bodies: [],
+    bodiesSettled: async () => 0,
+    frames: [],
+    sockets: [],
+    cutBeforeText: undefined,
+    silentSockets: 0,
+  }
+
   // Blob and File bodies, which Playwright's request events do not carry in Chromium and WebKit (requestBodies.ts).
-  await recordBlobBodies(context, (bytes) => {
+  const bodyRecorder = await recordBlobBodies(context, (bytes) => {
     observed.bodies.push(bytes)
   })
+
+  observed.bodiesSettled = bodyRecorder.settled
   const page = await context.newPage()
   const errors: string[] = []
   page.on("framenavigated", (frame) => {
@@ -726,11 +740,20 @@ const serverKeptNoSecrets = async (scratch: string) => {
  * carries the secret or a file name (except bodies requestBodies.ts cannot see: from a worker, a just-created about:blank
  * frame, or a ReadableStream).
  */
-const checkNothingLeaks = (link: string, files: readonly PayloadFile[], observedList: readonly Observed[]) => {
+const checkNothingLeaks = async (link: string, files: readonly PayloadFile[], observedList: readonly Observed[]) => {
   const secret = new URL(link).hash.slice(1)
   check(secret.length >= 32, "the link carries its secret in the fragment")
   const needles = [secret, ...files.map((file) => file.name)]
   const leaks: string[] = []
+
+  // A body is read at about 10 MB/s; one the check did not wait for would pass unseen (round 2 review of #30).
+  for (const observed of observedList) {
+    const unread = await observed.bodiesSettled()
+
+    if (unread > 0) {
+      leaks.push(`${unread} request bodies were still being read`)
+    }
+  }
 
   for (const observed of observedList) {
     for (const url of observed.urls) {
@@ -1144,7 +1167,7 @@ const transfer = async (browser: Browser, base: string, scenario: TransferScenar
     console.log(`   ${scenario}: ${(total / 1e6).toFixed(1)} MB in ${seconds.toFixed(1)} s (${lastMegabytesPerSecond.toFixed(1)} MB/s)`)
 
     if (routed) {
-      checkNothingLeaks(link, files, [sender.observed, recipient.observed])
+      await checkNothingLeaks(link, files, [sender.observed, recipient.observed])
     } else {
       // Unrouted sockets negotiate with the real server, so this is the relay's own answer to the browser's offer.
       const extensions = [
