@@ -29,7 +29,7 @@ Platforms are isomorphic: `cloudflare` and `self-hosted` provide a Layer for the
 - Names use full words: `RoomIdentifier`, not `RoomId`; `createRoom`, not `mkRoom`. Abbreviations only when unambiguous and universal (`url`, `http`, `id` inside compound protocol field names defined in `docs/parcel.md`).
 - Errors are typed (`Data.TaggedError`), never thrown strings. Code the browser loads returns plain data instead (`Decoded<T>`) and never imports Effect (ADR 0020).
 - Wire contracts are Valibot schemas exposed as Standard Schema, defined once and decoded at the boundary (ADR 0020).
-- Services and libraries take capabilities (`Clock`, `Crypto`, project services) from the environment; never reach for `crypto`, `Date`, `console` or runtime modules directly. `effx check` enforces this per file role, declared in `effx.config.json`.
+- Services and libraries take capabilities (`Clock`, `SecureRandom`, project services) from the environment; never reach for `crypto`, `Date`, `console` or runtime modules directly. `effx check` enforces this per file role, declared in `effx.config.json`.
 - Life cycles are transition tables from `libraries/machine` (docs/decisions/0008).
 - `AGENTS.fragment.md` (installed by `effx init`) is the Effect profile the lint enforces; read it before writing Effect code.
 - No em-dashes in docs or comments; use commas or parentheses.
