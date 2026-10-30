@@ -156,12 +156,29 @@ export const availableStorage = async (): Promise<number | undefined> => {
   }
 }
 
+/** How often, and how long apart (growing linearly), a removal refused because a file is still held is tried. */
+const removalAttempts = 5
+const removalPauseMilliseconds = 50
+
 /** Removes an entry, ignoring one that is already gone. */
 const removeQuietly = async (directory: FileSystemDirectoryHandle, name: string) => {
-  try {
-    await directory.removeEntry(name, { recursive: true })
-  } catch {
-    // Already gone, or held open by another tab: nothing to keep either way.
+  // A writable aborted a moment ago can still hold its file: Chromium then refuses the removal with
+  // NoModificationAllowedError (found in the round 2 review of #23, about one run in seventeen), so a refused removal is
+  // tried again a few times before giving up. Gone already, or held open by another tab: nothing to keep either way.
+  for (let attempt = 1; attempt <= removalAttempts; attempt++) {
+    try {
+      await directory.removeEntry(name, { recursive: true })
+
+      return
+    } catch (error) {
+      if (!(error instanceof DOMException) || error.name !== "NoModificationAllowedError" || attempt === removalAttempts) {
+        return
+      }
+
+      await new Promise((resolve) => {
+        setTimeout(resolve, removalPauseMilliseconds * attempt)
+      })
+    }
   }
 }
 
