@@ -19,7 +19,7 @@
     },
     "apps/web": {
       "name": "@file-transfer/web",
-      "version": "0.5.1",
+      "version": "0.5.2",
       "dependencies": {
         "@file-transfer/machine": "workspace:*",
         "@file-transfer/parcel": "workspace:*",
@@ -75,7 +75,7 @@
     },
     "platforms/cloudflare": {
       "name": "@file-transfer/platform-cloudflare",
-      "version": "0.5.1",
+      "version": "0.5.2",
       "dependencies": {
         "@file-transfer/parcel": "workspace:*",
         "@file-transfer/service-quota": "workspace:*",
@@ -94,7 +94,7 @@
     },
     "platforms/self-hosted": {
       "name": "@file-transfer/platform-self-hosted",
-      "version": "0.5.1",
+      "version": "0.5.2",
       "devDependencies": {
         "esbuild": "^0.28.0",
         "workerd": "^1.20261028.1",
@@ -102,7 +102,7 @@
     },
     "services/abuse": {
       "name": "@file-transfer/service-abuse",
-      "version": "0.5.1",
+      "version": "0.5.2",
       "dependencies": {
         "@file-transfer/conformance": "workspace:*",
         "effect": "^4.0.7",
@@ -110,7 +110,7 @@
     },
     "services/quota": {
       "name": "@file-transfer/service-quota",
-      "version": "0.5.1",
+      "version": "0.5.2",
       "dependencies": {
         "@file-transfer/conformance": "workspace:*",
         "effect": "^4.0.7",
@@ -118,7 +118,7 @@
     },
     "services/relay": {
       "name": "@file-transfer/service-relay",
-      "version": "0.5.1",
+      "version": "0.5.2",
       "dependencies": {
         "@file-transfer/conformance": "workspace:*",
         "@file-transfer/machine": "workspace:*",
@@ -127,7 +127,7 @@
     },
     "services/room": {
       "name": "@file-transfer/service-room",
-      "version": "0.5.1",
+      "version": "0.5.2",
       "dependencies": {
         "@file-transfer/conformance": "workspace:*",
         "@file-transfer/machine": "workspace:*",
@@ -137,7 +137,7 @@
     },
     "services/telemetry": {
       "name": "@file-transfer/service-telemetry",
-      "version": "0.5.1",
+      "version": "0.5.2",
       "dependencies": {
         "@file-transfer/conformance": "workspace:*",
         "effect": "^4.0.7",
