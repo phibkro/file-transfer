@@ -24,6 +24,6 @@ Options compared:
 ## Consequences
 
 - The production bundle fell from 158.9 KB to 89.3 KB (57.4 KB to 34.3 KB compressed). The QR encoder now loads only when asked for (10 KB), and the content pages ship no JavaScript (their layout is applied at build time, `apps/web/scripts/layout.ts`).
-- `tools/quality` allows `valibot` in libraries; effx trusts it as pure.
+- The module graph check (`ox-dep-lint.config.ts`, ADR 0009) allows `valibot` in libraries; effx trusts it as pure.
 - New wire contracts (operator API, developer API) follow the same rule: Valibot definitions, exposed as Standard Schema, decoded at the boundary.
 - If an Effect service needs a contract as an Effect schema, it adapts the Standard Schema rather than defining it a second time.
