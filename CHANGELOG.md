@@ -2,6 +2,19 @@
 
 Every release of this repository, newest first, written from the changesets each pull request adds (docs/versioning.md). Each package also keeps its own CHANGELOG.md.
 
+## v0.5.3
+
+### @file-transfer/platform-cloudflare 0.5.3
+
+#### Patch Changes
+
+- 4bd2eb0: Drops the unused `workerd` devDependency; wrangler brings its own. The Worker it builds is unchanged.
+
+  Repository: knip checks dependency hygiene in `bun run check`, replacing the module graph check's unused-dependency rule.
+
+- @file-transfer/service-quota@0.5.3
+  - @file-transfer/service-telemetry@0.5.3
+
 ## v0.5.2
 
 ### @file-transfer/web 0.5.2
