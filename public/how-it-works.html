@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'" />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="description" content="How a transfer works: encrypted in your browser, carried as ciphertext, checked and decrypted by the recipient." />
+    <title>How it works · File transfer</title>
+    <link rel="stylesheet" crossorigin href="/assets/style-D4YPp6tb.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a href="/" class="site-name">File transfer</a>
+      <nav aria-label="Site"><a href="/how-it-works" aria-current="page">How it works</a><a href="/security">Security</a><a href="/privacy">Privacy</a><a href="/run-your-own">Run your own</a><a href="https://github.com/phibkro/file-transfer">Source code</a></nav>
+    </header>
+    <main class="content">
+      <h1>How it works</h1>
+      <p class="lead">
+        You pick files and your browser encrypts them. You share a link. The recipient's browser downloads every piece, checks it, and decrypts it. The server
+        in the middle passes encrypted pieces along and never holds a key.
+      </p>
+
+      <h2>One transfer</h2>
+      <figure class="diagram">
+        <svg viewBox="0 0 640 400" role="img" aria-labelledby="flow-title flow-description">
+          <title id="flow-title">One transfer</title>
+          <desc id="flow-description">
+            The sender's browser encrypts the files. Encrypted pieces go to the recipient's browser, directly when the two can connect and through the relay
+            otherwise; the recipient checks and decrypts them. The key travels only inside the link, from sender to recipient, never through the server.
+          </desc>
+          <defs>
+            <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" class="diagram-arrowhead" />
+            </marker>
+          </defs>
+          <rect x="40" y="16" width="320" height="76" rx="10" class="diagram-box" />
+          <text x="200" y="46" class="diagram-title">Sender's browser</text>
+          <text x="200" y="70" class="diagram-text">encrypts files and names</text>
+          <rect x="40" y="162" width="320" height="76" rx="10" class="diagram-box diagram-server" />
+          <text x="200" y="192" class="diagram-title">Relay (the server)</text>
+          <text x="200" y="216" class="diagram-text">passes ciphertext, holds no key</text>
+          <rect x="40" y="308" width="320" height="76" rx="10" class="diagram-box" />
+          <text x="200" y="338" class="diagram-title">Recipient's browser</text>
+          <text x="200" y="362" class="diagram-text">checks every piece, decrypts</text>
+          <line x1="200" y1="92" x2="200" y2="158" class="diagram-line" marker-end="url(#arrow)" />
+          <text x="212" y="130" class="diagram-label diagram-left">encrypted pieces</text>
+          <line x1="200" y1="238" x2="200" y2="304" class="diagram-line" marker-end="url(#arrow)" />
+          <text x="212" y="276" class="diagram-label diagram-left">encrypted pieces</text>
+          <path d="M 360 54 H 520 V 346 H 364" class="diagram-line diagram-key" marker-end="url(#arrow)" />
+          <text x="532" y="186" class="diagram-label diagram-left">the link</text>
+          <text x="532" y="206" class="diagram-label diagram-left">(key after #)</text>
+        </svg>
+        <figcaption>The key travels only inside the link, which you share yourself. It never passes through the server.</figcaption>
+      </figure>
+
+      <ol class="steps">
+        <li>
+          <strong>Sealing.</strong> Your browser makes a random 32-byte secret, derives keys from it, and encrypts the files and their names into a
+          <em>parcel</em>, a format specified in the open (<a href="https://github.com/phibkro/file-transfer/blob/main/docs/parcel.md">parcel v1</a>).
+        </li>
+        <li>
+          <strong>The link.</strong> The secret goes in the part of the link after <code>#</code>. Browsers never send that part to any server. You share the
+          link however you like: copy it, use your phone's share sheet, or show a QR code.
+        </li>
+        <li>
+          <strong>The room.</strong> The server opens a room that admits only a browser that proves it holds the link. It stores a hash of a token derived from
+          the secret, never the secret.
+        </li>
+        <li>
+          <strong>Review.</strong> The recipient's browser decrypts the list of files and shows names and sizes. Nothing downloads until the recipient accepts.
+        </li>
+        <li>
+          <strong>Transfer.</strong> Encrypted pieces flow through the room. Before any content, the recipient receives a fingerprint of every piece, and checks
+          each piece against it as it arrives. If either side loses its connection, the transfer resumes where it stopped.
+        </li>
+        <li><strong>Done.</strong> Files appear only once every piece has checked out. They stay in your browser until you save them or leave the page.</li>
+      </ol>
+
+      <h2>What the server sees, and what it never sees</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">Never</th>
+              <th scope="col">Sees</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>What is in your files</td>
+              <td>That a room exists, and when it is used</td>
+            </tr>
+            <tr>
+              <td>File names, types, and how many files (beyond a rough bucket)</td>
+              <td>The total size of the encrypted parcel, and how fast it moves</td>
+            </tr>
+            <tr>
+              <td>The link's secret, or any key</td>
+              <td>The network addresses of connected browsers, as any server does</td>
+            </tr>
+            <tr>
+              <td>Your saved files</td>
+              <td>Counts for the operator: rooms, completed and failed transfers, bytes relayed</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        For limits, the server keeps a salted hash of a network address for one hour, never the address itself. The full list of what a server keeps is on the
+        <a href="/privacy">privacy page</a>.
+      </p>
+
+      <h2>Today, and what comes next</h2>
+      <ul>
+        <li>
+          <strong>Direct when possible.</strong> When both browsers allow it and the network lets them, encrypted pieces go directly between them (WebRTC).
+          Otherwise, or when a direct connection drops, they go through the server's relay, and the transfer carries on from where it was. Either way they are
+          encrypted end to end. A direct connection shows each side the other's network address; see <a href="/privacy">privacy</a>.
+        </li>
+        <li>
+          <strong>No files on servers.</strong> A room holds a token hash and a byte count, and is deleted a day after everyone leaves. Encrypted storage for
+          recipients who are offline is a later, opt-in feature.
+        </li>
+        <li>
+          <strong>Large files.</strong> Transfers of 10 GB have been tested from end to end. Instances with the default settings relay up to 25 GB per transfer.
+        </li>
+        <li><strong>Anyone can run it.</strong> The software is free under the AGPL. See <a href="/run-your-own">run your own</a>.</li>
+      </ul>
+    </main>
+    <footer class="site-footer">
+      <p>
+        Free software under the <a href="https://github.com/phibkro/file-transfer/blob/main/LICENSE">AGPL-3.0</a>. Files are encrypted in your browser;
+        servers carry only ciphertext and keep no files. <a href="https://github.com/phibkro/file-transfer">Read the code</a>,
+        <a href="/security#report">report a problem</a>, or <a href="/run-your-own">run your own</a>.
+      </p>
+    </footer>
+  </body>
+</html>

@@ -1,0 +1,2 @@
+# Opens /admin and /api/admin/* for you, the operator. Leave empty to keep them closed.
+ADMIN_TOKEN=

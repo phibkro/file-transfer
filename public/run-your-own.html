@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'" />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="description" content="Run your own instance on your Cloudflare account, or host it yourself." />
+    <title>Run your own · File transfer</title>
+    <link rel="stylesheet" crossorigin href="/assets/style-D4YPp6tb.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a href="/" class="site-name">File transfer</a>
+      <nav aria-label="Site"><a href="/how-it-works">How it works</a><a href="/security">Security</a><a href="/privacy">Privacy</a><a href="/run-your-own" aria-current="page">Run your own</a><a href="https://github.com/phibkro/file-transfer">Source code</a></nav>
+    </header>
+    <main class="content">
+      <h1>Run your own</h1>
+      <p class="lead">
+        The whole system is free software under the AGPL-3.0. Run a private instance for yourself, your family or your team, with your own limits.
+      </p>
+
+      <h2>On your own Cloudflare account</h2>
+      <p>
+        This works today. Cloudflare's free plan is enough for personal use: by our estimate from Cloudflare's published limits, a free account relays on the
+        order of 100 GB a day. Cloudflare does not charge for bandwidth.
+      </p>
+      <ol class="steps">
+        <li>Install <a href="https://bun.sh">Bun</a> 1.4 or later, and sign in to Cloudflare with <code>bunx wrangler login</code>.</li>
+        <li>
+          Get the code and build it:
+          <pre><code>git clone https://github.com/phibkro/file-transfer
+      cd file-transfer
+      bun install
+      cd platforms/cloudflare
+      bun run build:all</code></pre>
+        </li>
+        <li>Deploy: <code>bunx wrangler deploy</code>. Wrangler prints your instance's address on <code>workers.dev</code>.</li>
+        <li>
+          Optionally, attach your own domain in the Cloudflare dashboard. The salt that keeps address hashes from being reversed is generated on first use;
+          there is nothing to set.
+        </li>
+      </ol>
+
+      <h2>One-click deploy</h2>
+      <p>
+        <a class="button-link" href="https://deploy.workers.cloudflare.com/?url=https://github.com/phibkro/file-transfer/tree/deploy">Deploy to Cloudflare</a>
+      </p>
+      <p>
+        Cloudflare copies a prebuilt version of this software into a new repository in your GitHub account and deploys it to your account, without installing
+        anything. It asks for one optional secret, an admin token for the operator page; everything else has a default. The
+        <a href="https://github.com/phibkro/file-transfer/tree/deploy">deploy branch</a> it copies is built by CI from the main branch.
+      </p>
+
+      <h2>On your own machine</h2>
+      <p>The same server code runs on workerd, Cloudflare's open-source runtime, in one container. Any machine or provider that runs Docker will do:</p>
+      <pre><code>docker run -p 8080:8080 -v file-transfer-storage:/srv/storage ghcr.io/phibkro/file-transfer</code></pre>
+      <p>
+        Put a proxy that terminates TLS in front of it (Caddy, Traefik or nginx), because browsers allow the encryption and storage this app needs only on
+        HTTPS. Set <code>CLIENT_ADDRESS_HEADER</code> to the header your proxy writes the client's address into, for example <code>x-real-ip</code>. The
+        settings below are environment variables there; the
+        <a href="https://github.com/phibkro/file-transfer/tree/main/platforms/self-hosted">self-hosting guide</a> has the details.
+      </p>
+
+      <h2>As one program</h2>
+      <p>
+        Without Docker, download <code>file-transfer-node</code> for Linux (x64 or arm64), macOS (Apple silicon or Intel) or Windows from the
+        <a href="https://github.com/phibkro/file-transfer/releases">releases page</a>. It is the same server with the web app built in, in one file:
+      </p>
+      <pre><code>mkdir storage
+./file-transfer-node</code></pre>
+      <p>
+        It listens on port 8080 and keeps room state in <code>./storage</code>; <code>--socket-addr http=127.0.0.1:9000</code> and
+        <code>--directory-path storage=/var/lib/file-transfer</code> change them. Put the same TLS proxy in front, and set the same environment variables.
+      </p>
+
+      <h2>Limits you control</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">Variable</th>
+              <th scope="col">Default</th>
+              <th scope="col">What it limits</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>LIMIT_ROOMS_PER_ADDRESS_PER_HOUR</code></td>
+              <td>50</td>
+              <td>Transfers one network address may start per hour</td>
+            </tr>
+            <tr>
+              <td><code>LIMIT_RELAYED_BYTES_PER_ROOM</code></td>
+              <td>25000000000 (25 GB)</td>
+              <td>Bytes relayed for one transfer</td>
+            </tr>
+            <tr>
+              <td><code>LIMIT_RELAYED_BYTES_PER_DAY</code></td>
+              <td>100000000000 (100 GB) on Cloudflare; off in the container</td>
+              <td>Bytes the whole instance relays per day (UTC); <code>off</code> for no daily budget</td>
+            </tr>
+            <tr>
+              <td><code>DIRECT_CONNECTIONS</code></td>
+              <td>on</td>
+              <td>Whether browsers may connect directly; <code>off</code> keeps every transfer on your relay</td>
+            </tr>
+            <tr>
+              <td><code>STUN_URLS</code></td>
+              <td><code>stun:stun.cloudflare.com:3478</code></td>
+              <td>STUN servers that tell browsers their public address, for direct connections; <code>none</code> for none</td>
+            </tr>
+            <tr>
+              <td><code>CLIENT_ADDRESS_HEADER</code></td>
+              <td><code>cf-connecting-ip</code></td>
+              <td>Where the client's address comes from; change it only behind your own proxy</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        On Cloudflare, set them in <code>platforms/cloudflare/wrangler.jsonc</code> before deploying, or in the dashboard afterwards. In the container, pass
+        them as environment variables (<code>docker run -e COUNTERS=on ...</code>).
+      </p>
+
+      <h2>What Cloudflare's free plan carries</h2>
+      <p>
+        Cloudflare charges nothing for bandwidth. It bills the relay by Durable Object requests, counting 20 incoming WebSocket messages as one, and by the time
+        a room is busy. Only relayed transfers count: one that goes directly between browsers costs a handful of requests, and the figures below assume every
+        transfer is relayed. The free plan's daily allowance is shared by everyone using your instance, and by any other Workers in the same Cloudflare account.
+        These are estimates from Cloudflare's list prices and our
+        <a href="https://github.com/phibkro/file-transfer/blob/main/docs/spikes/0003-relay-load.md">load test</a>, not from an invoice:
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">Per day on Workers Free</th>
+              <th scope="col">About</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Durable Object requests included</td>
+              <td>100,000</td>
+            </tr>
+            <tr>
+              <td>Requests per GB relayed</td>
+              <td>775</td>
+            </tr>
+            <tr>
+              <td>Relayed in total</td>
+              <td>125 GB</td>
+            </tr>
+            <tr>
+              <td>Full-size transfers at the defaults</td>
+              <td>5 of 25 GB, or 12 of 10 GB, or 1,200 of 100 MB</td>
+            </tr>
+            <tr>
+              <td>Time rooms are busy (13,000 GB-s)</td>
+              <td>Runs out first only if transfers average below about 1 MB/s</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        When the day's requests are used up, transfers on your instance stop until the allowance resets, for everyone: new ones cannot start, and ones in
+        progress stop. The per-address limits cannot prevent this, because five full-size transfers from one person are enough. So Cloudflare deploys come with
+        a daily relay budget of 100 GB for the whole instance: past it, transfers stop with a message and new ones are refused until midnight UTC, and your
+        account keeps requests for everything else. On Workers Paid, raise <code>LIMIT_RELAYED_BYTES_PER_DAY</code> or set it to <code>off</code>. On Workers
+        Paid ($5 a month), the included million requests relay about 1,300 GB a month, and more costs roughly $0.17 to $0.64 per TB. Running it on your own
+        machine has no such allowance: the limit is your connection.
+      </p>
+
+      <h2>Counters, if you want them</h2>
+      <p>
+        Counting is off by default. Set <code>COUNTERS</code> to <code>on</code> to keep hourly counts of rooms, recipients, completed and failed transfers,
+        size buckets and megabytes relayed, with nothing that identifies anyone (kept for <code>COUNTERS_RETENTION_DAYS</code>, 90 by default). Then set an
+        admin token, <code>bunx wrangler secret put ADMIN_TOKEN</code>, and read them:
+      </p>
+      <ul>
+        <li><code>/admin</code>: a page with your settings, a 48-hour chart and the totals.</li>
+        <li><code>/api/admin/counters</code>: totals and hourly counts as JSON.</li>
+        <li>
+          <code>/api/admin/metrics</code>: totals in OpenMetrics, which Prometheus and Grafana read. Scrape it with
+          <code>authorization: Bearer &lt;your token&gt;</code>.
+        </li>
+      </ul>
+      <p>Without an admin token those addresses do not exist. Visitors can see whether your instance counts at <code>/api/instance</code>.</p>
+
+      <h2>If you change the code</h2>
+      <p>
+        The AGPL asks you to offer the source of your modified version to the people who use your instance. Point the "Source code" link at your repository
+        (<code>sourceUrl</code> in <code>apps/web/src/site.ts</code>).
+      </p>
+    </main>
+    <footer class="site-footer">
+      <p>
+        Free software under the <a href="https://github.com/phibkro/file-transfer/blob/main/LICENSE">AGPL-3.0</a>. Files are encrypted in your browser;
+        servers carry only ciphertext and keep no files. <a href="https://github.com/phibkro/file-transfer">Read the code</a>,
+        <a href="/security#report">report a problem</a>, or <a href="/run-your-own">run your own</a>.
+      </p>
+    </footer>
+  </body>
+</html>

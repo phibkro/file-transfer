@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'" />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="description" content="What this software stores and counts, and what it never does." />
+    <title>Privacy · File transfer</title>
+    <link rel="stylesheet" crossorigin href="/assets/style-D4YPp6tb.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a href="/" class="site-name">File transfer</a>
+      <nav aria-label="Site"><a href="/how-it-works">How it works</a><a href="/security">Security</a><a href="/privacy" aria-current="page">Privacy</a><a href="/run-your-own">Run your own</a><a href="https://github.com/phibkro/file-transfer">Source code</a></nav>
+    </header>
+    <main class="content">
+      <h1>Privacy</h1>
+      <p class="lead">
+        This software is built to know as little as possible about you and your files. This page describes the software as published. Anyone may run their own
+        instance, possibly modified, and its operator is responsible for it.
+      </p>
+
+      <h2>Never stored on a server</h2>
+      <ul>
+        <li>Your files, in any form, encrypted or not.</li>
+        <li>File names, types or counts.</li>
+        <li>The link, its secret, or any key.</li>
+      </ul>
+
+      <h2>What a server keeps, and for how long</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">What</th>
+              <th scope="col">Why</th>
+              <th scope="col">Kept until</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>A room: a hash of its room token, how many recipients it admits, and how many bytes it relayed</td>
+              <td>To admit only browsers holding the link, and to apply the operator's relay limit</td>
+              <td>A day after everyone leaves the room</td>
+            </tr>
+            <tr>
+              <td>A salted hash of your network address, with a count of rooms created</td>
+              <td>To limit how many transfers one network starts per hour</td>
+              <td>The end of that hour</td>
+            </tr>
+            <tr>
+              <td>
+                Only if the operator turns counting on: counts per hour of rooms, recipients, completed and failed transfers, size buckets and megabytes
+                relayed, with nothing that identifies anyone
+              </td>
+              <td>So the operator can see that the service works</td>
+              <td>90 days by default, set by the operator</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        The hosting provider may keep its own request logs under its own terms. Those logs can include network addresses and room identifiers, never the part of
+        the link after <code>#</code>. On Cloudflare, this software turns off the Worker's own request logging.
+      </p>
+
+      <h2>Direct connections and your network address</h2>
+      <p>
+        When both sides allow it, the two browsers connect directly (WebRTC) and the encrypted pieces skip the server. To find a direct route, each browser asks
+        a STUN server for its public network address (Cloudflare's by default; the operator chooses), and the two browsers pass their addresses to each other
+        through the room, which forwards them and keeps nothing. So the other side learns your network (IP) address, which the server sees anyway. To keep it
+        from them, turn off "Direct connections" at the bottom of the main page: everything then goes through the server's relay.
+      </p>
+
+      <h2>In your browser</h2>
+      <ul>
+        <li>
+          Received files are kept in this site's private browser storage until you save them, remove them, or leave the page. The next visit deletes anything
+          left behind.
+        </li>
+        <li>"Storage in this browser", at the bottom of the main page, shows how much is stored and clears it.</li>
+        <li>Whether you allow direct connections is remembered in this browser only.</li>
+        <li>This software sets no cookies. A hosting provider's bot protection may set its own (Cloudflare's challenge page does).</li>
+      </ul>
+
+      <h2>No tracking</h2>
+      <ul>
+        <li>No analytics, no advertising, no third-party scripts or fonts.</li>
+        <li>Nothing is sent to the people who make this software. An instance never phones home.</li>
+        <li>Counting is off unless the operator turns it on. Any instance tells you whether it counts at <code>/api/instance</code>.</li>
+      </ul>
+    </main>
+    <footer class="site-footer">
+      <p>
+        Free software under the <a href="https://github.com/phibkro/file-transfer/blob/main/LICENSE">AGPL-3.0</a>. Files are encrypted in your browser;
+        servers carry only ciphertext and keep no files. <a href="https://github.com/phibkro/file-transfer">Read the code</a>,
+        <a href="/security#report">report a problem</a>, or <a href="/run-your-own">run your own</a>.
+      </p>
+    </footer>
+  </body>
+</html>
