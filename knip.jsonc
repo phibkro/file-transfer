@@ -11,7 +11,6 @@
   // which effect-tsgo provides.
   "ignoreDependencies": ["@effect/tsgo", "@effect/language-service"],
   "workspaces": {
-    ".": { "entry": [] },
     "apps/web": { "entry": ["scripts/**/*.ts"] },
     // knip reads the Workers runtime module `cloudflare:workers` as a package named `cloudflare`.
     "platforms/cloudflare": { "entry": ["alchemy.run.ts", "scripts/**/*.ts"], "ignoreDependencies": ["cloudflare"] },
