@@ -38,9 +38,11 @@
  * - `life-cycle`: only the recipient life cycle checks (also part of `standard`);
  * - `scenario`: one transfer scenario (`E2E_SCENARIO`, default half-open) `E2E_REPEAT` times (default 10), to chase a
  *   failure that shows up in a few runs out of many.
+ *
+ * `E2E_TRACE_DIRECTORY` keeps Playwright traces of the last pages closed, so a failed check can be replayed.
  */
 import { createHash, randomBytes } from "node:crypto"
-import { closeSync, ftruncateSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync, writeSync } from "node:fs"
+import { closeSync, ftruncateSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync, writeSync } from "node:fs"
 import { tmpdir } from "node:os"
 import nodePath from "node:path"
 import { decodeLinkSecret, deriveRoomToken, hashRoomToken } from "@file-transfer/parcel"
@@ -145,6 +147,20 @@ const platformDirectory = new URL("../../../platforms/cloudflare/", import.meta.
 const selfHostedDirectory = new URL("../../../platforms/self-hosted/", import.meta.url).pathname
 const configuredBase = process.env.BASE_URL
 const browserName = process.env.E2E_BROWSER ?? "chromium"
+
+/**
+ * Where to keep Playwright traces of the most recent pages, for a failure to be replayed (`bunx playwright show-trace`).
+ * The suite stops at the first failed check, so the pages it closed last are the ones that failed; older traces are
+ * deleted as newer ones are saved. Unset, nothing is recorded. CI uploads the directory when the job fails.
+ */
+const traceDirectory = process.env.E2E_TRACE_DIRECTORY
+const tracesKept = 6
+const savedTraces: string[] = []
+let pagesOpened = 0
+
+if (traceDirectory !== undefined) {
+  mkdirSync(traceDirectory, { recursive: true })
+}
 
 const browserTypes = new Map([
   ["chromium", chromium],
@@ -326,6 +342,15 @@ const newContext = async (browser: Browser, persistent: boolean): Promise<{ read
  */
 const openPage = async (browser: Browser, routed = true, persistent = false, direct = true, chaos = false) => {
   const { context, dispose } = await newContext(browser, persistent)
+  pagesOpened++
+  const trace = traceDirectory === undefined ? undefined : nodePath.join(traceDirectory, `page-${String(pagesOpened).padStart(3, "0")}.zip`)
+
+  if (trace !== undefined) {
+    // DOM snapshots, actions and network, without screenshots: the standard suite took 82 s untraced, 173 s with
+    // screenshots and snapshots, 158 s with screenshots only and 102 s with snapshots only, and a snapshot replays the
+    // page's state at each step anyway.
+    await context.tracing.start({ screenshots: false, snapshots: true, title: `page ${pagesOpened}` })
+  }
 
   if (chaos) {
     // Keeps every peer connection and data channel the page makes, so a fault can kill its direct path.
@@ -489,6 +514,23 @@ const openPage = async (browser: Browser, routed = true, persistent = false, dir
   }
 
   const close = async () => {
+    // A browser that crashed cannot write its trace, and stopping fails; the check's own error is the one to report,
+    // and the context still has to close (found in review of #25).
+    const saved =
+      trace !== undefined &&
+      (await context.tracing.stop({ path: trace }).then(
+        () => true,
+        () => false,
+      ))
+
+    if (saved) {
+      savedTraces.push(trace)
+
+      for (const old of savedTraces.splice(0, Math.max(0, savedTraces.length - tracesKept))) {
+        rmSync(old, { force: true })
+      }
+    }
+
     await context.close()
     dispose()
   }
@@ -1029,9 +1071,8 @@ const localAdminToken = "end-to-end-admin-token"
  * right one shows the counts and draws the chart, and the page ships nothing that identifies a transfer.
  */
 const operatorPage = async (browser: Browser, base: string) => {
-  const page = await browser.newPage()
-  const errors: string[] = []
-  page.on("pageerror", (error) => errors.push(error.message))
+  // Through openPage, so the page is traced like every other (E2E_TRACE_DIRECTORY); it records page errors itself.
+  const { page, errors, close } = await openPage(browser, false)
 
   try {
     await page.goto(`${base}/admin`)
@@ -1047,7 +1088,7 @@ const operatorPage = async (browser: Browser, base: string) => {
     check(/rooms created\s*[1-9]/iu.test(totals ?? ""), "operator: the right token shows the counts and draws the chart", totals ?? "")
     check(errors.length === 0, "operator: no uncaught page errors", errors)
   } finally {
-    await page.close()
+    await close()
   }
 }
 
@@ -2192,10 +2233,10 @@ try {
     check(local !== undefined, "the latency suite runs against the local server only")
     await latency(browser, base)
   } else {
-    const page = await browser.newPage()
-    const response = await page.goto(`${base}/r/some-room`)
+    const recipientPath = await openPage(browser, false)
+    const response = await recipientPath.page.goto(`${base}/r/some-room`)
+    await recipientPath.close()
     check(response?.ok() === true, "a recipient link path serves the app", `status ${response?.status() ?? "none"}`)
-    await page.close()
     await transfer(browser, base, "basic")
     await previewsAndNames(browser, base)
     await transfer(browser, base, "resume")

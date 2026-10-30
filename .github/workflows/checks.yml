@@ -81,6 +81,16 @@ jobs:
         working-directory: apps/web
         env:
           E2E_BROWSER: ${{ matrix.browser }}
+          E2E_TRACE_DIRECTORY: ${{ runner.temp }}/traces
+      # The suite stops at its first failed check and keeps Playwright traces of the last pages it closed, so a failure
+      # can be replayed with `bunx playwright show-trace <zip>`. The pages hold only the suite's synthetic files.
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: browser-traces-${{ matrix.browser }}
+          path: ${{ runner.temp }}/traces
+          retention-days: 7
+          if-no-files-found: ignore
 
   changesets:
     # Every pull request adds a changeset naming each package it changes, with a semantic version bump, or an empty

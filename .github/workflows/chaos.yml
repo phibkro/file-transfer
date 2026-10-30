@@ -45,7 +45,16 @@ jobs:
           E2E_SUITE: chaos
           E2E_SEED: ${{ inputs.seed }}
           E2E_RUNS: ${{ inputs.runs || '8' }}
+          E2E_TRACE_DIRECTORY: ${{ runner.temp }}/traces
         run: |
           # An empty E2E_SEED would read as 0; leave it unset for a random seed.
           if [ -z "$E2E_SEED" ]; then unset E2E_SEED; fi
           bun scripts/endToEnd.ts
+      # Traces of the last pages closed, the failing run's among them (checks.yml uploads the same on failure).
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: chaos-traces-${{ matrix.browser }}
+          path: ${{ runner.temp }}/traces
+          retention-days: 7
+          if-no-files-found: ignore
