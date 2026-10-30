@@ -9,7 +9,7 @@
     "@file-transfer/service-relay": "workspace:*",
     "@file-transfer/service-room": "workspace:*",
     "@file-transfer/web": "workspace:*",
-    "effect": "^4.0.7",
+    "effect": "^4.1.0",
     "ox-dep-lint": "0.2.0"
   }
 }

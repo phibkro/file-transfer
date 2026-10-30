@@ -5,7 +5,8 @@
 import { declareGuarantees } from "@file-transfer/conformance/guarantee"
 import { constantTimeEqual, hashRoomToken, toHex } from "@file-transfer/parcel"
 import * as Machine from "@file-transfer/machine"
-import { Context, Crypto, Data, Effect, Layer, Ref } from "effect"
+import { Context, Data, Effect, Layer, Ref } from "effect"
+import { SecureRandom } from "effect/crypto"
 
 export type RoomIdentifier = string
 
@@ -109,9 +110,9 @@ export const makeRoomReference = (faults: ReadonlySet<RoomGuarantee> = new Set()
     Room,
     Effect.gen(function* () {
       const rooms = yield* Ref.make<ReadonlyMap<RoomIdentifier, RoomRecord>>(new Map())
-      const random = yield* Crypto.Crypto
-      /** Secure randomness failing is a defect of the runtime, not an outcome a caller can handle. */
-      const randomIdentifier = Effect.map(Effect.orDie(random.randomBytes(16)), toHex)
+      const random = yield* SecureRandom.SecureRandom
+      /** `SecureRandom` cannot fail: a broken source of secure randomness is a defect of the runtime, not an outcome a caller can handle. */
+      const randomIdentifier = Effect.map(random.randomBytes(16), toHex)
 
       const lookup = (roomIdentifier: RoomIdentifier) =>
         Effect.flatMap(Ref.get(rooms), (all) => {

@@ -1,6 +1,6 @@
 # 0007 Named guarantees with negative controls
 
-Status: accepted (2026-10-28)
+Status: accepted (2026-10-28). Amended 2026-10-30: Effect 4.1.0 removed `effect/Crypto`, so reference layers require `SecureRandom` and tests supply `secureRandom`.
 
 ## Context
 
@@ -16,10 +16,10 @@ Adapted from the store-capability contract suites of phibkro/vektorprogrammet-re
 - A check that crashes (TypeError, ReferenceError, SyntaxError anywhere in the cause chain) does not count as a rejection, so a typo cannot pass as a negative control.
 - Reference layers take `faults: ReadonlySet<Guarantee>` to build their broken variants. Platform layers build theirs however suits the runtime (a flag, a wrapper, a misconfigured binding).
 - Pure helpers (entitlements, size buckets, `stripFragment`) are tested directly, outside the suite; the suite is only for what a layer must uphold.
-- Reference layers require capabilities (`Clock`, `Crypto`) instead of reaching for globals, so each platform supplies its runtime's, and tests supply `secureCrypto` and `TestClock`.
+- Reference layers require capabilities (`Clock`, `SecureRandom`) instead of reaching for globals, so each platform supplies its runtime's, and tests supply `secureRandom` and `TestClock`.
 
 ## Consequences
 
 - The guarantee list is the readable contract of each service, and a platform layer cannot be marked complete without a broken twin per guarantee.
 - Port-enforced guarantees are only as strong as the port's view: `abuse/fragment-never-stored` checks the receipt, not what a platform writes to disk. Platform suites must add a storage-level check where the runtime allows one.
-- `effect/Crypto` is marked unstable in Effect 4. We adopt it because Effect's platform packages implement it; `unstableApiUsage` is off in `tsconfig.json` for that reason, so an Effect upgrade that changes `Crypto` shows up as a type error rather than as lint noise.
+- `SecureRandom` (`effect/crypto`) is marked unstable in Effect 4. We adopt it because `SecureRandom.layerWebCrypto` provides it on every runtime with Web Crypto (Workers, workerd, Bun, Node, browsers); `unstableApiUsage` is off in `tsconfig.json` for that reason, so an Effect upgrade that changes it shows up as a type error rather than as lint noise. That is how the move to Effect 4.1.0 showed up: 4.1.0 replaced the `effect/Crypto` module with one service per family under `effect/crypto/*` and dropped crypto from the platform packages' service layers, and the reference layers, which used only `randomBytes`, moved from `Crypto` to `SecureRandom`.

@@ -1,16 +1,16 @@
-import { secureCrypto } from "@file-transfer/conformance"
+import { secureRandom } from "@file-transfer/conformance"
 import { Layer } from "effect"
 import { describe, expect, it } from "vite-plus/test"
 import { AbuseReference, abuseGuarantees, makeAbuseReference, stripFragment } from "../src/index.ts"
 import { abuseSuite } from "./conformance.ts"
 
-abuseSuite.run("reference", Layer.provide(AbuseReference, secureCrypto))
+abuseSuite.run("reference", Layer.provide(AbuseReference, secureRandom))
 
 abuseSuite.negativeControls(
   "reference",
   abuseGuarantees.map((guarantee) => ({
     violates: guarantee.identifier,
-    layer: Layer.provide(makeAbuseReference(new Set([guarantee.identifier])), secureCrypto),
+    layer: Layer.provide(makeAbuseReference(new Set([guarantee.identifier])), secureRandom),
   })),
 )
 

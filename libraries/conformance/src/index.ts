@@ -11,26 +11,19 @@
  */
 import { describe, expect, it } from "vite-plus/test"
 import * as Machine from "@file-transfer/machine"
-import { Crypto, Effect, Layer } from "effect"
+import type { Layer } from "effect"
+import { Effect } from "effect"
+import { SecureRandom } from "effect/crypto"
 import type { Guarantee } from "./guarantee.ts"
 
 export type { Guarantee, Strength } from "./guarantee.ts"
 
 /**
- * The Web Crypto API as Effect's `Crypto` capability, for tests. Reference layers require `Crypto` rather than reaching
- * for the global, so each platform supplies its own from its runtime; tests supply this one.
+ * Secure randomness from the runtime's Web Crypto (`getRandomValues`), as Effect's `SecureRandom` capability, for tests.
+ * Reference layers require `SecureRandom` rather than reaching for the global, so each platform supplies its own from
+ * its runtime; tests supply this one.
  */
-export const secureCrypto: Layer.Layer<Crypto.Crypto> = Layer.succeed(
-  Crypto.Crypto,
-  Crypto.make({
-    randomBytes: (size) => globalThis.crypto.getRandomValues(new Uint8Array(size)),
-    digest: (algorithm, data) =>
-      Effect.map(
-        Effect.promise(async () => await globalThis.crypto.subtle.digest(algorithm, new Uint8Array(data))),
-        (buffer) => new Uint8Array(buffer),
-      ),
-  }),
-)
+export const secureRandom: Layer.Layer<SecureRandom.SecureRandom> = SecureRandom.layerWebCrypto
 
 /** A check runs a property against a layer and rejects when the property does not hold. */
 export type Check<Service> = (layer: Layer.Layer<Service>) => Promise<void>
