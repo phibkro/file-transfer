@@ -11,6 +11,6 @@
   "dependencies": {
     "@file-transfer/conformance": "workspace:*",
     "@file-transfer/machine": "workspace:*",
-    "effect": "^4.0.7"
+    "effect": "^4.1.0"
   }
 }

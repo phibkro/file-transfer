@@ -7,7 +7,8 @@
  */
 import { declareGuarantees } from "@file-transfer/conformance/guarantee"
 import * as Machine from "@file-transfer/machine"
-import { Context, Crypto, Data, Effect, Layer, Option, Ref } from "effect"
+import { Context, Data, Effect, Layer, Option, Ref } from "effect"
+import { SecureRandom } from "effect/crypto"
 
 export type RelaySessionIdentifier = string
 
@@ -105,9 +106,9 @@ export const makeRelayReference = (faults: ReadonlySet<RelayGuarantee> = new Set
     Relay,
     Effect.gen(function* () {
       const sessions = yield* Ref.make<ReadonlyMap<RelaySessionIdentifier, SessionRecord>>(new Map())
-      const random = yield* Crypto.Crypto
-      /** Secure randomness failing is a defect of the runtime, not an outcome a caller can handle. */
-      const randomIdentifier = Effect.map(Effect.orDie(random.randomBytes(16)), toHex)
+      const random = yield* SecureRandom.SecureRandom
+      /** `SecureRandom` cannot fail: a broken source of secure randomness is a defect of the runtime, not an outcome a caller can handle. */
+      const randomIdentifier = Effect.map(random.randomBytes(16), toHex)
 
       const withSession = <A, E>(
         sessionIdentifier: RelaySessionIdentifier,

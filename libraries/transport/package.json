@@ -9,7 +9,7 @@
     "./protocol": "./src/protocol.ts"
   },
   "dependencies": {
-    "effect": "^4.0.7",
+    "effect": "^4.1.0",
     "valibot": "1.5.0"
   }
 }

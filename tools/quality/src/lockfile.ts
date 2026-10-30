@@ -29,3 +29,45 @@ export const lockfileDrift = (lockText: string, manifestVersion: (path: string) 
       ? []
       : [`${path || "(root)"}: bun.lock has ${locked.version ?? "no version"}, package.json has ${declared ?? "no version"}`]
   })
+
+/** `@effect/tsgo` and its platform binaries follow their own release line, not Effect's. */
+const ownReleaseLine = /^@effect\/tsgo(?:-|$)/u
+
+interface ResolvedPackage {
+  readonly name: string
+  readonly version: string
+}
+
+/** The packages bun.lock resolves, from each entry's first field (`name@version`); workspace links included. */
+const resolvedPackages = (lockText: string): ResolvedPackage[] => {
+  // SAFETY: bun.lock's `packages` maps each install path to an array whose first field is the `name@version` it resolves.
+  const lock = JSON.parse(withoutTrailingCommas(lockText)) as {
+    readonly packages?: Readonly<Record<string, readonly [identifier: string, ...details: unknown[]]>>
+  }
+
+  return Object.values(lock.packages ?? {}).flatMap(([identifier]) => {
+    const separator = identifier.lastIndexOf("@")
+
+    return separator > 0 ? [{ name: identifier.slice(0, separator), version: identifier.slice(separator + 1) }] : []
+  })
+}
+
+/**
+ * One line per `@effect/*` package that bun.lock resolves at another version than `effect`, or one line when `effect`
+ * itself is locked at no version or several; empty when the family agrees. An `@effect` package at another version than
+ * `effect` fails when it loads, not at type check, and Alchemy pulls `@effect/platform-node-shared` and `@effect/sql-d1`
+ * in at `^4.0.5`, so the root package.json pins them to the effect version with `overrides`.
+ */
+export const effectFamilyDrift = (lockText: string): string[] => {
+  const family = resolvedPackages(lockText).filter(({ name }) => (name === "effect" || name.startsWith("@effect/")) && !ownReleaseLine.test(name))
+  const effectVersions = [...new Set(family.filter(({ name }) => name === "effect").map(({ version }) => version))].toSorted()
+  const [effectVersion] = effectVersions
+
+  if (effectVersion === undefined || effectVersions.length > 1) {
+    return [`effect: bun.lock has ${effectVersions.length === 0 ? "no version" : effectVersions.join(", ")}`]
+  }
+
+  const drifted = new Set(family.filter(({ version }) => version !== effectVersion).map(({ name, version }) => `${name}@${version}`))
+
+  return [...drifted].toSorted().map((identifier) => `${identifier}: bun.lock has effect@${effectVersion}`)
+}

@@ -5,7 +5,8 @@
  * mistake never reaches storage.
  */
 import { declareGuarantees } from "@file-transfer/conformance/guarantee"
-import { Clock, Context, Crypto, Data, Effect, Layer, Ref } from "effect"
+import { Clock, Context, Data, Effect, Layer, Ref } from "effect"
+import { SecureRandom } from "effect/crypto"
 
 export type NoticeIdentifier = string
 
@@ -81,9 +82,9 @@ export const makeAbuseReference = (faults: ReadonlySet<AbuseGuarantee> = new Set
     Effect.gen(function* () {
       const notices = yield* Ref.make<ReadonlyMap<NoticeIdentifier, NoticeReceipt & { readonly decision?: Decision }>>(new Map())
       const revoked = yield* Ref.make<ReadonlySet<string>>(new Set())
-      const random = yield* Crypto.Crypto
-      /** Secure randomness failing is a defect of the runtime, not an outcome a caller can handle. */
-      const randomIdentifier = Effect.map(Effect.orDie(random.randomBytes(16)), toHex)
+      const random = yield* SecureRandom.SecureRandom
+      /** `SecureRandom` cannot fail: a broken source of secure randomness is a defect of the runtime, not an outcome a caller can handle. */
+      const randomIdentifier = Effect.map(random.randomBytes(16), toHex)
 
       return {
         submitNotice: (notice) =>
