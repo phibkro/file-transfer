@@ -2,6 +2,16 @@
 
 Every release of this repository, newest first, written from the changesets each pull request adds (docs/versioning.md). Each package also keeps its own CHANGELOG.md.
 
+## v0.5.6
+
+### @file-transfer/platform-cloudflare 0.5.6
+
+#### Patch Changes
+
+- 9550c6a: Deploys with Alchemy 2.0.0-beta.84 and its separate `@alchemy.run/cloudflare` provider package, with the Worker Preview asset settings fix carried over. CI deploys and destroys now stop, naming both versions, unless the account's shared Alchemy state store answers at the version the installed Alchemy expects, instead of letting `--yes` replace or downgrade the store (ADR 0025).
+- @file-transfer/service-quota@0.5.6
+  - @file-transfer/service-telemetry@0.5.6
+
 ## v0.5.5
 
 ### @file-transfer/conformance 0.2.1
