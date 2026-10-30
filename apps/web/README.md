@@ -42,7 +42,7 @@ cd apps/web && bun run build && bun run e2e                 # starts wrangler de
 BASE_URL=https://<deployed host> bun run e2e                  # drives a deployed Worker instead
 ```
 
-Two isolated Chromium profiles send and receive through the real room Durable Object: four files including an empty one, a 16 MB transfer whose sockets are cut mid-transfer (cleanly, then half-open), a 256 MB throughput run, a decline and wrong keys. Every file must arrive with the same SHA-256, and no request URL, socket frame or request body either browser sends may contain the link secret or a file name (Playwright shows Blob and File bodies in Firefox only).
+Two isolated Chromium profiles send and receive through the real room Durable Object: four files including an empty one, a 16 MB transfer whose sockets are cut mid-transfer (cleanly, then half-open), a 256 MB throughput run, a decline and wrong keys. Every file must arrive with the same SHA-256, and no request URL, socket frame or request body either browser sends may contain the link secret or a file name (Blob, File and FormData bodies included, through `scripts/requestBodies.ts`; not a body sent from a worker or a just-created `about:blank` frame, or as a stream).
 
 ## Test hook
 

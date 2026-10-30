@@ -50,7 +50,7 @@ For behaviour no journey covers, write a short Playwright script in the scratchp
 Each journey writes to `<evidence>/<journey>/`:
 
 - `NN-<side>-<state>.png` and `NN-<side>-<state>.aria.yml`: a full-page screenshot and the ARIA snapshot after each step, so the proof shows the action and the state it left, with the app's heading visible.
-- `sent.json` (send-receive): every request URL, request body and socket frame either browser sent, checked for the link secret and the file names. This is CLAUDE.md's invariant seen from the endpoints.
+- `sent.json` (send-receive): every request URL, request body and socket frame either browser sent, checked for the link secret and the file names, after waiting for bodies still being read. This is CLAUDE.md's invariant seen from the endpoints. Not seen: a body sent from a worker or a just-created `about:blank` frame, or as a stream (`apps/web/scripts/requestBodies.ts`).
 - `result.json`: journey, origin, browser, each step's action and observed outcome, the failure if any, and `failedSides`: each side's status, failure reason and detail when the journey failed.
 - `failed-<side>.png` and `failed-<side>.aria.yml`: each page as it was when a journey failed.
 

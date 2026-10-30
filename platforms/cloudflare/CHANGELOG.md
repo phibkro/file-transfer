@@ -1,5 +1,16 @@
 # @file-transfer/platform-cloudflare
 
+## 0.5.3
+
+### Patch Changes
+
+- 4bd2eb0: Drops the unused `workerd` devDependency; wrangler brings its own. The Worker it builds is unchanged.
+
+  Repository: knip checks dependency hygiene in `bun run check`, replacing the module graph check's unused-dependency rule.
+
+- @file-transfer/service-quota@0.5.3
+  - @file-transfer/service-telemetry@0.5.3
+
 ## 0.5.2
 
 ### Patch Changes
