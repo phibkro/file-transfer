@@ -13,7 +13,7 @@
   "scripts": {
     "test": "vp test run",
     "check:graph": "bun tools/quality/src/checkModuleGraph.ts",
-    "check:dependencies": "knip",
+    "check:dependencies": "knip --treat-config-hints-as-errors",
     "check:effect": "effx check",
     "check:secrets": "gitleaks git --redact --config .gitleaks.toml",
     "check": "vp check --deny-warnings && bun run check:graph && bun run check:dependencies && bun run check:effect && vp test run",

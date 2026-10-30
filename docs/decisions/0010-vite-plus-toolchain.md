@@ -15,7 +15,7 @@ Measured in a trial on this repository with vite-plus 1.4.0: `vp check` (format,
 - `vp test` (Vitest) replaces `bun test`. Tests and the conformance harness import from `vite-plus/test`.
 - `effx check` stays the authority for the Effect profile, its escapes and its import closure; the Effect rules are not repeated in `vite.config.ts`. `effx` keeps its own pinned oxlint (1.86.0) next to the one Vite+ bundles.
 - Bun stays the package manager and runs the repository tools (`check:graph`).
-- `bun run check` is `vp check`, `check:graph`, `check:effect` (`effx check`), `vp test run`.
+- `bun run check` is `vp check`, `check:graph`, `check:dependencies` (knip, added later by ADR 0009's amendment), `check:effect` (`effx check`), `vp test run`.
 
 ## Alternatives
 
