@@ -8,11 +8,13 @@
  *
  * Bodies are read in overlapping slices with a pause between them, so a large upload neither blocks the page nor runs
  * out of memory, and a needle cannot hide across a slice boundary (round 1 review of #30). Reading takes time (about
- * 10 MB/s), so `settled` waits for every read the page started before a check looks (round 2 review of #30). A POST
- * form's submission is read too: `HTMLFormElement.submit` (which fires no event) and every `submit` event.
+ * 10 MB/s), so `settled` waits for every read the page started before a check looks (round 2 review of #30).
  *
  * Not covered, because an init script does not run there: a body sent from a dedicated or shared worker, or from an
- * `about:blank` frame the page has just created. A body sent as a ReadableStream is not read either.
+ * `about:blank` frame the page has just created. A body sent as a ReadableStream is not read either, and neither is a
+ * form submission with a file attached, which Chromium does not report (round 2 review of #30): reading one faithfully
+ * means rebuilding what the browser submits (submitter, `formmethod`, edits by the page's own handlers), and a wrapper
+ * that tried changed what pages do (round 3 review of #30). The app submits no forms.
  */
 import type { BrowserContext } from "playwright"
 
@@ -89,32 +91,6 @@ export const recordBlobBodies = async (context: BrowserContext, record: (bytes: 
         // The multipart body as the browser builds it, so field names and file names are read too.
         await read(async () => await new Response(body).blob())
       }
-    }
-
-    /** A form's submission, when it carries a body: a GET form's fields go into the URL, which the checks read already. */
-    const captureForm = (form: HTMLFormElement) => {
-      if (form.method.toLowerCase() === "post") {
-        void capture(new FormData(form))
-      }
-    }
-
-    // `requestSubmit` and a submit button fire this event; `submit()` does not, so it is wrapped below.
-    window.addEventListener(
-      "submit",
-      (event) => {
-        if (event.target instanceof HTMLFormElement) {
-          captureForm(event.target)
-        }
-      },
-      true,
-    )
-
-    const formSubmit = Object.getOwnPropertyDescriptor(HTMLFormElement.prototype, "submit")
-    // SAFETY: every browser the suites drive defines submit as a method of HTMLFormElement.prototype.
-    const submitNatively = formSubmit?.value as (this: HTMLFormElement) => void
-    HTMLFormElement.prototype.submit = function submit(this: HTMLFormElement) {
-      captureForm(this)
-      submitNatively.call(this)
     }
 
     const fetchNatively = globalThis.fetch.bind(globalThis)
