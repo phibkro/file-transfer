@@ -2,6 +2,56 @@
 
 Every release of this repository, newest first, written from the changesets each pull request adds (docs/versioning.md). Each package also keeps its own CHANGELOG.md.
 
+## v0.5.5
+
+### @file-transfer/conformance 0.2.1
+
+#### Patch Changes
+
+- cd619d4: The `fileTransfer.testSupportFiles` key leaves package.json; the module graph configuration (`ox-dep-lint.config.ts`) now names the suite's entry as test support. The package's code is unchanged.
+
+### @file-transfer/platform-cloudflare 0.5.5
+
+#### Patch Changes
+
+- @file-transfer/service-quota@0.5.5
+  - @file-transfer/service-telemetry@0.5.5
+
+### @file-transfer/service-abuse 0.5.5
+
+#### Patch Changes
+
+- Updated dependencies [cd619d4]
+  - @file-transfer/conformance@0.2.1
+
+### @file-transfer/service-quota 0.5.5
+
+#### Patch Changes
+
+- Updated dependencies [cd619d4]
+  - @file-transfer/conformance@0.2.1
+
+### @file-transfer/service-relay 0.5.5
+
+#### Patch Changes
+
+- Updated dependencies [cd619d4]
+  - @file-transfer/conformance@0.2.1
+
+### @file-transfer/service-room 0.5.5
+
+#### Patch Changes
+
+- Updated dependencies [cd619d4]
+  - @file-transfer/conformance@0.2.1
+
+### @file-transfer/service-telemetry 0.5.5
+
+#### Patch Changes
+
+- Updated dependencies [cd619d4]
+  - @file-transfer/conformance@0.2.1
+
 ## v0.5.4
 
 ### @file-transfer/web 0.5.4

@@ -1,5 +1,12 @@
 # @file-transfer/service-relay
 
+## 0.5.5
+
+### Patch Changes
+
+- Updated dependencies [cd619d4]
+  - @file-transfer/conformance@0.2.1
+
 ## 0.5.4
 
 No changes in this release.

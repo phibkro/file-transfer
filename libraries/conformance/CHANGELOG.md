@@ -1,5 +1,11 @@
 # @file-transfer/conformance
 
+## 0.2.1
+
+### Patch Changes
+
+- cd619d4: The `fileTransfer.testSupportFiles` key leaves package.json; the module graph configuration (`ox-dep-lint.config.ts`) now names the suite's entry as test support. The package's code is unchanged.
+
 ## 0.2.0
 
 ### Minor Changes
