@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vite-plus/test"
-import { checkModuleGraph, describeViolation } from "../src/moduleGraph.ts"
+import { checkModuleGraph, computedImportSpecifier, describeViolation } from "../src/moduleGraph.ts"
 import type { PackageFacts, Violation } from "../src/moduleGraph.ts"
-import { loadWorkspace } from "../src/workspace.ts"
+import { importSpecifiers, loadWorkspace } from "../src/workspace.ts"
 
 const root = new URL("../../../", import.meta.url).pathname
 
@@ -133,6 +133,24 @@ describe("module graph negative controls", () => {
     const withUnused = unused.map((facts) => (facts === service ? { ...facts, dependencies: [...facts.dependencies, "@file-transfer/machine"] } : facts))
     expect(rulesBroken(withUnused)).toEqual(["unused-dependency"])
     expect(rulesBroken(withUnused.map((facts) => (facts.name === service.name ? { ...facts, sourceFileCount: 0, imports: [] } : facts)))).toEqual([])
+  })
+
+  it("records an import whose module is not a plain string as computed", () => {
+    // A template literal with a placeholder, built so this file holds none itself.
+    const placeholder = ["$", "{name}"].join("")
+    const source = ['import "a"', 'await import("b")', "await import(`c`)", "await import(name)", `await import(\`d${placeholder}\`)`].join("\n")
+    expect(importSpecifiers("example.ts", source).toSorted()).toEqual(["a", "b", "c", computedImportSpecifier, computedImportSpecifier].toSorted())
+  })
+
+  it("records a literal written with an escape sequence as computed, since its text is not the module it names", () => {
+    const escaped = ['await import("./\\x2e./escape.ts")', "await import(`./\\x2e./escape.ts`)"].join("\n")
+    expect(importSpecifiers("example.ts", escaped)).toEqual([computedImportSpecifier, computedImportSpecifier])
+  })
+
+  it("rejects a computed import in shipped code but allows it in development-only files", () => {
+    const computed = { file: "src/index.ts", specifier: computedImportSpecifier, developmentOnly: false }
+    expect(rulesBroken(replace(library, { imports: [...library.imports, computed] }))).toEqual(["computed-import-in-source"])
+    expect(rulesBroken(replace(library, { imports: [...library.imports, { ...computed, file: "scripts/deploy.ts", developmentOnly: true }] }))).toEqual([])
   })
 
   it("rejects an import of a workspace package that does not exist", () => {
