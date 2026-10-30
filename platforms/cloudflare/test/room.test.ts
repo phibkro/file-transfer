@@ -29,10 +29,11 @@ const as = (participant: Participant): Attachment => ({ admitted: true, ...parti
 
 const joinText = (role: "sender" | "recipient") => encodeControlMessage({ type: "join", role, roomToken })
 
-const admission = (presentedTokenHash = roomTokenHash, maximumRecipients = 2): Admission => ({
+const admission = (presentedTokenHash = roomTokenHash, maximumRecipients = 2, completedSequence?: number): Admission => ({
   record: record(maximumRecipients),
   presentedTokenHash,
   participantIdentifier: "new-participant",
+  completedSequence,
 })
 
 const joinAs = (role: "sender" | "recipient", participants: readonly Participant[], presented = roomTokenHash, maximumRecipients = 2) =>
@@ -223,7 +224,6 @@ describe("recipient control messages go to the sender", () => {
     { type: "decline", sequence: 1 },
     { type: "credit", records: 64 },
     { type: "want", sequence: 1, ranges: [[0, 4]] },
-    { type: "complete", sequence: 1 },
     { type: "abort", reason: "cancelled" },
   ]
 
@@ -263,6 +263,44 @@ describe("recipient control messages go to the sender", () => {
   it("refuses text longer than the limit", () => {
     const text = `{"type":"abort","reason":"${"x".repeat(maximumTextLength)}"}`
     expectViolation(decide(as(recipient(1)), [sender], { type: "text", text }), errorReasons.textTooLong)
+  })
+})
+
+describe("the room remembers a completion for a sender that comes back", () => {
+  const complete = encodeControlMessage({ type: "complete", sequence: 1, path: "direct" })
+
+  it("remembers a recipient's complete and relays it to the sender as received", () => {
+    expect(decide(as(recipient(1)), [sender, recipient(1)], { type: "text", text: complete })).toEqual([
+      { type: "rememberCompletion", sequence: 1 },
+      { type: "relay", to: ["sender-1"], text: complete },
+    ])
+  })
+
+  it("remembers a complete sent while no sender is present", () => {
+    expect(decide(as(recipient(1)), [recipient(1)], { type: "text", text: complete })).toEqual([{ type: "rememberCompletion", sequence: 1 }])
+  })
+
+  it("relays but does not remember a complete it cannot decode", () => {
+    const text = `{"type":"complete","sequence":-1}`
+    expect(decide(as(recipient(1)), [sender], { type: "text", text })).toEqual([{ type: "relay", to: ["sender-1"], text }])
+  })
+
+  it("tells a sender that joins after a completion, right after joined", () => {
+    const instructions = decide(fresh, [], { type: "text", text: joinText("sender"), admission: admission(roomTokenHash, 2, 1) })
+    const replies = instructions.flatMap((instruction) => (instruction.type === "reply" ? [decoded(instruction.text)] : []))
+    expect(replies.map((message) => message.type)).toEqual(["joined", "complete"])
+    expect(replies[1]).toEqual({ type: "complete", sequence: 1 })
+  })
+
+  it("tells a sender nothing more when no recipient has completed", () => {
+    const replies = joinAs("sender", []).filter((instruction) => instruction.type === "reply")
+    expect(replies.map((instruction) => instruction.type === "reply" && decoded(instruction.text).type)).toEqual(["joined"])
+  })
+
+  it("does not tell a recipient that joins", () => {
+    const instructions = decide(fresh, [sender], { type: "text", text: joinText("recipient"), admission: admission(roomTokenHash, 2, 1) })
+    const replies = instructions.flatMap((instruction) => (instruction.type === "reply" ? [decoded(instruction.text).type] : []))
+    expect(replies).toEqual(["joined"])
   })
 })
 

@@ -1,5 +1,17 @@
 # @file-transfer/service-relay
 
+## 0.5.1
+
+No changes in this release.
+
+## 0.5.0
+
+No changes in this release.
+
+## 0.4.5
+
+No changes in this release.
+
 ## 0.4.4
 
 No changes in this release.
