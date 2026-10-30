@@ -12,7 +12,7 @@
   "type": "module",
   "scripts": {
     "test": "vp test run",
-    "check:graph": "bun tools/quality/src/checkModuleGraph.ts",
+    "check:graph": "ox-dep-lint",
     "check:dependencies": "knip --treat-config-hints-as-errors",
     "check:effect": "effx check",
     "check:secrets": "gitleaks git --redact --config .gitleaks.toml",
@@ -30,6 +30,7 @@
     "@types/bun": "latest",
     "fast-check": "^4.0.0",
     "knip": "6.43.0",
+    "ox-dep-lint": "0.2.0",
     "oxlint": "1.86.0",
     "typescript": "7.0.2",
     "ultracite": "8.1.0",

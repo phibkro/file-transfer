@@ -1,6 +1,6 @@
 {
   // Dependency hygiene (docs/decisions/0009): unused and unlisted packages, unresolved imports, undeclared binaries.
-  // The package-kind rules stay in `bun run check:graph`; file cycles are oxlint's import/no-cycle.
+  // The package-kind rules are ox-dep-lint's (`bun run check:graph`); file cycles are oxlint's import/no-cycle.
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "include": ["dependencies", "unlisted", "unresolved", "binaries"],
   // Spikes are throwaway measurements with their own package.json files, outside the workspace.

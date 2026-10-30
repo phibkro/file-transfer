@@ -11,10 +11,5 @@
   "dependencies": {
     "@file-transfer/machine": "workspace:*",
     "effect": "^4.0.7"
-  },
-  "fileTransfer": {
-    "testSupportFiles": [
-      "src/index.ts"
-    ]
   }
 }

@@ -10,6 +10,6 @@
     "@file-transfer/service-room": "workspace:*",
     "@file-transfer/web": "workspace:*",
     "effect": "^4.0.7",
-    "oxc-parser": "^0.156.0"
+    "ox-dep-lint": "0.2.0"
   }
 }

@@ -7,14 +7,14 @@
 import { Console, Effect } from "effect"
 import { parseChangeset, reviewChangesets } from "./changesets.ts"
 import { addedChangesetsSince, changedFilesSince, ignoredPackages } from "./repository.ts"
-import { loadWorkspace } from "./workspace.ts"
+import { workspacePackages } from "./workspace.ts"
 
 const root = new URL("../../../", import.meta.url).pathname
 const base = process.env.CHANGESET_BASE ?? "origin/main"
 const automated = process.env.CHANGESET_AUTHOR === "dependabot[bot]"
 
 const program = Effect.gen(function* () {
-  const { packages } = loadWorkspace(root)
+  const packages = workspacePackages(root)
 
   const review = reviewChangesets({
     changedFiles: changedFilesSince(root, base),

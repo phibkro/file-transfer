@@ -9,6 +9,7 @@ import antiSlop from "ultracite/oxlint/anti-slop"
 import core from "ultracite/oxlint/core"
 import { defineConfig } from "vite-plus"
 import effxConfig from "./effx.config.json" with { type: "json" }
+import moduleGraph from "./ox-dep-lint.config.ts"
 
 /** Files effx governs as Effect code, where `Effect.promise(() => f())` is the idiom and native async is rejected. */
 const effectFiles = effxConfig.effect.groups.filter((group) => group.role === "effect-library" || group.role === "service").flatMap((group) => group.files)
@@ -17,6 +18,9 @@ export default defineConfig({
   fmt: { semi: false, printWidth: 160, ignorePatterns: [".claude/**"] },
   lint: {
     extends: [core, antiSlop],
+    // The package-kind rules (docs/decisions/0009): ox-dep-lint's per-file findings, where they are written. The
+    // whole-graph checks (package.json edges, package cycles) run in `bun run check:graph`.
+    jsPlugins: ["ox-dep-lint/plugin"],
     ignorePatterns: [
       "**/node_modules/**",
       "**/dist/**",
@@ -27,6 +31,7 @@ export default defineConfig({
     ],
     options: { typeAware: true, typeCheck: true },
     rules: {
+      "dep-lint/imports": ["error", moduleGraph],
       // Object key order is meaningful: the parcel's canonical manifest JSON is written in declaration order.
       "eslint/sort-keys": "off",
       // Byte, hash and record code (parcel, transport) is bitwise by nature.
@@ -41,7 +46,7 @@ export default defineConfig({
       "unicorn/prefer-spread": "off",
       // Its fix deletes `undefined` arguments TypeScript requires (a machine's `Context` of `undefined`, AsyncGenerator.return).
       "unicorn/no-useless-undefined": "off",
-      // Repository file names are camelCase (moduleGraph.ts, endToEnd.ts).
+      // Repository file names are camelCase (stateMachines.ts, endToEnd.ts).
       "unicorn/filename-case": "off",
       // Wrapping event and callback APIs (WebSocket events, stream controllers) needs the Promise constructor.
       "promise/avoid-new": "off",
