@@ -1,5 +1,13 @@
 # @file-transfer/client
 
+## 0.1.4
+
+### Patch Changes
+
+- Updated dependencies [9c5bb91]
+  - @file-transfer/sink@0.1.1
+  - @file-transfer/transport@1.2.1
+
 ## 0.1.3
 
 ### Patch Changes

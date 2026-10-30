@@ -1,5 +1,11 @@
 # @file-transfer/conformance
 
+## 0.3.0
+
+### Minor Changes
+
+- 9c5bb91: Runs on Effect 4.1.0. `secureCrypto` is renamed `secureRandom` and provides Effect's `SecureRandom` (`SecureRandom.layerWebCrypto`) instead of `Crypto`, which Effect 4.1.0 removed; it no longer offers a digest, which no reference layer used.
+
 ## 0.2.1
 
 ### Patch Changes

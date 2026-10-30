@@ -1,5 +1,15 @@
 # @file-transfer/platform-cloudflare
 
+## 0.6.0
+
+### Patch Changes
+
+- 9c5bb91: Runs on Effect 4.1.0, with no change in behaviour. Deploys keep working: Alchemy 2.0.0-beta.84 is patched to Effect 4.1's crypto modules (`patches/README.md`), and every `@effect` package is pinned to the effect version.
+- Updated dependencies [9c5bb91]
+  - @file-transfer/service-quota@0.6.0
+  - @file-transfer/service-telemetry@0.6.0
+  - @file-transfer/transport@1.2.1
+
 ## 0.5.6
 
 ### Patch Changes

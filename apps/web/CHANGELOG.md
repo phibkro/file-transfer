@@ -1,5 +1,12 @@
 # @file-transfer/web
 
+## 0.6.0
+
+### Patch Changes
+
+- Updated dependencies [9c5bb91]
+  - @file-transfer/transport@1.2.1
+
 ## 0.5.6
 
 No changes in this release.

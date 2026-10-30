@@ -2,6 +2,100 @@
 
 Every release of this repository, newest first, written from the changesets each pull request adds (docs/versioning.md). Each package also keeps its own CHANGELOG.md.
 
+## v0.6.0
+
+### @file-transfer/web 0.6.0
+
+#### Patch Changes
+
+- Updated dependencies [9c5bb91]
+  - @file-transfer/transport@1.2.1
+
+### @file-transfer/client 0.1.4
+
+#### Patch Changes
+
+- Updated dependencies [9c5bb91]
+  - @file-transfer/sink@0.1.1
+  - @file-transfer/transport@1.2.1
+
+### @file-transfer/conformance 0.3.0
+
+#### Minor Changes
+
+- 9c5bb91: Runs on Effect 4.1.0. `secureCrypto` is renamed `secureRandom` and provides Effect's `SecureRandom` (`SecureRandom.layerWebCrypto`) instead of `Crypto`, which Effect 4.1.0 removed; it no longer offers a digest, which no reference layer used.
+
+### @file-transfer/sink 0.1.1
+
+#### Patch Changes
+
+- 9c5bb91: Runs on Effect 4.1.0, with no change in behaviour. Deploys keep working: Alchemy 2.0.0-beta.84 is patched to Effect 4.1's crypto modules (`patches/README.md`), and every `@effect` package is pinned to the effect version.
+
+### @file-transfer/transport 1.2.1
+
+#### Patch Changes
+
+- 9c5bb91: Runs on Effect 4.1.0, with no change in behaviour. Deploys keep working: Alchemy 2.0.0-beta.84 is patched to Effect 4.1's crypto modules (`patches/README.md`), and every `@effect` package is pinned to the effect version.
+
+### @file-transfer/platform-cloudflare 0.6.0
+
+#### Patch Changes
+
+- 9c5bb91: Runs on Effect 4.1.0, with no change in behaviour. Deploys keep working: Alchemy 2.0.0-beta.84 is patched to Effect 4.1's crypto modules (`patches/README.md`), and every `@effect` package is pinned to the effect version.
+- Updated dependencies [9c5bb91]
+  - @file-transfer/service-quota@0.6.0
+  - @file-transfer/service-telemetry@0.6.0
+  - @file-transfer/transport@1.2.1
+
+### @file-transfer/service-abuse 0.6.0
+
+#### Minor Changes
+
+- 9c5bb91: Runs on Effect 4.1.0. The reference layers now require Effect's `SecureRandom` (from `effect/crypto`) instead of `Crypto`, which Effect 4.1.0 removed: provide `SecureRandom.layerWebCrypto`, or your runtime's `SecureRandom`, where you provided `Crypto`. Identifiers are still 16 secure random bytes in hex, and every guarantee and negative control is unchanged.
+
+#### Patch Changes
+
+- Updated dependencies [9c5bb91]
+  - @file-transfer/conformance@0.3.0
+
+### @file-transfer/service-quota 0.6.0
+
+#### Patch Changes
+
+- 9c5bb91: Runs on Effect 4.1.0, with no change in behaviour. Deploys keep working: Alchemy 2.0.0-beta.84 is patched to Effect 4.1's crypto modules (`patches/README.md`), and every `@effect` package is pinned to the effect version.
+- Updated dependencies [9c5bb91]
+  - @file-transfer/conformance@0.3.0
+
+### @file-transfer/service-relay 0.6.0
+
+#### Minor Changes
+
+- 9c5bb91: Runs on Effect 4.1.0. The reference layers now require Effect's `SecureRandom` (from `effect/crypto`) instead of `Crypto`, which Effect 4.1.0 removed: provide `SecureRandom.layerWebCrypto`, or your runtime's `SecureRandom`, where you provided `Crypto`. Identifiers are still 16 secure random bytes in hex, and every guarantee and negative control is unchanged.
+
+#### Patch Changes
+
+- Updated dependencies [9c5bb91]
+  - @file-transfer/conformance@0.3.0
+
+### @file-transfer/service-room 0.6.0
+
+#### Minor Changes
+
+- 9c5bb91: Runs on Effect 4.1.0. The reference layers now require Effect's `SecureRandom` (from `effect/crypto`) instead of `Crypto`, which Effect 4.1.0 removed: provide `SecureRandom.layerWebCrypto`, or your runtime's `SecureRandom`, where you provided `Crypto`. Identifiers are still 16 secure random bytes in hex, and every guarantee and negative control is unchanged.
+
+#### Patch Changes
+
+- Updated dependencies [9c5bb91]
+  - @file-transfer/conformance@0.3.0
+
+### @file-transfer/service-telemetry 0.6.0
+
+#### Patch Changes
+
+- 9c5bb91: Runs on Effect 4.1.0, with no change in behaviour. Deploys keep working: Alchemy 2.0.0-beta.84 is patched to Effect 4.1's crypto modules (`patches/README.md`), and every `@effect` package is pinned to the effect version.
+- Updated dependencies [9c5bb91]
+  - @file-transfer/conformance@0.3.0
+
 ## v0.5.6
 
 ### @file-transfer/platform-cloudflare 0.5.6

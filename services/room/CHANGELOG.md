@@ -1,5 +1,16 @@
 # @file-transfer/service-room
 
+## 0.6.0
+
+### Minor Changes
+
+- 9c5bb91: Runs on Effect 4.1.0. The reference layers now require Effect's `SecureRandom` (from `effect/crypto`) instead of `Crypto`, which Effect 4.1.0 removed: provide `SecureRandom.layerWebCrypto`, or your runtime's `SecureRandom`, where you provided `Crypto`. Identifiers are still 16 secure random bytes in hex, and every guarantee and negative control is unchanged.
+
+### Patch Changes
+
+- Updated dependencies [9c5bb91]
+  - @file-transfer/conformance@0.3.0
+
 ## 0.5.6
 
 No changes in this release.
