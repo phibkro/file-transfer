@@ -1,10 +1,10 @@
-diff --git a/lib/Cloudflare/Workers/WorkerProvider.js b/lib/Cloudflare/Workers/WorkerProvider.js
-index 5277a76fa724523b4a682c1dbd9fbe1d3555202f..46a98eabcc3848d6cea41dbf44a1c14d0deba88d 100644
---- a/lib/Cloudflare/Workers/WorkerProvider.js
-+++ b/lib/Cloudflare/Workers/WorkerProvider.js
-@@ -47,6 +47,20 @@ import { getCacheBinding, getCronBindings, isContainerDecl, resolveObservability
+diff --git a/lib/Workers/WorkerProvider.js b/lib/Workers/WorkerProvider.js
+index 901fb9b7ee492909150bffe96d43c3c2f1d6ad7d..f3840fffc03155a9b21487fa0215f50ce1e7ee28 100644
+--- a/lib/Workers/WorkerProvider.js
++++ b/lib/Workers/WorkerProvider.js
+@@ -48,6 +48,20 @@ import { Worker, } from "./Worker.js";
+ import { getCacheBinding, getCronBindings, resolveObservability } from "./WorkerAsyncBindings.js";
  import { withoutDevOnlyBindings, } from "./WorkerBinding.js";
- import { isWorkerLoader } from "./WorkerLoader.js";
  import { createWorkerName } from "./WorkerName.js";
 +
 +// A Preview deployment's `assets.config` is untyped in the API client, so it is sent as given: convert Alchemy's
@@ -23,7 +23,7 @@ index 5277a76fa724523b4a682c1dbd9fbe1d3555202f..46a98eabcc3848d6cea41dbf44a1c14d
  class MissingDurableObjects extends Data.TaggedError("MissingDurableObjects") {
  }
  /**
-@@ -2363,7 +2377,7 @@ export const LiveWorkerProvider = () => Provider.effect(Worker, Effect.gen(funct
+@@ -2298,7 +2312,7 @@ export const LiveWorkerProvider = () => Provider.effect(Worker, Effect.gen(funct
          if (assets) {
              yield* Effect.logInfo(`Cloudflare Worker Preview: uploading assets for ${parentName}`);
              const { jwt } = yield* uploadAssets(accountId, parentName, assets, session);
@@ -32,11 +32,11 @@ index 5277a76fa724523b4a682c1dbd9fbe1d3555202f..46a98eabcc3848d6cea41dbf44a1c14d
              metadataBindings.push({ type: "assets", name: "ASSETS" });
          }
          appendAlchemyAndEnvBindings(metadataBindings, news, accountId, parentName);
-diff --git a/src/Cloudflare/Workers/WorkerProvider.ts b/src/Cloudflare/Workers/WorkerProvider.ts
-index 9898fc07e3625f54bd60ccfeb4a861615e9b64cc..33bbe16f7a98f5c37e2efa49b483e8e7a596fa8d 100644
---- a/src/Cloudflare/Workers/WorkerProvider.ts
-+++ b/src/Cloudflare/Workers/WorkerProvider.ts
-@@ -37,6 +37,7 @@ import { CloudflareLogs } from "../Logs.ts";
+diff --git a/src/Workers/WorkerProvider.ts b/src/Workers/WorkerProvider.ts
+index 9aeff2a30fe5cc881553f8c83f3126b72fc133dd..78632b4bba10e88538d1e0de1bd08278d64734a5 100644
+--- a/src/Workers/WorkerProvider.ts
++++ b/src/Workers/WorkerProvider.ts
+@@ -38,6 +38,7 @@ import { CloudflareLogs } from "../Logs.ts";
  import { detachQueueConsumersOfScript } from "../Queues/Consumer.ts";
  import { resolveZoneId, type Reference as ZoneReference } from "../Zone/lookup.ts";
  import {
@@ -44,9 +44,9 @@ index 9898fc07e3625f54bd60ccfeb4a861615e9b64cc..33bbe16f7a98f5c37e2efa49b483e8e7
    getAssetsPathPrefix,
    mergeAssetsConfigFiles,
    readAssets,
-@@ -73,6 +74,26 @@ import {
+@@ -68,6 +69,26 @@ import {
+   withoutDevOnlyBindings,
  } from "./WorkerBinding.ts";
- import { isWorkerLoader } from "./WorkerLoader.ts";
  import { createWorkerName } from "./WorkerName.ts";
 +
 +/**
@@ -71,7 +71,7 @@ index 9898fc07e3625f54bd60ccfeb4a861615e9b64cc..33bbe16f7a98f5c37e2efa49b483e8e7
  class MissingDurableObjects extends Data.TaggedError("MissingDurableObjects")<{
    scriptName: string;
    expected: string[];
-@@ -3143,7 +3164,7 @@ export const LiveWorkerProvider = () =>
+@@ -3049,7 +3070,7 @@ export const LiveWorkerProvider = () =>
          if (assets) {
            yield* Effect.logInfo(`Cloudflare Worker Preview: uploading assets for ${parentName}`);
            const { jwt } = yield* uploadAssets(accountId, parentName, assets, session);
