@@ -6,17 +6,17 @@
  *
  *   bun apps/web/scripts/verify/drive.ts <journey> <origin> <evidence directory> [chromium | firefox | webkit]
  *
- * Journeys: send-receive, decline, wrong-key, resume.
+ * Journeys: send-receive, decline, wrong-key, resume, library.
  */
 import { createHash, randomBytes } from "node:crypto"
 import { mkdirSync, writeFileSync } from "node:fs"
 import nodePath from "node:path"
 import { chromium, firefox, webkit } from "playwright"
-import type { Browser, Page, WebSocketRoute } from "playwright"
+import type { Browser, LaunchOptions, Page, WebSocketRoute } from "playwright"
 import { recordBlobBodies } from "../requestBodies.ts"
 import type { BodyRecorder } from "../requestBodies.ts"
 
-const journeys = ["send-receive", "decline", "wrong-key", "resume"] as const
+const journeys = ["send-receive", "decline", "wrong-key", "resume", "library"] as const
 
 type Journey = (typeof journeys)[number]
 
@@ -66,7 +66,8 @@ if (!isBrowserName(browserName)) {
 }
 
 const browserType = browserTypes[browserName]
-const browser: Browser = await browserType.launch()
+const launchOptions: LaunchOptions = process.env.E2E_BROWSER_EXECUTABLE_PATH === undefined ? {} : { executablePath: process.env.E2E_BROWSER_EXECUTABLE_PATH }
+const browser: Browser = await browserType.launch(launchOptions)
 
 /** A fresh profile whose page records every request URL and every socket frame it sends, for the invariant check. */
 const openProfile = async (label: string) => {
@@ -159,6 +160,8 @@ const offer = async (sender: Page, files: ReturnType<typeof makeFiles>) => {
   const sealed = await waitForStatus(sender, ["waiting-for-recipient", "failed"])
   step("seal parcel and create link", `sender status ${sealed}`, sealed === "waiting-for-recipient")
   await sender.getByRole("button", { name: "Show link" }).click()
+  await sender.locator("#link").waitFor({ state: "visible" })
+  await sender.waitForFunction(() => (document.querySelector<HTMLInputElement>("#link")?.value ?? "").includes("#"))
   const link = await sender.inputValue("#link")
   step("show link", `link with a ${new URL(link).hash.length - 1} character fragment`, new URL(link).hash.length > 32)
   await capture(sender, "01-sender-waiting")
@@ -170,9 +173,9 @@ const offer = async (sender: Page, files: ReturnType<typeof makeFiles>) => {
  * CLAUDE.md's invariant as the browsers see it: no URL, request body or frame they send carries the secret or a file
  * name. Bodies sent from a worker, a just-created about:blank frame or as a ReadableStream are not seen (requestBodies.ts).
  */
-const checkNothingLeaks = async (link: string, files: ReturnType<typeof makeFiles>) => {
-  const secret = new URL(link).hash.slice(1)
-  const needles = [secret, ...files.map((file) => file.name)]
+const checkNothingLeaks = async (links: readonly string[], files: ReturnType<typeof makeFiles>) => {
+  const secrets = links.map((link) => new URL(link).hash.slice(1))
+  const needles = [...secrets, ...files.map((file) => file.name)]
   // A body is read at about 10 MB/s; wait for every read in flight before looking.
   const unreadPerProfile = await Promise.all(bodyRecorders.map(async (recorder) => await recorder.settled()))
   const unread = unreadPerProfile.reduce((total, count) => total + count, 0)
@@ -182,10 +185,20 @@ const checkNothingLeaks = async (link: string, files: ReturnType<typeof makeFile
     ...(unread > 0 ? [{ page: "both", kind: "body" as const, text: `${unread} request bodies were still being read` }] : []),
   ]
 
+  const redact = (value: string) => {
+    let result = value
+
+    for (const needle of needles) {
+      result = result.replaceAll(needle, "[redacted]")
+    }
+
+    return result.slice(0, 200)
+  }
+
   writeFileSync(
     nodePath.join(evidence, "sent.json"),
     `${JSON.stringify(
-      sent.map((item) => ({ ...item, text: item.text.slice(0, 200) })),
+      sent.map((item) => ({ ...item, text: redact(item.text) })),
       undefined,
       1,
     )}\n`,
@@ -193,7 +206,7 @@ const checkNothingLeaks = async (link: string, files: ReturnType<typeof makeFile
   step("check what the browsers sent", `${sent.length} URLs, request bodies and frames, ${leaks.length} carrying the secret or a file name`, leaks.length === 0)
 }
 
-const receiveAll = async (sender: Page, recipient: Page, files: ReturnType<typeof makeFiles>, during?: () => Promise<void>) => {
+const receiveAll = async (sender: Page, recipient: Page, files: ReturnType<typeof makeFiles>, during?: () => Promise<void>, prefix = "") => {
   await recipient.getByRole("button", { name: /^Accept/u }).click()
 
   if (during !== undefined) {
@@ -202,8 +215,8 @@ const receiveAll = async (sender: Page, recipient: Page, files: ReturnType<typeo
 
   const recipientEnd = await waitForStatus(recipient, ["complete", "failed"], 120_000)
   const senderEnd = await waitForStatus(sender, ["complete", "failed"], 120_000)
-  await capture(recipient, "03-recipient-complete")
-  await capture(sender, "04-sender-complete")
+  await capture(recipient, `${prefix}03-recipient-complete`)
+  await capture(sender, `${prefix}04-sender-complete`)
   step("accept and receive", `recipient ${recipientEnd}, sender ${senderEnd}`, recipientEnd === "complete" && senderEnd === "complete")
   const hashes = await recipient.evaluate(async () => await window.fileTransferTest?.fileHashes())
   const expected = files.map((file) => sha256(file.buffer))
@@ -214,8 +227,67 @@ const receiveAll = async (sender: Page, recipient: Page, files: ReturnType<typeo
   )
 }
 
+/** Inspect only persisted metadata; never seed the catalog or return its contents to evidence. */
+const catalog = async (page: Page) =>
+  await page.evaluate(
+    async () =>
+      await new Promise<{
+        files: { fingerprint: string; size: number; lastModified: number }[]
+        collections: { fileIdentifiers: number[] }[]
+        enabled: boolean
+        blobs: number
+      }>((resolve, reject) => {
+        const open = indexedDB.open("local-library")
+        open.addEventListener("error", () => {
+          reject(new Error("Cannot open catalog"))
+        })
+        open.addEventListener("success", () => {
+          const database = open.result
+          const transaction = database.transaction(["files", "collections", "settings"], "readonly")
+          const files = transaction.objectStore("files").getAll()
+          const collections = transaction.objectStore("collections").getAll()
+          const consent = transaction.objectStore("settings").get("consent")
+          transaction.addEventListener("error", () => {
+            reject(new Error("Cannot read catalog"))
+          })
+          transaction.addEventListener("complete", () => {
+            // SAFETY: The Library owns these IndexedDB stores and writes flat metadata records.
+            const storedFiles = files.result as { fingerprint: string; size: number; lastModified: number; [key: string]: string | number | Blob }[]
+            // SAFETY: Collections and consent have the shapes written by the Library.
+            const storedCollections = collections.result as { fileIdentifiers: number[] }[]
+            // SAFETY: Consent is absent before opt-in or has an enabled field.
+            const setting = consent.result as { enabled: boolean } | undefined
+            const blobs = storedFiles.flatMap((entry) => Object.values(entry)).filter((value) => value instanceof Blob).length
+            const result = { files: storedFiles, collections: storedCollections, enabled: setting?.enabled === true, blobs }
+            database.close()
+            resolve(result)
+          })
+        })
+      }),
+  )
+
+/** Playwright supplies the bytes; the DOM file-input boundary supplies a deterministic timestamp. */
+const chooseLibraryFile = async (page: Page, file: ReturnType<typeof makeFiles>[number]) => {
+  const input = page.locator("label.drop-zone input[type=file]")
+  await input.evaluate(
+    (element, payload) => {
+      if (!(element instanceof HTMLInputElement)) {
+        throw new Error("Library input is not a file input")
+      }
+
+      const selected = new File([Uint8Array.from(payload.bytes)], payload.name, { type: payload.type, lastModified: 1_700_000_000_000 })
+      const transfer = new DataTransfer()
+      transfer.items.add(selected)
+      element.files = transfer.files
+      element.dispatchEvent(new Event("change", { bubbles: true }))
+    },
+    { name: file.name, type: file.mimeType, bytes: Array.from(file.buffer) },
+  )
+}
+
 let failure: string | undefined
 const pages: { readonly side: string; readonly page: Page }[] = []
+const privateLinks: string[] = []
 
 // What each side reported when the journey failed: its status, failure reason and the exception behind it.
 const failedSides: { readonly side: string; readonly status: string; readonly reason: string | null; readonly detail: string | null }[] = []
@@ -224,6 +296,129 @@ try {
   const sender = await openProfile("sender")
   const recipient = await openProfile("recipient")
   pages.push({ side: "sender", page: sender }, { side: "recipient", page: recipient })
+
+  if (journey === "library") {
+    const [original] = makeFiles([["verify-library-private.bin", 4096]])
+
+    if (original === undefined) {
+      throw new Error("Missing verification file")
+    }
+
+    const modified = { ...original, buffer: Buffer.from(original.buffer) }
+    modified.buffer[0] = (modified.buffer[0] ?? 0) ^ 255
+    const links = privateLinks
+    await sender.goto(`${origin}/library`)
+    await sender.getByText("Remembering is off by default", { exact: false }).waitFor()
+    const initially = await catalog(sender)
+    step(
+      "default Library before opt-in",
+      "My files is available, remembering is off",
+      !initially.enabled &&
+        initially.files.length === 0 &&
+        initially.collections.length === 0 &&
+        (await sender.getByRole("heading", { name: "My files" }).isVisible()),
+    )
+    await capture(sender, "01-library-default")
+    await sender.getByRole("switch", { name: "Remember files on this device" }).click()
+    await sender.getByText("Remembering is enabled", { exact: false }).waitFor()
+    await sender.getByLabel("New collection name").fill("Verification collection")
+    await sender.getByRole("button", { name: "Create empty collection" }).click()
+    await sender.getByRole("option", { name: "Verification collection (0)" }).waitFor({ state: "attached" })
+    const empty = await catalog(sender)
+    step(
+      "create an empty collection",
+      "one empty collection, no files",
+      empty.enabled && empty.files.length === 0 && empty.collections.length === 1 && empty.collections[0]?.fileIdentifiers.length === 0,
+    )
+    await capture(sender, "02-library-empty")
+    await chooseLibraryFile(sender, original)
+    await sender.getByRole("checkbox", { name: original.name }).waitFor()
+    const indexed = await catalog(sender)
+    step("index an original", "one metadata entry, no stored file bytes", indexed.files.length === 1 && indexed.blobs === 0)
+    await sender.getByRole("checkbox", { name: original.name }).click()
+    await sender.getByRole("button", { name: "Add selected to Verification collection" }).click()
+    await sender.getByRole("option", { name: "Verification collection (1)" }).waitFor({ state: "attached" })
+    await sender.getByLabel("Collection", { exact: true }).selectOption({ label: "Verification collection (1)" })
+    await sender.getByRole("heading", { name: "Verification collection" }).waitFor()
+    const withMember = await catalog(sender)
+    step("add a collection member", "collection has the indexed file", withMember.collections[0]?.fileIdentifiers.length === 1)
+    await capture(sender, "03-library-member")
+
+    const share = async (file: typeof original, prefix: string) => {
+      await sender.getByRole("button", { name: "Approve and share current versions" }).click()
+      await sender.getByRole("heading", { name: "Quick Share" }).waitFor()
+      await sender.getByRole("button", { name: "Seal parcel and create link" }).click()
+      const state = await waitForStatus(sender, ["waiting-for-recipient", "failed"])
+      step("seal collection share", `sender ${state}`, state === "waiting-for-recipient")
+      await sender.getByRole("button", { name: "Show link" }).click()
+      await sender.locator("#link").waitFor({ state: "visible" })
+      await sender.waitForFunction(() => (document.querySelector<HTMLInputElement>("#link")?.value ?? "").includes("#"))
+      const link = await sender.inputValue("#link")
+      links.push(link)
+      await sender.getByRole("button", { name: "Hide link" }).click()
+      await sender.locator("#link").waitFor({ state: "hidden" })
+      await recipient.goto(link)
+      const stateRecipient = await waitForStatus(recipient, ["reviewing", "failed"])
+      step("open collection share", `recipient ${stateRecipient}`, stateRecipient === "reviewing")
+      await capture(recipient, `${prefix}02-recipient-reviewing`)
+      await receiveAll(sender, recipient, [file], undefined, prefix)
+    }
+
+    await sender.getByRole("button", { name: "Review collection before sharing" }).click()
+    await sender.getByText("Unchanged since indexing or last approval").waitFor()
+    await capture(sender, "04-library-review-original")
+    await share(original, "original-")
+    const baseline = await catalog(sender)
+    await sender.goto(`${origin}/library`)
+    await sender.getByRole("option", { name: "Verification collection (1)" }).waitFor({ state: "attached" })
+    await sender.getByLabel("Collection", { exact: true }).selectOption({ label: "Verification collection (1)" })
+    await sender.getByRole("button", { name: "Reconnect original" }).click()
+    await sender.getByText("Choose the original to reconnect").waitFor()
+    await chooseLibraryFile(sender, modified)
+    await sender.getByRole("button", { name: "Confirm replacement reference" }).click()
+    await sender.getByRole("button", { name: "Review collection before sharing" }).click()
+    await sender.getByText("Changed since indexing or last approval").waitFor()
+    const beforeApproval = await catalog(sender)
+    step(
+      "reconnect changed bytes",
+      "same size and modification time, old approval preserved",
+      baseline.files[0] !== undefined &&
+        beforeApproval.files[0] !== undefined &&
+        baseline.files[0].fingerprint === beforeApproval.files[0].fingerprint &&
+        baseline.files[0].size === beforeApproval.files[0].size &&
+        baseline.files[0].lastModified === beforeApproval.files[0].lastModified,
+    )
+    await capture(sender, "05-library-review-changed")
+    await sender.getByRole("button", { name: "Cancel", exact: true }).click()
+    await sender.getByRole("button", { name: "Review collection before sharing" }).click()
+    await sender.getByText("Changed since indexing or last approval").waitFor()
+    const afterCancel = await catalog(sender)
+    step(
+      "require explicit approval",
+      "cancelling review preserves the previous fingerprint",
+      afterCancel.files[0]?.fingerprint === baseline.files[0]?.fingerprint,
+    )
+    await share(modified, "modified-")
+    const approved = await catalog(sender)
+    step("approve changed version", "the approved fingerprint changed", approved.files[0]?.fingerprint !== baseline.files[0]?.fingerprint)
+    await sender.goto(`${origin}/library`)
+    await sender.getByText("Remembering is enabled", { exact: false }).waitFor()
+    await sender.getByRole("switch", { name: "Remember files on this device" }).click()
+    await sender.getByRole("button", { name: "Forget", exact: true }).click()
+    await sender.getByText("Remembering is off by default", { exact: false }).waitFor()
+    const forgotten = await catalog(sender)
+    step(
+      "opt out",
+      "catalog empty, My files remains",
+      !forgotten.enabled &&
+        forgotten.files.length === 0 &&
+        forgotten.collections.length === 0 &&
+        forgotten.blobs === 0 &&
+        (await sender.getByRole("heading", { name: "My files" }).isVisible()),
+    )
+    await capture(sender, "06-library-opted-out")
+    await checkNothingLeaks(links, [original, modified])
+  }
 
   if (journey === "send-receive") {
     const files = makeFiles([
@@ -237,7 +432,7 @@ try {
     await capture(recipient, "02-recipient-reviewing")
     step("open the link", `recipient status ${reviewing}`, reviewing === "reviewing")
     await receiveAll(sender, recipient, files)
-    await checkNothingLeaks(link, files)
+    await checkNothingLeaks([link], files)
   }
 
   if (journey === "decline") {
@@ -314,6 +509,10 @@ try {
   }
 } catch (error) {
   failure = error instanceof Error ? error.message : String(error)
+
+  for (const link of privateLinks) {
+    failure = failure.replaceAll(link, "[private link]").replaceAll(new URL(link).hash.slice(1), "[secret]")
+  }
 
   // Evidence of the failure itself: each page as it was, with the reason it gives.
   for (const { side, page } of pages) {
