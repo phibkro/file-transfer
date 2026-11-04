@@ -588,8 +588,41 @@ const cutSocket = async (observed: Observed, mode: "clean" | "half-open") => {
 const describe = async (label: string, page: Page, observed: Observed) =>
   `${label}: status ${await status(page)}, progress ${JSON.stringify(await page.evaluate(() => window.fileTransferTest?.progress()))}, failure ${await page.evaluate(() => window.fileTransferTest?.failure())}, sockets ${observed.sockets.length}`
 
+const waitForFileInput = async (page: Page) => {
+  await page.waitForFunction(
+    () => {
+      const input = document.querySelector<HTMLInputElement>("#files")
+
+      return input !== null && !input.disabled
+    },
+    undefined,
+    { timeout: timeoutMilliseconds },
+  )
+}
+
+const waitForFiles = async (page: Page, count: number) => {
+  await page.waitForFunction((wanted) => document.querySelectorAll(".file-list li").length === wanted, count, { timeout: timeoutMilliseconds })
+}
+
+const revealLink = async (page: Page) => {
+  await page.getByRole("button", { name: "Show link" }).click()
+  await page.waitForFunction(
+    () => {
+      const value = document.querySelector<HTMLInputElement>("#link")?.value ?? ""
+      const fragment = value.split("#")[1] ?? ""
+
+      return /^[A-Za-z0-9_-]{32,}$/u.test(fragment)
+    },
+    undefined,
+    { timeout: timeoutMilliseconds },
+  )
+
+  return await page.inputValue("#link")
+}
+
 const offer = async (sender: Page, base: string, files: readonly PayloadFile[]) => {
   await sender.goto(`${base}/`)
+  await waitForFileInput(sender)
   // Playwright takes in-memory files only up to 50 MB in total, so larger payloads go through a temporary directory.
   const total = files.reduce((sum, file) => sum + file.buffer.length, 0)
 
@@ -597,9 +630,11 @@ const offer = async (sender: Page, base: string, files: readonly PayloadFile[]) 
     // Two batches, so the check covers adding files after the first choice; all of them become one parcel.
     const split = Math.ceil(files.length / 2)
     await sender.setInputFiles("#files", files.slice(0, split))
+    await waitForFiles(sender, split)
 
     if (split < files.length) {
       await sender.setInputFiles("#files", files.slice(split))
+      await waitForFiles(sender, files.length)
     }
 
     const listed = await sender.locator(".file-list li").count()
@@ -614,6 +649,7 @@ const offer = async (sender: Page, base: string, files: readonly PayloadFile[]) 
       "#files",
       files.map((file) => nodePath.join(payloadDirectory, file.name)),
     )
+    await waitForFiles(sender, files.length)
   }
 
   await sender.getByRole("button", { name: "Seal parcel and create link" }).click()
@@ -624,29 +660,58 @@ const offer = async (sender: Page, base: string, files: readonly PayloadFile[]) 
     await sender.evaluate(() => window.fileTransferTest?.failure()),
   )
 
-  // The link and its QR code stay hidden until asked for (apps/web/src/share.ts).
-  const masked = await sender.inputValue("#link")
-  check(
-    masked.endsWith("•".repeat(12)) && !masked.includes("#A") && (await sender.locator("#share-qr svg").count()) === 0,
-    "the link and QR code are hidden by default",
-    masked,
-  )
-  await sender.getByRole("button", { name: "Show link" }).click()
-  const link = await sender.inputValue("#link")
-  check(new URL(link).hash.length > 32, "Show link reveals the full link")
+  // Capture the visible surface before revealing the link, then compare it with the real fragment.
+  await sender.getByRole("button", { name: "Show link" }).waitFor({ state: "visible" })
+
+  const initialVisible = await sender.evaluate(() => [
+    document.body.textContent ?? "",
+    ...Array.from(document.querySelectorAll<HTMLInputElement>("input"))
+      .filter((input) => input.getClientRects().length > 0 && getComputedStyle(input).visibility !== "hidden")
+      .map((input) => input.value),
+  ])
+
+  const qr = sender.getByRole("img", { name: "QR code of the share link" })
+  const qrInitiallyHidden = await qr.isHidden()
+  const link = await revealLink(sender)
+  const fragment = new URL(link).hash.slice(1)
+  check(fragment.length > 32, "Show link reveals the full link")
+  check(!initialVisible.some((text) => text.includes(fragment)) && qrInitiallyHidden, "the link and QR code are hidden by default")
   rememberOffer(link, files)
+  await sender.getByRole("button", { name: "Hide link" }).click()
+  await sender.getByRole("button", { name: "Show link" }).waitFor({ state: "visible" })
+  await sender.waitForFunction(
+    (secret) => {
+      const input = document.querySelector<HTMLInputElement>("#link")
+
+      return input === null || input.getClientRects().length === 0 || !input.value.includes(secret)
+    },
+    fragment,
+    { timeout: timeoutMilliseconds },
+  )
+
+  const hidden = await sender.evaluate((secret) => {
+    const visible = [
+      document.body.textContent ?? "",
+      ...Array.from(document.querySelectorAll<HTMLInputElement>("input"))
+        .filter((input) => input.getClientRects().length > 0 && getComputedStyle(input).visibility !== "hidden")
+        .map((input) => input.value),
+    ]
+
+    return !visible.some((text) => text.includes(secret))
+  }, fragment)
+
+  check(hidden, "Hide link removes the secret from visible UI")
   await sender.getByRole("button", { name: "Show QR code" }).click()
 
-  // The encoder loads on first use (src/share.ts), so the code appears a moment after the click.
-  const qrDrawn = await sender
-    .locator("#share-qr svg")
+  const qrDrawn = await qr
     .waitFor({ state: "visible", timeout: 10_000 })
     .then(() => true)
     .catch(() => false)
 
   check(qrDrawn, "Show QR code draws the QR code")
   await sender.getByRole("button", { name: "Hide QR code" }).click()
-  check(await sender.locator("#share-qr").isHidden(), "Hide QR code hides it again")
+  await qr.waitFor({ state: "hidden", timeout: 10_000 })
+  check(await qr.isHidden(), "Hide QR code hides it again")
 
   return link
 }
@@ -986,7 +1051,9 @@ const previewsAndNames = async (browser: Browser, base: string) => {
     ]
 
     await sender.page.goto(`${base}/`)
+    await waitForFileInput(sender.page)
     await sender.page.setInputFiles("#files", files)
+    await waitForFiles(sender.page, files.length)
 
     await sender.page.getByRole("button", { name: "Preview photo.png" }).click()
     await previewFrame(sender.page).locator("img").waitFor({ timeout: 10_000 })
@@ -1013,26 +1080,29 @@ const previewsAndNames = async (browser: Browser, base: string) => {
     await sender.page.getByRole("button", { name: "Rename notes.txt" }).click()
     await sender.page.getByRole("textbox", { name: "New name for notes.txt" }).fill("con.txt")
     await sender.page.getByRole("button", { name: "Save" }).click()
+    await sender.page.locator(".rename-problem").waitFor({ state: "visible" })
     const refusal = (await sender.page.locator(".rename-problem").textContent()) ?? ""
     check(refusal.startsWith("This name cannot be used"), "rename: a name the parcel's rules forbid is refused in place", refusal)
     await sender.page.getByRole("textbox", { name: "New name for notes.txt" }).fill("packing list.txt")
     await sender.page.getByRole("button", { name: "Save" }).click()
+    await sender.page.getByRole("button", { name: "Rename packing list.txt" }).waitFor({ state: "visible" })
     check((await sender.page.getByRole("button", { name: "Rename packing list.txt" }).count()) === 1, "rename: the sender renames a file before sealing")
 
     await sender.page.getByRole("button", { name: "Seal parcel and create link" }).click()
     await waitForStatus(sender.page, ["waiting-for-recipient", "failed"])
+    await sender.page.getByRole("button", { name: "Send other files" }).waitFor({ state: "visible" })
     check(
       (await sender.page.locator(".file-list button.rename, .file-list button.remove").count()) === 0 &&
         (await sender.page.getByRole("button", { name: "Send other files" }).isVisible()),
       "seal: a sealed parcel cannot be renamed or changed, and offers Send other files instead",
     )
-    await sender.page.getByRole("button", { name: "Show link" }).click()
-    const link = await sender.page.inputValue("#link")
+    const link = await revealLink(sender.page)
     rememberOffer(link, files)
     leakNeedles.names.add("packing list.txt").add("holiday.png")
 
     await recipient.page.goto(link)
     await waitForStatus(recipient.page, ["reviewing", "failed"])
+    await waitForFiles(recipient.page, files.length)
     const offered = await recipient.page.locator(".file-list .name").allTextContents()
     check(
       JSON.stringify(offered) === JSON.stringify(["photo.png", "packing list.txt", "page.html"]),
@@ -1692,12 +1762,13 @@ const large = async (browser: Browser, base: string) => {
 
   try {
     await sender.page.goto(`${base}/`)
+    await waitForFileInput(sender.page)
     await sender.page.setInputFiles("#files", file.path)
+    await waitForFiles(sender.page, 1)
     await sender.page.getByRole("button", { name: "Seal parcel and create link" }).click()
     await waitForStatus(sender.page, ["waiting-for-recipient", "failed"])
     check((await status(sender.page)) === "waiting-for-recipient", `large: the sender labels ${gigabytes} GB and waits`)
-    await sender.page.getByRole("button", { name: "Show link" }).click()
-    const link = await sender.page.inputValue("#link")
+    const link = await revealLink(sender.page)
 
     // A private window's quota is smaller than the offer: the recipient must say so before accepting, not fail midway.
     if (browserName === "chromium" && file.size > 2.2e9) {
