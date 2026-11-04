@@ -50,21 +50,15 @@ export const sweepStaleTransfers = async (): Promise<void> => {
   try {
     const root = await navigator.storage.getDirectory()
     const transfers = await root.getDirectoryHandle(transfersDirectory, { create: true })
-    const snapshot = await navigator.locks.query()
-    const held = new Set((snapshot.held ?? []).map((lock) => lock.name))
-    const stale: string[] = []
 
     for await (const name of transfers.keys()) {
-      if (!held.has(lockName(name))) {
-        stale.push(name)
-      }
+      // Keep the same lock an opener needs until removal finishes. A snapshot can become stale before deletion.
+      await navigator.locks.request(lockName(name), { ifAvailable: true }, async (lock) => {
+        if (lock !== null) {
+          await removeQuietly(transfers, name)
+        }
+      })
     }
-
-    await Promise.all(
-      stale.map(async (name) => {
-        await removeQuietly(transfers, name)
-      }),
-    )
   } catch {
     // No origin-private file system here (private browsing in some browsers): nothing was stored either.
   }
