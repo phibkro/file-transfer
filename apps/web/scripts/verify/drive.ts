@@ -173,7 +173,13 @@ const hideLink = async (page: Page) => {
 /** The sender's side up to the link: choose files, seal, reveal the link. */
 const offer = async (sender: Page, files: ReturnType<typeof makeFiles>) => {
   await sender.goto(`${origin}/`)
+  await sender.waitForFunction(() => {
+    const input = document.querySelector("#files")
+
+    return input instanceof HTMLInputElement && !input.disabled
+  })
   await sender.setInputFiles("#files", files)
+  await sender.waitForFunction((count) => document.querySelectorAll(".file-list li").length === count, files.length)
   step("choose files", `${await sender.locator(".file-list li").count()} files listed`, (await sender.locator(".file-list li").count()) === files.length)
   await sender.getByRole("button", { name: "Seal parcel and create link" }).click()
   const sealed = await waitForStatus(sender, ["waiting-for-recipient", "failed"])
