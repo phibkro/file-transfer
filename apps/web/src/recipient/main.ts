@@ -36,7 +36,7 @@ export type Model = typeof Model.Type
 
 export const Message = defineMessageUnion({
   ReceivedSnapshot: { snapshot: privateValue<RecipientSnapshot>() },
-  GotNameMessage: { index: Schema.Int, message: privateValue<Name.Message>() },
+  GotNameMessage: { id: Schema.String, message: privateValue<Name.Message>() },
   GotPreviewMessage: { message: privateValue<Preview.Message>() },
   RequestedPreview: { index: Schema.Int },
   RequestedAccept: {},
@@ -121,7 +121,7 @@ const RunRecipientAction = Command.define("RunRecipientAction", {
     ),
 })
 
-const SaveAll = Command.define("SaveRecipientFiles", {
+const SaveRecipientFiles = Command.define("SaveRecipientFiles", {
   messages: [Message.CompletedSaveAll],
   execute: RecipientSession.get.pipe(
     Effect.flatMap((session) => Effect.promise(async () => Message.CompletedSaveAll({ result: await session.saveAll() }))),
@@ -147,7 +147,8 @@ const openPreview = (model: Model, file: File, name: string): Return =>
     toParentMessage: liftPreview,
   })(model)
 
-const foldName = (model: Model, index: number, message: Name.Message): Return => {
+const foldName = (model: Model, id: string, message: Name.Message): Return => {
+  const index = model.names.findIndex((name) => name.identifier === id)
   const snapshot = Option.isSome(model.snapshot) ? Redacted.value(model.snapshot.value) : undefined
   const file = snapshot?.files[index]
 
@@ -163,9 +164,9 @@ const foldName = (model: Model, index: number, message: Name.Message): Return =>
         index,
         canRename: !snapshot.filesRemoved,
       }),
-    read: (parent: Model) => Option.fromNullishOr(parent.names[index]),
-    write: (parent: Model, child: Name.Model): Model => ({ ...parent, names: parent.names.map((current, position) => (position === index ? child : current)) }),
-    toParentMessage: (childMessage: Name.Message) => Message.GotNameMessage({ index, message: Redacted.make(childMessage) }),
+    read: (parent: Model) => Option.fromNullishOr(parent.names.find((name) => name.identifier === id)),
+    write: (parent: Model, child: Name.Model): Model => ({ ...parent, names: parent.names.map((current) => (current.identifier === id ? child : current)) }),
+    toParentMessage: (childMessage: Name.Message) => Message.GotNameMessage({ id, message: Redacted.make(childMessage) }),
     foldOutMessage:
       (out: Name.OutMessage) =>
       (parent: Model): Return =>
@@ -182,7 +183,7 @@ export const update = (model: Model, message: Message): Return =>
         names: Redacted.value(snapshot).files.map((_, index) => model.names[index] ?? Name.init(`recipient-name-${index}`)),
       },
     }),
-    GotNameMessage: ({ index, message: child }) => foldName(model, index, Redacted.value(child)),
+    GotNameMessage: ({ id, message: child }) => foldName(model, id, Redacted.value(child)),
     GotPreviewMessage: ({ message: child }) => foldPreview(model, Redacted.value(child)),
     RequestedPreview: ({ index }) => {
       const file = Option.isSome(model.snapshot) ? Redacted.value(model.snapshot.value).files[index] : undefined
@@ -199,7 +200,7 @@ export const update = (model: Model, message: Message): Return =>
     RequestedSave: () => run(model, { kind: "markSaved" }),
     RequestedSaveAll: () =>
       Option.isSome(model.snapshot) && Redacted.value(model.snapshot.value).phase === "Completed" && !Redacted.value(model.snapshot.value).filesRemoved
-        ? { model, commands: [SaveAll()] }
+        ? { model, commands: [SaveRecipientFiles()] }
         : { model },
     RequestedRemoveAll: () =>
       Option.isSome(model.snapshot) && Redacted.value(model.snapshot.value).phase === "Completed" && !Redacted.value(model.snapshot.value).filesRemoved
@@ -313,16 +314,18 @@ export const view = Submodel.defineView<Model, Message>((model, h) => {
       h.p([h.Class("save-all-status"), h.Role("status")], [model.saveStatus]),
       h.ul(
         [h.Class(snapshot?.phase === "Completed" ? "file-list downloads" : "file-list")],
-        files.map((file, index) =>
-          h.li(
+        files.map((file, index) => {
+          const name = model.names[index]
+
+          return h.li(
             [],
             [
-              ...(model.names[index] === undefined
+              ...(name === undefined
                 ? []
                 : [
                     h.submodel({
-                      slotId: `recipient-name-${index}`,
-                      model: model.names[index],
+                      slotId: name.identifier,
+                      model: name,
                       view: Name.view,
                       viewInputs: {
                         name: Redacted.make(file.name),
@@ -330,7 +333,7 @@ export const view = Submodel.defineView<Model, Message>((model, h) => {
                         index,
                         canRename: snapshot?.filesRemoved !== true,
                       },
-                      toParentMessage: (message) => Message.GotNameMessage({ index, message: Redacted.make(message) }),
+                      toParentMessage: (message) => Message.GotNameMessage({ id: name.identifier, message: Redacted.make(message) }),
                     }),
                   ]),
               h.span([h.Class("size")], [formatSize(file.size)]),
@@ -350,8 +353,8 @@ export const view = Submodel.defineView<Model, Message>((model, h) => {
                     button(`Preview ${file.name}`, Message.RequestedPreview({ index })),
                   ]),
             ],
-          ),
-        ),
+          )
+        }),
       ),
       ...(files.length === 0
         ? []

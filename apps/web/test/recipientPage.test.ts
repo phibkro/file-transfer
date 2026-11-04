@@ -2,6 +2,7 @@ import { Redacted } from "effect"
 import { describe, expect, it } from "vite-plus/test"
 import { boot, init, Message, update } from "../src/recipient/main.ts"
 import type { RecipientSnapshot } from "../src/recipient.ts"
+import * as Name from "../src/ui/name.ts"
 
 const offer: RecipientSnapshot = {
   phase: "Reviewing",
@@ -30,6 +31,15 @@ describe("recipient page", () => {
     expect(update(modelFor({ ...offer, spaceShortfall: 1 }), Message.RequestedAccept()).commands).toBeUndefined()
     expect(update(modelFor({ ...offer, phase: "Failed" }), Message.RequestedAccept()).commands).toBeUndefined()
     expect(update(modelFor({ ...offer, phase: "Failed" }), Message.RequestedDecline()).commands).toBeUndefined()
+  })
+
+  it("routes name messages by the retained file identity and drops unknown identities", () => {
+    const model = modelFor(offer)
+    const id = model.names[0]?.identifier ?? ""
+    const started = update(model, Message.GotNameMessage({ id, message: Redacted.make(Name.Message.Started()) })).model
+    expect(started.names[0]?.editing).toBe(true)
+    const stale = update(started, Message.GotNameMessage({ id: "missing", message: Redacted.make(Name.Message.Cancelled()) })).model
+    expect(stale.names[0]?.editing).toBe(true)
   })
 
   it("keeps received names and link fragments private in preserved state", () => {
