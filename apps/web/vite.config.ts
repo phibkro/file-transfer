@@ -4,11 +4,12 @@
  * `/r/*` answered by `index.html`. `public/_headers` sets the headers Cloudflare's static assets serve (the preview
  * page's sandbox, CORS for the preview frame's scripts).
  */
+import { foldkit } from "@foldkit/vite-plugin"
 import { defineConfig } from "vite-plus"
 import { layout } from "./scripts/layout.ts"
 
 export default defineConfig({
-  plugins: [layout()],
+  plugins: [layout(), foldkit()],
   server: {
     proxy: {
       "/api": { target: "http://127.0.0.1:8787", ws: true },
@@ -19,7 +20,7 @@ export default defineConfig({
     emptyOutDir: true,
     target: "es2023",
     rollupOptions: {
-      // The app, the sandboxed page previews render in (src/preview.ts), and the content pages.
+      // The app (including Library), the sandboxed preview frame, and the content pages.
       input: {
         main: "index.html",
         preview: "preview.html",

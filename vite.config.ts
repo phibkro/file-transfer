@@ -5,6 +5,7 @@
  * Lint: Ultracite's oxlint core and anti-slop presets (docs/decisions/0016), run by `vp check --deny-warnings`. Rules
  * turned off below conflict with this codebase on purpose; each line says why.
  */
+import foldkitRecommended from "@foldkit/oxlint-plugin/recommended.json" with { type: "json" }
 import antiSlop from "ultracite/oxlint/anti-slop"
 import core from "ultracite/oxlint/core"
 import { defineConfig } from "vite-plus"
@@ -20,7 +21,7 @@ export default defineConfig({
     extends: [core, antiSlop],
     // The package-kind rules (docs/decisions/0009): ox-dep-lint's per-file findings, where they are written. The
     // whole-graph checks (package.json edges, package cycles) run in `bun run check:graph`.
-    jsPlugins: ["ox-dep-lint/plugin"],
+    jsPlugins: ["ox-dep-lint/plugin", ...foldkitRecommended.jsPlugins],
     ignorePatterns: [
       "**/node_modules/**",
       "**/dist/**",
@@ -82,6 +83,15 @@ export default defineConfig({
       "unicorn/prefer-structured-clone": "off",
     },
     overrides: [
+      {
+        files: ["apps/web/src/{sender,recipient,library,admin,preview,ui,site}/**/*.ts", "apps/web/src/entry.ts", "apps/web/src/previewFrame.ts"],
+        // SAFETY: the installed recommended preset contains only error and off severities.
+        rules: foldkitRecommended.rules as Record<string, "error" | "off">,
+      },
+      {
+        files: ["apps/web/src/entry.ts", "apps/web/src/previewFrame.ts"],
+        rules: { "foldkit/no-impure-call-at-decision-time": "off" },
+      },
       {
         // The link secret lives in the URL fragment (docs/invariants.md, C1). Shipped browser code reads the page's
         // address only through apps/web/src/address.ts, so the fragment cannot reach a log, a request or a report from

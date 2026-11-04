@@ -135,19 +135,34 @@
           "apps/web/src/leaveGuard.ts",
           "apps/web/src/storagePanel.ts",
           "apps/web/src/preview.ts",
-          "apps/web/src/previewFrame.ts",
           "apps/web/src/rename.ts",
           "apps/web/src/serverLimits.ts",
           "apps/web/src/admin.ts",
           "apps/web/src/direct.ts",
-          "apps/web/src/directSettings.ts"
+          "apps/web/src/directSettings.ts",
+          "apps/web/src/localLibrary.ts"
         ],
         "role": "runtime-adapter",
         "platform": "browser",
         "adapterDependencies": ["uqr", "uplot", "valibot"]
       },
       {
-        "files": ["apps/web/src/main.ts"],
+        "files": [
+          "apps/web/src/sender/**",
+          "apps/web/src/recipient/**",
+          "apps/web/src/library/**",
+          "apps/web/src/admin/**",
+          "apps/web/src/preview/**",
+          "apps/web/src/ui/**",
+          "apps/web/src/site/**",
+          "apps/web/src/privateValue.ts"
+        ],
+        "role": "runtime-adapter",
+        "platform": "browser",
+        "adapterDependencies": ["foldkit", "@foldkit/ui", "@effect/platform-browser", "uplot", "uqr", "valibot"]
+      },
+      {
+        "files": ["apps/web/src/main.ts", "apps/web/src/entry.ts", "apps/web/src/previewFrame.ts"],
         "role": "composition-root",
         "platform": "browser"
       },
