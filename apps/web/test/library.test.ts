@@ -1,9 +1,92 @@
-import { Redacted } from "effect"
+import { Predicate, Redacted } from "effect"
 import { describe, expect, test } from "vite-plus/test"
 import { FileDrop, Tabs } from "@foldkit/ui"
 import { boot, cancel, init, Message, update } from "../src/library/main.ts"
 
+const firstFile = { identifier: 7, revision: 3, name: "first-private.txt", size: 4, lastModified: 10, fingerprint: "first" }
+const secondFile = { identifier: 8, revision: 9, name: "second-private.txt", size: 5, lastModified: 20, fingerprint: "second" }
+const collection = { identifier: 3, revision: 6, name: "Private collection", fileIdentifiers: [7, 8] }
+
+const catalogModel = () => ({
+  ...init().model,
+  snapshot: Redacted.make({ enabled: true, epoch: 12, files: [firstFile, secondFile], collections: [collection] }),
+  collection: collection.identifier,
+  selected: [firstFile.identifier, secondFile.identifier],
+})
+
+const actionFrom = (result: ReturnType<typeof update>) => {
+  const command = result.commands?.find((entry) => entry.name === "RunLibraryAction")
+  expect(command).toBeDefined()
+
+  const args: unknown = command?.args
+
+  expect(JSON.stringify(args)).not.toContain("first-private.txt")
+  expect(JSON.stringify(args)).not.toContain("Private collection")
+
+  return Predicate.hasProperty(args, "action") && Redacted.isRedacted(args.action) ? Redacted.value(args.action) : undefined
+}
+
 describe("Library page transitions", () => {
+  test("membership commands carry the collection and every selected file revision privately", () => {
+    const model = catalogModel()
+    expect(actionFrom(update(model, Message.RequestedAddMembers({ identifier: collection.identifier })))).toEqual({
+      kind: "add",
+      collection,
+      files: [firstFile, secondFile],
+      epoch: 12,
+    })
+    expect(actionFrom(update(model, Message.RequestedRemoveMember({ identifier: secondFile.identifier })))).toEqual({
+      kind: "remove",
+      collection,
+      file: secondFile,
+      epoch: 12,
+    })
+  })
+
+  test("confirmation retains the original file and collection snapshots and epoch", () => {
+    const model = catalogModel()
+    const fileDialog = update(model, Message.RequestedForgetFile({ identifier: firstFile.identifier })).model
+    const collectionDialog = update(model, Message.RequestedForgetCollection()).model
+
+    const newerSnapshot = Redacted.make({
+      enabled: true,
+      epoch: 13,
+      files: [{ ...firstFile, revision: 4 }, secondFile],
+      collections: [{ ...collection, revision: 7 }],
+    })
+
+    expect(actionFrom(update({ ...fileDialog, snapshot: newerSnapshot }, Message.ConfirmedAction()))).toEqual({
+      kind: "forgetFile",
+      file: firstFile,
+      epoch: 12,
+    })
+    expect(actionFrom(update({ ...collectionDialog, snapshot: newerSnapshot }, Message.ConfirmedAction()))).toEqual({
+      kind: "forgetCollection",
+      collection,
+      epoch: 12,
+    })
+  })
+
+  test("missing selected files or collections reject operations instead of dropping entities", () => {
+    const model = catalogModel()
+    const missingFile = { ...model, selected: [firstFile.identifier, 99] }
+    const missingCollection = { ...model, collection: 99 }
+
+    const rejected = [
+      update(missingFile, Message.RequestedAddMembers({ identifier: collection.identifier })),
+      update(model, Message.RequestedAddMembers({ identifier: 99 })),
+      update(model, Message.RequestedRemoveMember({ identifier: 99 })),
+      update(missingCollection, Message.RequestedRemoveMember({ identifier: firstFile.identifier })),
+      update(missingFile, Message.RequestedReview()),
+    ]
+
+    for (const result of rejected) {
+      expect(result.commands ?? []).toEqual([])
+      expect(result.model.busy).toBe(false)
+      expect(result.model.status).not.toBe(model.status)
+    }
+  })
+
   test("consent is explicit and repeated clicks cannot admit concurrent edits", () => {
     const started = update(init().model, Message.RequestedEnable())
     expect(started.commands).toHaveLength(1)

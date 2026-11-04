@@ -19,10 +19,10 @@ type Action =
   | { readonly kind: "index"; readonly files: readonly File[]; readonly epoch: number; readonly reconnect: Entry | undefined }
   | { readonly kind: "picker"; readonly epoch: number }
   | { readonly kind: "create"; readonly name: string; readonly epoch: number }
-  | { readonly kind: "add"; readonly collection: number; readonly files: readonly number[]; readonly epoch: number }
-  | { readonly kind: "remove"; readonly collection: number; readonly file: number; readonly epoch: number }
-  | { readonly kind: "forgetFile"; readonly file: number; readonly epoch: number }
-  | { readonly kind: "forgetCollection"; readonly collection: number; readonly epoch: number }
+  | { readonly kind: "add"; readonly collection: Catalog.LibraryCollection; readonly files: readonly Entry[]; readonly epoch: number }
+  | { readonly kind: "remove"; readonly collection: Catalog.LibraryCollection; readonly file: Entry; readonly epoch: number }
+  | { readonly kind: "forgetFile"; readonly file: Entry; readonly epoch: number }
+  | { readonly kind: "forgetCollection"; readonly collection: Catalog.LibraryCollection; readonly epoch: number }
   | { readonly kind: "reconnect"; readonly previous: Entry; readonly current: Catalog.IndexedVersion; readonly epoch: number }
   | { readonly kind: "review"; readonly entries: Snapshot["files"]; readonly collection: Catalog.LibraryCollection | undefined; readonly epoch: number }
   | { readonly kind: "approve"; readonly reviewed: Review; readonly collection: Catalog.LibraryCollection | undefined; readonly epoch: number }
@@ -36,8 +36,8 @@ type Result =
 type Confirmation =
   | { readonly kind: "none" }
   | { readonly kind: "disable" }
-  | { readonly kind: "forgetFile"; readonly entry: Entry }
-  | { readonly kind: "forgetCollection"; readonly collection: Catalog.LibraryCollection }
+  | { readonly kind: "forgetFile"; readonly entry: Entry; readonly epoch: number }
+  | { readonly kind: "forgetCollection"; readonly collection: Catalog.LibraryCollection; readonly epoch: number }
   | { readonly kind: "candidate"; readonly previous: Entry; readonly current: Catalog.IndexedVersion; readonly epoch: number }
   | { readonly kind: "review"; readonly reviewed: Review; readonly collection: Catalog.LibraryCollection | undefined; readonly epoch: number }
 
@@ -310,18 +310,35 @@ export const update = (model: Model, incoming: Message): Return => {
         ? start(model, { kind: "create", name: Redacted.value(model.name).trim(), epoch })
         : { model },
     RequestedDurablePicker: () => (snapshot.enabled ? start(model, { kind: "picker", epoch }) : { model }),
-    RequestedAddMembers: (message) =>
-      snapshot.enabled && model.selected.length > 0 && message.identifier !== 0
-        ? start(model, { kind: "add", collection: message.identifier, files: model.selected, epoch })
-        : { model },
-    RequestedRemoveMember: (message) =>
-      collection === undefined ? { model } : start(model, { kind: "remove", collection: collection.identifier, file: message.identifier, epoch }),
+    RequestedAddMembers: (message) => {
+      if (!snapshot.enabled || model.selected.length === 0 || message.identifier === 0 || model.busy) {
+        return { model }
+      }
+
+      const target = snapshot.collections.find((entry) => entry.identifier === message.identifier)
+      const files = snapshot.files.filter((entry) => model.selected.includes(entry.identifier))
+
+      return target === undefined || files.length !== model.selected.length
+        ? { model: { ...model, status: "The selected files or collection are no longer available. Reload the Library and select them again." } }
+        : start(model, { kind: "add", collection: target, files, epoch })
+    },
+    RequestedRemoveMember: (message) => {
+      if (model.busy) {
+        return { model }
+      }
+
+      const file = snapshot.files.find((entry) => entry.identifier === message.identifier)
+
+      return collection === undefined || file === undefined
+        ? { model: { ...model, status: "The selected file or collection is no longer available. Reload the Library and select it again." } }
+        : start(model, { kind: "remove", collection, file, epoch })
+    },
     RequestedForgetFile: (message) => {
       const entry = snapshot.files.find((file) => file.identifier === message.identifier)
 
-      return entry === undefined || model.busy ? { model } : ask(model, { kind: "forgetFile", entry })
+      return entry === undefined || model.busy ? { model } : ask(model, { kind: "forgetFile", entry, epoch })
     },
-    RequestedForgetCollection: () => (collection === undefined || model.busy ? { model } : ask(model, { kind: "forgetCollection", collection })),
+    RequestedForgetCollection: () => (collection === undefined || model.busy ? { model } : ask(model, { kind: "forgetCollection", collection, epoch })),
     RequestedReconnect: (message) => ({
       model: {
         ...model,
@@ -333,11 +350,19 @@ export const update = (model: Model, incoming: Message): Return => {
     RequestedReview: () => {
       const entries = snapshot.files.filter((entry) => model.selected.includes(entry.identifier))
 
+      if (entries.length !== model.selected.length) {
+        return { model: { ...model, status: "The selected files are no longer available. Reload the Library and select them again." } }
+      }
+
       return entries.length === 0 ? { model } : start(model, { kind: "review", entries, collection, epoch })
     },
     RequestedReviewCollection: () => {
       const current = collection ?? Catalog.deriveMyFiles(snapshot)
       const entries = snapshot.files.filter((entry) => current.fileIdentifiers.includes(entry.identifier))
+
+      if (entries.length !== current.fileIdentifiers.length) {
+        return { model: { ...model, status: "The collection contains unavailable files. Reload the Library and review it again." } }
+      }
 
       return entries.length === 0 ? { model } : start(model, { kind: "review", entries, collection: current, epoch })
     },
@@ -360,12 +385,12 @@ export const update = (model: Model, incoming: Message): Return => {
         }
 
         case "forgetFile": {
-          action = { kind: "forgetFile", file: confirmation.entry.identifier, epoch }
+          action = { kind: "forgetFile", file: confirmation.entry, epoch: confirmation.epoch }
           break
         }
 
         case "forgetCollection": {
-          action = { kind: "forgetCollection", collection: confirmation.collection.identifier, epoch }
+          action = { kind: "forgetCollection", collection: confirmation.collection, epoch: confirmation.epoch }
           break
         }
 

@@ -263,87 +263,98 @@ export const rememberFiles = (incoming: readonly IndexedVersion[], epoch: number
     },
   })
 
-export const saveCollection = (name: string, fileIdentifiers: readonly number[], epoch: number) =>
+export const createCollection = (name: string, epoch: number) =>
   transaction({
     mode: "edit",
     epoch,
-    edit: (snapshot, _files, collections) => {
+    edit: (_snapshot, _files, collections) => {
       if (name.trim().length === 0) {
         throw new DOMException("Name the collection.", "DataError")
       }
 
-      const existing = new Set(snapshot.files.map((entry) => entry.identifier))
-
-      if (fileIdentifiers.some((identifier) => !existing.has(identifier))) {
-        throw conflict()
-      }
-
-      collections.add({ revision: 0, name, fileIdentifiers: [...new Set(fileIdentifiers)] })
+      collections.add({ revision: 0, name, fileIdentifiers: [] })
     },
   })
 
-export const createCollection = (name: string, epoch: number) => saveCollection(name, [], epoch)
+const requireFile = (snapshot: LibrarySnapshot, expected: LibrarySnapshot["files"][number]) => {
+  const current = snapshot.files.find((entry) => entry.identifier === expected.identifier)
 
-export const addToCollection = (identifier: number, fileIdentifiers: readonly number[], epoch: number) =>
+  if (current === undefined || current.revision !== expected.revision) {
+    throw conflict()
+  }
+
+  return current
+}
+
+const requireCollection = (snapshot: LibrarySnapshot, expected: LibraryCollection) => {
+  const current = snapshot.collections.find((entry) => entry.identifier === expected.identifier)
+
+  if (current === undefined || current.revision !== expected.revision) {
+    throw conflict()
+  }
+
+  return current
+}
+
+export const addToCollection = (expected: LibraryCollection, selected: LibrarySnapshot["files"], epoch: number) =>
   transaction({
     mode: "edit",
     epoch,
     edit: (snapshot, _files, collections) => {
-      const collection = snapshot.collections.find((entry) => entry.identifier === identifier)
-      const existing = new Set(snapshot.files.map((entry) => entry.identifier))
+      const collection = requireCollection(snapshot, expected)
+      const identifiers = selected.map((entry) => requireFile(snapshot, entry).identifier)
 
-      if (collection === undefined || fileIdentifiers.some((value) => !existing.has(value))) {
-        throw conflict()
-      }
-
-      collections.put({ ...collection, revision: collection.revision + 1, fileIdentifiers: [...new Set([...collection.fileIdentifiers, ...fileIdentifiers])] })
+      collections.put({ ...collection, revision: collection.revision + 1, fileIdentifiers: [...new Set([...collection.fileIdentifiers, ...identifiers])] })
     },
   })
 
-export const removeFromCollection = (identifier: number, fileIdentifier: number, epoch: number) =>
+export const removeFromCollection = (expected: LibraryCollection, file: LibrarySnapshot["files"][number], epoch: number) =>
   transaction({
     mode: "edit",
     epoch,
     edit: (snapshot, _files, collections) => {
-      const collection = snapshot.collections.find((entry) => entry.identifier === identifier)
+      const collection = requireCollection(snapshot, expected)
+      const current = requireFile(snapshot, file)
 
-      if (collection === undefined) {
+      if (!collection.fileIdentifiers.includes(current.identifier)) {
         throw conflict()
       }
 
       collections.put({
         ...collection,
         revision: collection.revision + 1,
-        fileIdentifiers: collection.fileIdentifiers.filter((value) => value !== fileIdentifier),
+        fileIdentifiers: collection.fileIdentifiers.filter((value) => value !== current.identifier),
       })
     },
   })
 
-export const deleteCollection = (identifier: number, epoch: number) =>
+export const deleteCollection = (expected: LibraryCollection, epoch: number) =>
   transaction({
     mode: "edit",
     epoch,
-    edit: (_snapshot, _files, collections) => {
-      collections.delete(identifier)
+    edit: (snapshot, _files, collections) => {
+      const collection = requireCollection(snapshot, expected)
+      collections.delete(collection.identifier)
     },
   })
 
-export const deleteFile = (identifier: number, epoch: number) =>
+export const deleteFile = (expected: LibrarySnapshot["files"][number], epoch: number) =>
   transaction({
     mode: "edit",
     epoch,
     edit: (snapshot, files, collections, _settings, committed) => {
-      files.delete(identifier)
+      const file = requireFile(snapshot, expected)
+      files.delete(file.identifier)
       committed.push(() => {
-        transientFiles.delete(identifier)
+        transientFiles.delete(file.identifier)
       })
 
       for (const collection of snapshot.collections) {
-        if (collection.fileIdentifiers.includes(identifier)) {
+        if (collection.fileIdentifiers.includes(file.identifier)) {
           collections.put({
             ...collection,
             revision: collection.revision + 1,
-            fileIdentifiers: collection.fileIdentifiers.filter((value) => value !== identifier),
+            fileIdentifiers: collection.fileIdentifiers.filter((value) => value !== file.identifier),
           })
         }
       }
