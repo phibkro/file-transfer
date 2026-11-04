@@ -54,7 +54,6 @@ export class AdminDataError extends Data.TaggedError("AdminDataError") {
 }
 
 const tokenKey = "file-transfer:admin-token"
-let latestStorageRequest = -1
 
 /** Storage may be blocked by the browser; the page can still use the token in memory. */
 export const readStoredToken = Effect.sync(() => {
@@ -65,14 +64,8 @@ export const readStoredToken = Effect.sync(() => {
   }
 })
 
-export const storeToken = (token: Redacted.Redacted | undefined, request: number): Effect.Effect<void> =>
+export const storeToken = (token: Redacted.Redacted | undefined): Effect.Effect<void> =>
   Effect.sync(() => {
-    if (request < latestStorageRequest) {
-      return
-    }
-
-    latestStorageRequest = request
-
     try {
       if (token === undefined) {
         sessionStorage.removeItem(tokenKey)

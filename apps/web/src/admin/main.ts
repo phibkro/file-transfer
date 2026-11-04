@@ -15,6 +15,7 @@ const PrivateToken = privateValue<string>()
 const PrivateInstance = privateValue<Instance | undefined>()
 const PrivateCounts = privateValue<Extract<Counters, { counters: true }>>()
 const PrivateRows = privateValue<readonly HourRow[]>()
+const StorageWrite = Schema.Struct({ token: Schema.Option(PrivateToken), sequence: Schema.Int })
 
 export const Model = Schema.Struct({
   token: PrivateToken,
@@ -23,6 +24,9 @@ export const Model = Schema.Struct({
   rows: Schema.Option(PrivateRows),
   status: Schema.String,
   request: Schema.Int,
+  storageSequence: Schema.Int,
+  storageActive: Schema.Option(Schema.Int),
+  storagePending: Schema.Option(StorageWrite),
 })
 
 export type Model = typeof Model.Type
@@ -34,13 +38,13 @@ export const Message = defineMessageUnion({
   ReceivedInitial: { token: PrivateToken, instance: PrivateInstance },
   ReceivedCounts: { request: Schema.Int, status: Schema.Int, result: privateValue<Counters | undefined>(), rows: PrivateRows },
   FailedCounts: { request: Schema.Int },
-  CompletedStorage: {},
+  CompletedStorage: { sequence: Schema.Int },
   CompletedChart: { success: Schema.Boolean },
 })
 
 export type Message = typeof Message.Type
 
-const Initialize = Command.define("ReadOperatorSettings", {
+const ReadOperatorSettings = Command.define("ReadOperatorSettings", {
   messages: [Message.ReceivedInitial],
   execute: Effect.gen(function* () {
     const token = yield* readStoredToken
@@ -54,7 +58,7 @@ const Initialize = Command.define("ReadOperatorSettings", {
   }),
 })
 
-const ReadCounts = Command.define("ReadOperatorCounts", {
+const ReadOperatorCounts = Command.define("ReadOperatorCounts", {
   args: { token: PrivateToken, request: Schema.Int },
   messages: [Message.ReceivedCounts, Message.FailedCounts],
   execute: ({ token, request }) =>
@@ -75,17 +79,36 @@ const ReadCounts = Command.define("ReadOperatorCounts", {
     ),
 })
 
-const RememberToken = Command.define("RememberOperatorToken", {
-  args: { token: Schema.Option(PrivateToken), request: Schema.Int },
+const RememberOperatorToken = Command.define("RememberOperatorToken", {
+  args: StorageWrite.fields,
   messages: [Message.CompletedStorage],
-  execute: ({ token, request }) => storeToken(Option.getOrUndefined(token), request).pipe(Effect.as(Message.CompletedStorage())),
+  execute: ({ token, sequence }) => storeToken(Option.getOrUndefined(token)).pipe(Effect.as(Message.CompletedStorage({ sequence }))),
 })
 
 export const init = (): Update.Return<Model, Message> => ({
-  model: { token: Redacted.make(""), instance: Option.none(), counts: Option.none(), rows: Option.none(), status: "", request: 0 },
+  model: {
+    token: Redacted.make(""),
+    instance: Option.none(),
+    counts: Option.none(),
+    rows: Option.none(),
+    status: "",
+    request: 0,
+    storageSequence: 0,
+    storageActive: Option.none(),
+    storagePending: Option.none(),
+  },
 })
 
-export const boot = (): Update.Return<Model, Message> => ({ ...init(), commands: [Initialize()] })
+export const boot = (): Update.Return<Model, Message> => ({ ...init(), commands: [ReadOperatorSettings()] })
+
+const writeToken = (model: Model, token: Option.Option<Redacted.Redacted>): Update.Return<Model, Message> => {
+  const write = { token, sequence: model.storageSequence + 1 }
+  const next = { ...model, storageSequence: write.sequence }
+
+  return Option.isSome(model.storageActive)
+    ? { model: { ...next, storagePending: Option.some(write) } }
+    : { model: { ...next, storageActive: Option.some(write.sequence) }, commands: [RememberOperatorToken(write)] }
+}
 
 const requestCounts = (model: Model): Update.Return<Model, Message> => {
   const token = Redacted.make(Redacted.value(model.token).trim())
@@ -106,7 +129,7 @@ const requestCounts = (model: Model): Update.Return<Model, Message> => {
 
   return {
     model: { ...model, token, request, counts: Option.none(), rows: Option.none(), status: "Reading the counts." },
-    commands: [ReadCounts({ token, request })],
+    commands: [ReadOperatorCounts({ token, request })],
   }
 }
 
@@ -114,10 +137,11 @@ export const update = (model: Model, message: Message): Update.Return<Model, Mes
   Message.match(message, {
     ChangedToken: ({ token }) => ({ model: { ...model, token, request: model.request + 1, counts: Option.none(), rows: Option.none(), status: "" } }),
     RequestedCounts: () => requestCounts(model),
-    RequestedForget: () => ({
-      model: { ...model, token: Redacted.make(""), request: model.request + 1, counts: Option.none(), rows: Option.none(), status: "The token was forgotten." },
-      commands: [RememberToken({ token: Option.none(), request: model.request + 1 })],
-    }),
+    RequestedForget: () =>
+      writeToken(
+        { ...model, token: Redacted.make(""), request: model.request + 1, counts: Option.none(), rows: Option.none(), status: "The token was forgotten." },
+        Option.none(),
+      ),
     ReceivedInitial: ({ token, instance }) => {
       const next = { ...model, instance: Option.some(instance) }
 
@@ -139,7 +163,7 @@ export const update = (model: Model, message: Message): Update.Return<Model, Mes
       }
 
       if (status === 401) {
-        return { model: { ...model, status: "That token is not this instance's admin token." }, commands: [RememberToken({ token: Option.none(), request })] }
+        return writeToken({ ...model, status: "That token is not this instance's admin token." }, Option.none())
       }
 
       const counts = Redacted.value(result)
@@ -148,19 +172,29 @@ export const update = (model: Model, message: Message): Update.Return<Model, Mes
         return { model: { ...model, status: "The counts could not be read." } }
       }
 
-      const command = RememberToken({ token: Option.some(model.token), request })
-
       if (counts.counters) {
-        return { model: { ...model, counts: Option.some(Redacted.make(counts)), rows: Option.some(rows), status: "" }, commands: [command] }
+        return writeToken({ ...model, counts: Option.some(Redacted.make(counts)), rows: Option.some(rows), status: "" }, Option.some(model.token))
       }
 
-      return {
-        model: { ...model, status: "Counting is off on this instance. Set COUNTERS to on to start counting; nothing was counted before." },
-        commands: [command],
-      }
+      return writeToken(
+        { ...model, status: "Counting is off on this instance. Set COUNTERS to on to start counting; nothing was counted before." },
+        Option.some(model.token),
+      )
     },
     FailedCounts: ({ request }) => (request === model.request ? { model: { ...model, status: "The counts could not be read." } } : { model }),
-    CompletedStorage: () => ({ model }),
+    CompletedStorage: ({ sequence }) => {
+      if (Option.isNone(model.storageActive) || model.storageActive.value !== sequence) {
+        return { model }
+      }
+
+      if (Option.isNone(model.storagePending)) {
+        return { model: { ...model, storageActive: Option.none() } }
+      }
+
+      const write = model.storagePending.value
+
+      return { model: { ...model, storageActive: Option.some(write.sequence), storagePending: Option.none() }, commands: [RememberOperatorToken(write)] }
+    },
     CompletedChart: ({ success }) => ({ model: success ? model : { ...model, status: "The 48-hour chart could not be displayed." } }),
   })
 

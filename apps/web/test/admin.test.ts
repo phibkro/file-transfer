@@ -77,13 +77,11 @@ describe("operator data boundary", () => {
       },
     })
     const token = Redacted.make("test-admin-secret")
-    const pending = storeToken(token, 1)
+    const pending = storeToken(token)
     expect(values.size).toBe(0)
     await Effect.runPromise(pending)
     expect(Redacted.value(await Effect.runPromise(readStoredToken))).toBe("test-admin-secret")
-    await Effect.runPromise(storeToken(undefined, 2))
-    expect(Redacted.value(await Effect.runPromise(readStoredToken))).toBe("")
-    await Effect.runPromise(pending)
+    await Effect.runPromise(storeToken(undefined))
     expect(Redacted.value(await Effect.runPromise(readStoredToken))).toBe("")
     vi.stubGlobal("sessionStorage", {
       getItem: () => {
@@ -97,8 +95,8 @@ describe("operator data boundary", () => {
       },
     })
     expect(Redacted.value(await Effect.runPromise(readStoredToken))).toBe("")
-    await Effect.runPromise(storeToken(token, 3))
-    await Effect.runPromise(storeToken(undefined, 4))
+    await Effect.runPromise(storeToken(token))
+    await Effect.runPromise(storeToken(undefined))
   })
 
   it("fills exactly 48 buckets ending at the supplied hour", () => {
@@ -118,6 +116,77 @@ describe("operator data boundary", () => {
 })
 
 describe("operator model", () => {
+  it("executes the queued forget after the save and leaves storage empty", async () => {
+    const values = new Map<string, string>()
+    vi.stubGlobal("sessionStorage", {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        values.set(key, value)
+      },
+      removeItem: (key: string) => {
+        values.delete(key)
+      },
+    })
+    const token = Redacted.make("secret")
+    const changed = update(init().model, Message.ChangedToken({ token })).model
+    const requested = update(changed, Message.RequestedCounts()).model
+    const saved = update(requested, Message.ReceivedCounts({ request: requested.request, status: 200, result: Redacted.make(counts), rows: Redacted.make([]) }))
+    const forgotten = update(saved.model, Message.RequestedForget())
+    const save = saved.commands?.[0]
+    expect(save).toBeDefined()
+
+    if (save === undefined) {
+      throw new Error("missing save command")
+    }
+
+    expect(save.args).toEqual({ token: Option.some(token), sequence: saved.model.storageSequence })
+    expect(values.size).toBe(0)
+    const savedMessage = await Effect.runPromise(save.effect)
+    expect(Redacted.value(await Effect.runPromise(readStoredToken))).toBe("secret")
+    const flushed = update(forgotten.model, savedMessage)
+    const forget = flushed.commands?.[0]
+    expect(forget).toBeDefined()
+
+    if (forget === undefined) {
+      throw new Error("missing forget command")
+    }
+
+    expect(forget.args).toEqual({ token: Option.none(), sequence: forgotten.model.storageSequence })
+    const forgottenMessage = await Effect.runPromise(forget.effect)
+    expect(Redacted.value(await Effect.runPromise(readStoredToken))).toBe("")
+    expect(Option.isNone(update(flushed.model, forgottenMessage).model.storageActive)).toBe(true)
+  })
+
+  it("serializes a pending forget behind an in-flight save and ignores old completions", () => {
+    const changed = update(init().model, Message.ChangedToken({ token: Redacted.make("secret") })).model
+    const requested = update(changed, Message.RequestedCounts()).model
+    const saved = update(requested, Message.ReceivedCounts({ request: requested.request, status: 200, result: Redacted.make(counts), rows: Redacted.make([]) }))
+    expect(saved.commands).toHaveLength(1)
+    const forgotten = update(saved.model, Message.RequestedForget())
+    expect(forgotten.commands).toBeUndefined()
+    expect(forgotten.model.storagePending).toEqual(Option.some({ token: Option.none(), sequence: forgotten.model.storageSequence }))
+    const flushed = update(forgotten.model, Message.CompletedStorage({ sequence: saved.model.storageSequence }))
+    expect(flushed.commands).toHaveLength(1)
+    expect(flushed.model.storageActive).toEqual(Option.some(forgotten.model.storageSequence))
+    expect(update(flushed.model, Message.CompletedStorage({ sequence: saved.model.storageSequence })).model).toEqual(flushed.model)
+    const complete = update(flushed.model, Message.CompletedStorage({ sequence: forgotten.model.storageSequence }))
+    expect(Option.isNone(complete.model.storageActive)).toBe(true)
+  })
+
+  it("keeps only the newest pending storage intent", () => {
+    const first = update(init().model, Message.RequestedForget())
+    const changed = update(first.model, Message.ChangedToken({ token: Redacted.make("new") })).model
+    const requested = update(changed, Message.RequestedCounts()).model
+    const saved = update(requested, Message.ReceivedCounts({ request: requested.request, status: 200, result: Redacted.make(counts), rows: Redacted.make([]) }))
+    expect(saved.model.storagePending).toEqual(Option.some({ token: Option.some(Redacted.make("new")), sequence: saved.model.storageSequence }))
+    const forgotten = update(saved.model, Message.RequestedForget())
+    expect(forgotten.model.storagePending).toEqual(Option.some({ token: Option.none(), sequence: forgotten.model.storageSequence }))
+    const flushed = update(forgotten.model, Message.CompletedStorage({ sequence: first.model.storageSequence }))
+    expect(flushed.commands).toHaveLength(1)
+    expect(flushed.model.storageActive).toEqual(Option.some(forgotten.model.storageSequence))
+    expect(Option.isNone(flushed.model.storagePending)).toBe(true)
+  })
+
   it("ignores a response from before forgetting the token", () => {
     const changed = update(init().model, Message.ChangedToken({ token: Redacted.make("secret") })).model
     const requested = update(changed, Message.RequestedCounts()).model
