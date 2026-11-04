@@ -34,7 +34,7 @@ export const Model = Schema.Struct({
 export type Model = typeof Model.Type
 
 export const Message = defineMessageUnion({
-  GotTabs: { message: Tabs.Message },
+  GotTabsMessage: { message: Tabs.Message },
   ToggledOpen: { open: Schema.Boolean },
   ToggledDirect: { allowed: Schema.Boolean },
   SavedDirect: {},
@@ -50,7 +50,7 @@ export type Message = typeof Message.Type
 
 const SettingsTabs = Tabs.create<"direct" | "storage">()
 
-const Load = Command.define("LoadBrowserSettings", {
+const LoadBrowserSettings = Command.define("LoadBrowserSettings", {
   messages: [Message.Loaded, Message.Failed],
   execute: Effect.tryPromise({ try: async () => ({ ...(await storageUse()), removable: hasOfferedRemoval() }), catch: () => undefined }).pipe(
     Effect.map((use) => Message.Loaded({ use, direct: directAllowed() })),
@@ -58,7 +58,7 @@ const Load = Command.define("LoadBrowserSettings", {
   ),
 })
 
-const SetDirect = Command.define("SetDirectPreference", {
+const SetDirectPreference = Command.define("SetDirectPreference", {
   args: { allowed: Schema.Boolean },
   messages: [Message.SavedDirect],
   execute: ({ allowed }) =>
@@ -69,7 +69,7 @@ const SetDirect = Command.define("SetDirectPreference", {
     }),
 })
 
-const Clear = Command.define("ClearReceivedFiles", {
+const ClearReceivedFiles = Command.define("ClearReceivedFiles", {
   messages: [Message.Cleared, Message.Failed],
   execute: Effect.tryPromise({
     try: async () => {
@@ -101,28 +101,28 @@ export const init = (): Update.Return<Model, Message> => ({
   },
 })
 
-export const boot = (): Update.Return<Model, Message> => ({ ...init(), commands: [Load()] })
+export const boot = (): Update.Return<Model, Message> => ({ ...init(), commands: [LoadBrowserSettings()] })
 
 const foldTabs = Update.foldChild({
   update: SettingsTabs.update,
   read: (model: Model) => Option.some(model.tabs),
   write: (model, tabs) => ({ ...model, tabs }),
-  toParentMessage: (message) => Message.GotTabs({ message }),
+  toParentMessage: (message) => Message.GotTabsMessage({ message }),
   foldOutMessage: (out) => (model) => ({ model: { ...model, selected: out.value } }),
 })
 
 export const update = (model: Model, message: Message): Update.Return<Model, Message> =>
   Message.match(message, {
-    GotTabs: ({ message: child }) => foldTabs(model, child),
-    ToggledOpen: ({ open }) => (open ? { model: { ...model, open }, commands: [Load()] } : { model: { ...model, open } }),
+    GotTabsMessage: ({ message: child }) => foldTabs(model, child),
+    ToggledOpen: ({ open }) => (open ? { model: { ...model, open }, commands: [LoadBrowserSettings()] } : { model: { ...model, open } }),
     ToggledDirect: ({ allowed }) =>
       model.directSaving || !model.directLoaded
         ? { model }
-        : { model: { ...model, direct: allowed, directDirty: true, directSaving: true }, commands: [SetDirect({ allowed })] },
+        : { model: { ...model, direct: allowed, directDirty: true, directSaving: true }, commands: [SetDirectPreference({ allowed })] },
     SavedDirect: () => ({ model: { ...model, directSaving: false } }),
-    RequestedClear: () => ({ model: { ...model, confirm: true }, commands: [Load()] }),
+    RequestedClear: () => ({ model: { ...model, confirm: true }, commands: [LoadBrowserSettings()] }),
     CancelledClear: () => ({ model: { ...model, confirm: false } }),
-    ConfirmedClear: () => (model.busy ? { model } : { model: { ...model, busy: true, status: "Removing received files." }, commands: [Clear()] }),
+    ConfirmedClear: () => (model.busy ? { model } : { model: { ...model, busy: true, status: "Removing received files." }, commands: [ClearReceivedFiles()] }),
     Loaded: ({ use, direct }) => ({ model: { ...model, use: Option.some(use), direct: model.directDirty ? model.direct : direct, directLoaded: true } }),
     Cleared: ({ use }) => ({ model: { ...model, use: Option.some(use), confirm: false, busy: false, status: "" } }),
     Failed: () => ({ model: { ...model, busy: false, status: "Could not read or clear browser storage." } }),
@@ -146,7 +146,7 @@ export const view = defineView<Model, Message>((model, h) =>
                       slotId: "tabs",
                       model: model.tabs,
                       view: SettingsTabs.view,
-                      toParentMessage: (message) => Message.GotTabs({ message }),
+                      toParentMessage: (message) => Message.GotTabsMessage({ message }),
                       viewInputs: {
                         tabs: ["direct", "storage"],
                         selectedValue: model.selected,

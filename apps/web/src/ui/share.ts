@@ -1,3 +1,4 @@
+import * as BrowserClipboard from "@effect/platform-browser/Clipboard"
 import { Button, Disclosure, Input } from "@foldkit/ui"
 import { Effect, Option, Redacted, Schema } from "effect"
 import type { Update } from "foldkit"
@@ -40,29 +41,25 @@ export const Message = defineMessageUnion({
 
 export type Message = typeof Message.Type
 
-const CheckShare = Command.define("CheckNativeShare", {
+const CheckNativeShare = Command.define("CheckNativeShare", {
   args: { link: PrivateLink },
   messages: [Message.CheckedShare],
   execute: ({ link }) =>
     Effect.sync(() => Message.CheckedShare({ link, available: "share" in navigator && (navigator.canShare?.({ url: Redacted.value(link) }) ?? true) })),
 })
 
-const Copy = Command.define("CopyShareLink", {
+const CopyShareLink = Command.define("CopyShareLink", {
   args: { link: PrivateLink },
   messages: [Message.Copied, Message.Failed],
   execute: ({ link }) =>
-    Effect.tryPromise({
-      try: async () => {
-        await navigator.clipboard.writeText(Redacted.value(link))
-      },
-      catch: () => undefined,
-    }).pipe(
+    Effect.flatMap(BrowserClipboard.Clipboard, (clipboard) => clipboard.writeString(Redacted.value(link))).pipe(
+      Effect.provide(BrowserClipboard.layer),
       Effect.map(() => Message.Copied()),
       Effect.orElseSucceed(() => Message.Failed()),
     ),
 })
 
-const Share = Command.define("ShareLink", {
+const ShareLink = Command.define("ShareLink", {
   args: { link: PrivateLink },
   messages: [Message.Shared, Message.Failed],
   execute: ({ link }) =>
@@ -77,7 +74,7 @@ const Share = Command.define("ShareLink", {
     ),
 })
 
-const GenerateQr = Command.define("GenerateShareQr", {
+const GenerateShareQr = Command.define("GenerateShareQr", {
   args: { link: PrivateLink },
   messages: [Message.GeneratedQr, Message.Failed],
   execute: ({ link }) =>
@@ -102,7 +99,7 @@ export const init = (): Update.Return<Model, Message> => ({
 
 export const boot = (link: Redacted.Redacted): Update.Return<Model, Message> => ({
   model: { ...init().model, link: Option.some(link) },
-  commands: [CheckShare({ link })],
+  commands: [CheckNativeShare({ link })],
 })
 
 export const update = (model: Model, message: Message): Update.Return<Model, Message> =>
@@ -112,11 +109,11 @@ export const update = (model: Model, message: Message): Update.Return<Model, Mes
       const next = { ...model, qrOpen: open }
 
       return open && Option.isNone(model.qr) && Option.isSome(model.link)
-        ? { model: next, commands: [GenerateQr({ link: model.link.value })] }
+        ? { model: next, commands: [GenerateShareQr({ link: model.link.value })] }
         : { model: next }
     },
-    ClickedCopy: () => (Option.isSome(model.link) ? { model, commands: [Copy({ link: model.link.value })] } : { model }),
-    ClickedShare: () => (Option.isSome(model.link) ? { model, commands: [Share({ link: model.link.value })] } : { model }),
+    ClickedCopy: () => (Option.isSome(model.link) ? { model, commands: [CopyShareLink({ link: model.link.value })] } : { model }),
+    ClickedShare: () => (Option.isSome(model.link) ? { model, commands: [ShareLink({ link: model.link.value })] } : { model }),
     Copied: () => ({ model: { ...model, copied: true, status: "" } }),
     Shared: () => ({ model }),
     CheckedShare: ({ link, available }) =>

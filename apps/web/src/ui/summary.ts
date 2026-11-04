@@ -1,3 +1,4 @@
+import * as BrowserClipboard from "@effect/platform-browser/Clipboard"
 import { Button } from "@foldkit/ui"
 import { Effect, Option, Schema } from "effect"
 import type { Update } from "foldkit"
@@ -36,7 +37,7 @@ export const Message = defineMessageUnion({
 
 export type Message = typeof Message.Type
 
-const Load = Command.define("LoadTransferSummary", {
+const LoadTransferSummary = Command.define("LoadTransferSummary", {
   args: { role: Schema.Literals(["sender", "recipient"]) },
   messages: [Message.Loaded],
   execute: ({ role }) =>
@@ -50,28 +51,24 @@ const Load = Command.define("LoadTransferSummary", {
     ),
 })
 
-const Copy = Command.define("CopyTransferReport", {
+const CopyTransferReport = Command.define("CopyTransferReport", {
   args: { text: Schema.String },
   messages: [Message.Copied, Message.Failed],
   execute: ({ text }) =>
-    Effect.tryPromise({
-      try: async () => {
-        await navigator.clipboard.writeText(text)
-      },
-      catch: () => undefined,
-    }).pipe(
+    Effect.flatMap(BrowserClipboard.Clipboard, (clipboard) => clipboard.writeString(text)).pipe(
+      Effect.provide(BrowserClipboard.layer),
       Effect.map(() => Message.Copied()),
       Effect.orElseSucceed(() => Message.Failed()),
     ),
 })
 
 export const init = (): Update.Return<Model, Message> => ({ model: { summary: Option.none(), edge: "unknown", text: "", copied: false, status: "" } })
-export const boot = (role: "sender" | "recipient"): Update.Return<Model, Message> => ({ ...init(), commands: [Load({ role })] })
+export const boot = (role: "sender" | "recipient"): Update.Return<Model, Message> => ({ ...init(), commands: [LoadTransferSummary({ role })] })
 
 export const update = (model: Model, message: Message): Update.Return<Model, Message> =>
   Message.match(message, {
     Loaded: ({ summary, edge, text }) => ({ model: { ...model, summary: Option.some(summary), edge, text } }),
-    ClickedCopy: () => ({ model, commands: [Copy({ text: model.text })] }),
+    ClickedCopy: () => ({ model, commands: [CopyTransferReport({ text: model.text })] }),
     Copied: () => ({ model: { ...model, copied: true, status: "" } }),
     Failed: () => ({ model: { ...model, status: "Could not copy report." } }),
   })
