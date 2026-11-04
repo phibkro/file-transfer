@@ -657,7 +657,7 @@ export const contentPages = {
         h.p(
           [],
           [
-            "\n        When both sides allow it, the two browsers connect directly (WebRTC) and the encrypted pieces skip the server. To find a direct route, each browser asks\n        a STUN server for its public network address (Cloudflare's by default; the operator chooses), and the two browsers pass their addresses to each other\n        through the room, which forwards them and keeps nothing. So the other side learns your network (IP) address, which the server sees anyway. To keep it\n        from them, turn off \"Direct connections\" at the bottom of the main page: everything then goes through the server's relay.\n      ",
+            "When both sides allow direct connections, encrypted pieces travel between browsers through WebRTC. Browsers exchange network addresses through the room and can contact the operator's configured STUN service. The other endpoint learns your network (IP) address. To prevent that disclosure, open Browser settings, then Direct connections, and switch direct connections off. Transfers you start or open afterwards use the relay. The relay still sees your network address.",
           ],
         ),
         "\n\n      ",
@@ -670,13 +670,20 @@ export const contentPages = {
             h.li(
               [],
               [
-                "\n          Received files are kept in this site's private browser storage until you save them, remove them, or leave the page. The next visit deletes anything\n          left behind.\n        ",
+                "Received files stay in this site's private browser storage until you remove them or leave the page. A later visit deletes abandoned received files.",
               ],
             ),
             "\n        ",
-            h.li([], ['"Storage in this browser", at the bottom of the main page, shows how much is stored and clears it.']),
+            h.li([], ["Browser settings contains Storage in this browser. This panel shows storage use and controls for clearing received output."]),
             "\n        ",
             h.li([], ["Whether you allow direct connections is remembered in this browser only."]),
+            h.li(
+              [],
+              [
+                "Local Library remembering starts off. Opting in stores names, sizes, fingerprints, collection membership and supported file handles on this device. Indexing does not upload or copy file contents.",
+              ],
+            ),
+            h.li([], ["Turning Library remembering off forgets catalog metadata and named collections, not original files. My files remains available."]),
             "\n        ",
             h.li([], ["This software sets no cookies. A hosting provider's bot protection may set its own (Cloudflare's challenge page does)."]),
             "\n      ",

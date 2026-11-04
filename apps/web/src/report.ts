@@ -3,7 +3,7 @@
 /**
  * Status and progress, mirrored for end-to-end tests: `document.body.dataset.status` and `dataset.progress`
  * ("done/total"), and `window.fileTransferTest`, which on completion also gives the SHA-256 of each received file.
- * Nothing here ever holds the link secret or plaintext.
+ * File references and hashes stay in this endpoint. The hook never exposes the link secret or sends file contents to a server.
  */
 
 export type Status =
