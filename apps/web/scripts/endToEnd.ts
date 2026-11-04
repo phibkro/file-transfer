@@ -989,16 +989,40 @@ const storedTransfers = async (page: Page): Promise<readonly string[]> =>
  * on the next page load.
  */
 const checkStorageClearing = async (page: Page, base: string) => {
-  const heading = page.locator(".storage-panel summary")
-  const headingText = (await heading.textContent()) ?? ""
-  check(/Storage in this browser: \d/u.test(headingText), "storage: the panel shows the size of received files", headingText)
-  await heading.click()
+  // A second, locked transfer represents another tab still using its files.
+  await page.evaluate(async () => {
+    const root = await navigator.storage.getDirectory()
+    const transfers = await root.getDirectoryHandle("transfers", { create: true })
+    await transfers.getDirectoryHandle("active-check", { create: true })
+    await new Promise<void>((resolve) => {
+      void navigator.locks.request("file-transfer:transfer:active-check", async () => {
+        const release = Promise.withResolvers<undefined>()
+        window.releaseStorage = () => {
+          release.resolve(undefined)
+        }
+
+        resolve()
+        await release.promise
+      })
+    })
+  })
+  await page.getByRole("button", { name: "Browser settings" }).click()
+  await page.getByRole("tab", { name: "Storage in this browser" }).click()
+  const storageStatus = page.getByRole("status").filter({ hasText: "Received files stored here:" })
+  await storageStatus.waitFor({ state: "visible" })
+  const headingText = (await storageStatus.textContent()) ?? ""
+  check(/Received files stored here: \d/u.test(headingText), "storage: the panel shows the size of received files", headingText)
   await page.getByRole("button", { name: "Clear stored files" }).click()
   await page.getByRole("button", { name: "Delete", exact: true }).click()
-  await page.locator(".storage-text", { hasText: "No received files are stored here." }).waitFor({ timeout: 10_000 })
+  await page.getByRole("button", { name: "Clear stored files" }).waitFor({ state: "visible", timeout: 10_000 })
+  await page.getByRole("button", { name: "Remove from this browser" }).waitFor({ state: "hidden", timeout: 10_000 })
   const afterClear = await storedTransfers(page)
-  check(afterClear.length === 0, "storage: Clear deletes this page's received files", afterClear)
+  check(afterClear.length === 1 && afterClear[0] === "active-check", "storage: Clear deletes received files but preserves an active transfer", afterClear)
   check((await page.locator(".downloads a[href]").count()) === 0, "storage: after Clear the page no longer offers the deleted files")
+  await page.evaluate(async () => {
+    window.releaseStorage?.()
+    await navigator.locks.request("file-transfer:transfer:active-check", () => true)
+  })
 
   // As a crashed tab leaves an unfinished transfer behind: no lock holds it, so the next load deletes it.
   await page.evaluate(async () => {
@@ -1011,7 +1035,7 @@ const checkStorageClearing = async (page: Page, base: string) => {
     await writable.close()
   })
   await page.goto(base)
-  await page.locator(".storage-panel").waitFor()
+  await page.getByRole("button", { name: "Browser settings" }).waitFor({ state: "visible" })
   const afterVisit = await storedTransfers(page)
   check(afterVisit.length === 0, "storage: a transfer left by a closed tab is deleted on the next visit", afterVisit)
 }
@@ -1200,6 +1224,7 @@ const transfer = async (browser: Browser, base: string, scenario: TransferScenar
     await recipient.page.goto(link)
     await waitForStatus(recipient.page, ["reviewing", "failed"])
     check((await status(recipient.page)) === "reviewing", `${scenario}: the recipient reviews the contract before any content`)
+    await waitForFiles(recipient.page, files.length)
     const listedItems = await recipient.page.locator(".file-list li").allTextContents()
     const listed = listedItems.join("\n")
     check(
@@ -1209,6 +1234,7 @@ const transfer = async (browser: Browser, base: string, scenario: TransferScenar
     )
 
     if (scenario === "resume") {
+      await recipient.page.getByRole("button", { name: /^Accept and download .+ on mobile data$/u }).waitFor({ state: "visible" })
       check(
         await recipient.page.getByRole("button", { name: /^Accept and download .+ on mobile data$/u }).isVisible(),
         "resume: on mobile data, Accept states the size and asks for confirmation",
@@ -1248,6 +1274,7 @@ const transfer = async (browser: Browser, base: string, scenario: TransferScenar
     check(identical, `${scenario}: every file arrives byte-identical`, hashes)
 
     if (files.length > 1) {
+      await recipient.page.getByRole("button", { name: /^Save all files/u }).waitFor({ state: "visible" })
       check(await recipient.page.getByRole("button", { name: /^Save all files/u }).isVisible(), `${scenario}: several files offer Save all files`)
     }
 
