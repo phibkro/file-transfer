@@ -18,9 +18,9 @@ describe("preview dialog", () => {
   test("a new request ignores replies from an older frame", () => {
     const first = update(init().model, Message.RequestedOpen({ input: Redacted.make({ file: new Blob(["one"]), name: "one.txt" }) })).model
     const second = update(first, Message.RequestedOpen({ input: Redacted.make({ file: new Blob(["two"]), name: "two.txt" }) })).model
-    const stale = update(second, Message.ChangedStatus({ generation: first.generation, status: "old", shown: true }))
+    const stale = update(second, Message.ChangedStatus({ generation: first.generation, status: "old", phase: "shown" }))
     expect(stale.model).toBe(second)
-    expect(stale.model.shown).toBe(false)
+    expect(stale.model.phase).toBe("loading")
   })
 
   test("closing releases private input and invalidates late replies", () => {
@@ -28,7 +28,18 @@ describe("preview dialog", () => {
     const closed = update(opened, Message.GotDialogMessage({ message: Dialog.Message.RequestedClose() })).model
     expect(Redacted.value(closed.input)).toBeUndefined()
     expect(closed.generation).toBeGreaterThan(opened.generation)
-    expect(update(closed, Message.ChangedStatus({ generation: opened.generation, status: "late", shown: true })).model.shown).toBe(false)
+    expect(update(closed, Message.ChangedStatus({ generation: opened.generation, status: "late", phase: "shown" })).model.phase).toBe("idle")
+  })
+
+  test("loading stays distinct from a decoded or unavailable preview", () => {
+    const opened = update(init().model, Message.RequestedOpen({ input: Redacted.make({ file: new Blob(["file"]), name: "name.txt" }) })).model
+    expect(opened.phase).toBe("loading")
+
+    const decoded = update(opened, Message.ChangedStatus({ generation: opened.generation, status: "", phase: "shown" })).model
+    expect(decoded.phase).toBe("shown")
+
+    const unavailable = update(opened, Message.ChangedStatus({ generation: opened.generation, status: "Cannot preview", phase: "unavailable" })).model
+    expect(unavailable.phase).toBe("unavailable")
   })
 
   test("the frame channel accepts only supported messages and Blob content", () => {

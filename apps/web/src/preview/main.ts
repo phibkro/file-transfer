@@ -14,12 +14,14 @@ export interface Input {
   readonly name: string
 }
 
+const PreviewPhase = Schema.Literals(["idle", "loading", "shown", "unavailable"])
+
 export const Model = Schema.Struct({
   dialog: Dialog.Model,
   input: privateValue<Input | undefined>(),
   generation: Schema.Int,
   status: Schema.String,
-  shown: Schema.Boolean,
+  phase: PreviewPhase,
 })
 
 export type Model = typeof Model.Type
@@ -27,7 +29,7 @@ export type Model = typeof Model.Type
 export const Message = defineMessageUnion({
   RequestedOpen: { input: privateValue<Input>() },
   GotDialogMessage: { message: Dialog.Message },
-  ChangedStatus: { generation: Schema.Int, status: Schema.String, shown: Schema.Boolean },
+  ChangedStatus: { generation: Schema.Int, status: Schema.String, phase: PreviewPhase },
 })
 
 export type Message = typeof Message.Type
@@ -37,7 +39,7 @@ const liftDialog = (message: Dialog.Message): Message => Message.GotDialogMessag
 const foldOut =
   (out: Dialog.OutMessage) =>
   (model: Model): Update.Return<Model, Message> =>
-    out._tag === "Closed" ? { model: { ...model, input: Redacted.make(undefined), generation: model.generation + 1, shown: false } } : { model }
+    out._tag === "Closed" ? { model: { ...model, input: Redacted.make(undefined), generation: model.generation + 1, phase: "idle" } } : { model }
 
 const dialog = Update.foldChild({
   update: Dialog.update,
@@ -56,17 +58,17 @@ const openDialog = Update.foldChildStep({
 })
 
 export const init = (): Update.Return<Model, Message> => ({
-  model: { dialog: Dialog.init({ id: "file-preview" }), input: Redacted.make(undefined), generation: 0, status: "", shown: false },
+  model: { dialog: Dialog.init({ id: "file-preview" }), input: Redacted.make(undefined), generation: 0, status: "", phase: "idle" },
 })
 
 export const open = (model: Model, input: Redacted.Redacted<Input>): Update.Return<Model, Message> =>
-  openDialog({ ...model, input, generation: model.generation + 1, status: "Loading the preview.", shown: false })
+  openDialog({ ...model, input, generation: model.generation + 1, status: "Loading the preview.", phase: "loading" })
 
 export const update = (model: Model, message: Message): Update.Return<Model, Message> =>
   Message.match(message, {
     RequestedOpen: ({ input }) => open(model, input),
     GotDialogMessage: ({ message: child }) => dialog(model, child),
-    ChangedStatus: ({ generation, status, shown }) => (generation === model.generation ? { model: { ...model, status, shown } } : { model }),
+    ChangedStatus: ({ generation, status, phase }) => (generation === model.generation ? { model: { ...model, status, phase } } : { model }),
   })
 
 // The mount owns only the message channel and its lifetime. Rendering remains Foldkit's.
@@ -89,9 +91,9 @@ const PreviewChannel = Mount.defineStream("PreviewChannel", {
               }
             }
 
-            const status = (text: string, shown: boolean) => {
+            const status = (text: string, phase: typeof PreviewPhase.Type) => {
               if (active) {
-                Queue.offerUnsafe(queue, Message.ChangedStatus({ generation, status: text, shown }))
+                Queue.offerUnsafe(queue, Message.ChangedStatus({ generation, status: text, phase }))
               }
             }
 
@@ -111,16 +113,16 @@ const PreviewChannel = Mount.defineStream("PreviewChannel", {
                 clearTimeout(timeout)
                 send()
               } else if (reply.output.type === "shown") {
-                status("", true)
+                status("", "shown")
               } else if (show !== undefined) {
-                status(`This browser cannot show this ${show.kind} file. Save it to open it with another app.`, false)
+                status(`This browser cannot show this ${show.kind} file. Save it to open it with another app.`, "unavailable")
               }
             }
 
             window.addEventListener("message", listener)
 
             const timeout = setTimeout(() => {
-              status("The preview could not start in this browser. Save the file to open it.", false)
+              status("The preview could not start in this browser. Save the file to open it.", "unavailable")
             }, 10_000)
 
             const { file } = Redacted.value(input)
@@ -136,7 +138,7 @@ const PreviewChannel = Mount.defineStream("PreviewChannel", {
 
                 if (result === undefined) {
                   clearTimeout(timeout)
-                  status("There is no preview for this kind of file. Images, audio, video and text can be previewed.", false)
+                  status("There is no preview for this kind of file. Images, audio, video and text can be previewed.", "unavailable")
 
                   return null
                 }
@@ -147,7 +149,7 @@ const PreviewChannel = Mount.defineStream("PreviewChannel", {
                 return null
               })
               .catch(() => {
-                status("The preview could not start in this browser. Save the file to open it.", false)
+                status("The preview could not start in this browser. Save the file to open it.", "unavailable")
               })
 
             return () => {
@@ -200,7 +202,8 @@ export const view = defineView<Model, Message>((model, h) => {
                               h.Title("Preview"),
                               h.Referrerpolicy("no-referrer"),
                               h.Src("/preview.html"),
-                              h.Hidden(!model.shown),
+                              h.Hidden(model.phase === "unavailable"),
+                              h.AriaBusy(model.phase === "loading"),
                               h.OnMount(PreviewChannel({ input: Redacted.make(input), generation: model.generation })),
                             ]),
                       ],
