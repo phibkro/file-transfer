@@ -1,4 +1,4 @@
-import { Data, Effect, Fiber, FiberHandle, Option } from "effect"
+import { Data, Effect, Fiber, FiberHandle, Function, Option } from "effect"
 import type { RecipientSession } from "../recipient.ts"
 
 export interface Download {
@@ -18,6 +18,24 @@ const errorOf = (cause: unknown): DownloadError => new DownloadError({ cancelled
 /** File System Access promises do not support cancellation. Finish acquisition before interruption. */
 const acquire = <A>(operation: () => Promise<A>) => Effect.uninterruptible(Effect.tryPromise({ try: operation, catch: errorOf }))
 
+/** The callback signal aborts pipeTo; its interruption cleanup waits for settlement. */
+const pipeFile = (stream: ReadableStream<Uint8Array>, writable: FileSystemWritableFileStream) =>
+  Effect.callback<undefined, DownloadError>((resume, signal) => {
+    const pending = stream.pipeTo(writable, { signal })
+
+    const notify = pending.then.bind(
+      pending,
+      () => {
+        resume(Effect.undefined)
+      },
+      Function.flow(errorOf, Effect.fail, resume),
+    )
+
+    void notify()
+
+    return Effect.tryPromise({ try: pending.then.bind(pending, undefined, undefined), catch: errorOf }).pipe(Effect.ignore)
+  })
+
 const writeFile = (root: FileSystemDirectoryHandle, file: Download) =>
   Effect.gen(function* () {
     const segments = file.name.split("/")
@@ -33,11 +51,7 @@ const writeFile = (root: FileSystemDirectoryHandle, file: Download) =>
 
     yield* Effect.acquireUseRelease(
       acquire(handle.createWritable.bind(handle, { keepExistingData: false })),
-      (writable) => {
-        const stream = file.file.stream()
-
-        return Effect.uninterruptible(Effect.tryPromise({ try: stream.pipeTo.bind(stream, writable, {}), catch: errorOf }))
-      },
+      (writable) => pipeFile(file.file.stream(), writable),
       (writable) => Effect.uninterruptible(Effect.tryPromise({ try: writable.abort.bind(writable), catch: errorOf }).pipe(Effect.ignore)),
     )
   })
