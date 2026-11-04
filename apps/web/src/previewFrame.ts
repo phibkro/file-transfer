@@ -1,7 +1,7 @@
 import type { Cause } from "effect"
 import { Effect, Queue, Redacted, Schema, Stream } from "effect"
 import type { Update } from "foldkit"
-import { Command, Mount, Runtime } from "foldkit"
+import { Command, Mount, Runtime, Subscription } from "foldkit"
 import type { HtmlBuilder } from "foldkit/html"
 import { defineMessageUnion } from "foldkit/message"
 import * as v from "valibot"
@@ -37,19 +37,19 @@ const Message = defineMessageUnion({
   ChangedContent: { content: privateValue<Content>() },
   Loaded: {},
   Failed: {},
-  CompletedReply: {},
+  CompletedPreviewReply: {},
 })
 
 type Message = typeof Message.Type
 
-const Reply = Command.define("PreviewReply", {
+const PreviewReply = Command.define("PreviewReply", {
   args: { type: Schema.Literals(["shown", "failed"]) },
-  messages: [Message.CompletedReply],
+  messages: [Message.CompletedPreviewReply],
   execute: ({ type }) =>
     Effect.sync(() => {
       window.parent.postMessage({ type } satisfies FrameMessage, "*")
 
-      return Message.CompletedReply()
+      return Message.CompletedPreviewReply()
     }),
 })
 
@@ -58,97 +58,102 @@ const init = () => ({ model: { content: Redacted.make<Content>({ kind: "empty" }
 const update = (model: Model, message: Message): Update.Return<Model, Message> =>
   Message.match(message, {
     ChangedContent: ({ content }) => ({ model: { ...model, content } }),
-    Loaded: () => ({ model, commands: [Reply({ type: "shown" })] }),
-    Failed: () => ({ model, commands: [Reply({ type: "failed" })] }),
-    CompletedReply: () => ({ model }),
+    Loaded: () => ({ model, commands: [PreviewReply({ type: "shown" })] }),
+    Failed: () => ({ model, commands: [PreviewReply({ type: "failed" })] }),
+    CompletedPreviewReply: () => ({ model }),
   })
 
-const ReceivePreview = Mount.defineStream("ReceivePreview", {
-  messages: [Message.ChangedContent, Message.Loaded, Message.Failed],
-  execute: () =>
-    Stream.callback<typeof Message.ChangedContent.Type | typeof Message.Loaded.Type | typeof Message.Failed.Type>((queue) =>
-      Effect.gen(function* () {
-        yield* Effect.acquireRelease(
-          Effect.sync(() => {
-            let currentUrl: string | undefined
-            let generation = 0
-            let active = true
+const subscriptions = Subscription.make<Model, Message>()((entry) => ({
+  previewMessages: entry(
+    {},
+    {
+      modelToDependencies: () => ({}),
+      dependenciesToStream: () =>
+        Stream.callback<typeof Message.ChangedContent.Type | typeof Message.Loaded.Type | typeof Message.Failed.Type>((queue) =>
+          Effect.gen(function* () {
+            yield* Effect.acquireRelease(
+              Effect.sync(() => {
+                let currentUrl: string | undefined
+                let generation = 0
+                let active = true
 
-            const clear = () => {
-              generation++
+                const clear = () => {
+                  generation++
 
-              if (currentUrl !== undefined) {
-                URL.revokeObjectURL(currentUrl)
-              }
+                  if (currentUrl !== undefined) {
+                    URL.revokeObjectURL(currentUrl)
+                  }
 
-              currentUrl = undefined
-              Queue.offerUnsafe(queue, Message.ChangedContent({ content: Redacted.make({ kind: "empty" }) }))
-            }
+                  currentUrl = undefined
+                  Queue.offerUnsafe(queue, Message.ChangedContent({ content: Redacted.make({ kind: "empty" }) }))
+                }
 
-            const listener = (event: MessageEvent<unknown>) => {
-              if (event.source !== window.parent) {
-                return
-              }
+                const listener = (event: MessageEvent<unknown>) => {
+                  if (event.source !== window.parent) {
+                    return
+                  }
 
-              const parsed = v.safeParse(ParentMessage, event.data)
+                  const parsed = v.safeParse(ParentMessage, event.data)
 
-              if (!parsed.success) {
-                return
-              }
+                  if (!parsed.success) {
+                    return
+                  }
 
-              if (parsed.output.type === "clear") {
-                clear()
+                  if (parsed.output.type === "clear") {
+                    clear()
 
-                return
-              }
+                    return
+                  }
 
-              const { kind, blob } = parsed.output
-              clear()
-              const current = generation
+                  const { kind, blob } = parsed.output
+                  clear()
+                  const current = generation
 
-              if (kind === "text") {
-                void blob
-                  .slice(0, textPreviewLength)
-                  .text()
-                  .then((text) => {
-                    if (!active || generation !== current) {
-                      return null
-                    }
+                  if (kind === "text") {
+                    void blob
+                      .slice(0, textPreviewLength)
+                      .text()
+                      .then((text) => {
+                        if (!active || generation !== current) {
+                          return null
+                        }
 
-                    Queue.offerUnsafe(queue, Message.ChangedContent({ content: Redacted.make({ kind, text, truncated: blob.size > textPreviewLength }) }))
-                    Queue.offerUnsafe(queue, Message.Loaded())
+                        Queue.offerUnsafe(queue, Message.ChangedContent({ content: Redacted.make({ kind, text, truncated: blob.size > textPreviewLength }) }))
+                        Queue.offerUnsafe(queue, Message.Loaded())
 
-                    return null
-                  })
-                  .catch(() => {
-                    if (active && generation === current) {
-                      Queue.offerUnsafe(queue, Message.Failed())
-                    }
-                  })
+                        return null
+                      })
+                      .catch(() => {
+                        if (active && generation === current) {
+                          Queue.offerUnsafe(queue, Message.Failed())
+                        }
+                      })
 
-                return
-              }
+                    return
+                  }
 
-              currentUrl = URL.createObjectURL(blob)
-              Queue.offerUnsafe(queue, Message.ChangedContent({ content: Redacted.make({ kind, url: currentUrl }) }))
-            }
+                  currentUrl = URL.createObjectURL(blob)
+                  Queue.offerUnsafe(queue, Message.ChangedContent({ content: Redacted.make({ kind, url: currentUrl }) }))
+                }
 
-            window.addEventListener("message", listener)
-            window.parent.postMessage({ type: "ready" } satisfies FrameMessage, "*")
+                window.addEventListener("message", listener)
+                window.parent.postMessage({ type: "ready" } satisfies FrameMessage, "*")
 
-            return () => {
-              active = false
-              window.removeEventListener("message", listener)
-              clear()
-            }
+                return () => {
+                  active = false
+                  window.removeEventListener("message", listener)
+                  clear()
+                }
+              }),
+              (release) => Effect.sync(release),
+            )
+
+            return yield* Effect.never
           }),
-          (release) => Effect.sync(release),
-        )
-
-        return yield* Effect.never
-      }),
-    ),
-})
+        ),
+    },
+  ),
+}))
 
 const mediaEventHandler = (queue: Queue.Queue<typeof Message.Loaded.Type | typeof Message.Failed.Type, Cause.Done>) => (event: Event) => {
   Queue.offerUnsafe(queue, event.type === "error" ? Message.Failed() : Message.Loaded())
@@ -193,7 +198,7 @@ const view = (model: Model, h: HtmlBuilder<Message>) => {
   const content = Redacted.value(model.content)
 
   return h.div(
-    [h.Class("preview-content"), h.OnMount(ReceivePreview())],
+    [h.Class("preview-content")],
     [
       content.kind === "text"
         ? h.div(
@@ -202,8 +207,8 @@ const view = (model: Model, h: HtmlBuilder<Message>) => {
           )
         : null,
       content.kind === "image" ? h.img([h.Src(content.url), h.Alt(""), h.OnMount(MediaEvents())]) : null,
-      content.kind === "audio" ? h.audio([h.Src(content.url), h.Controls(true), h.Preload("metadata"), h.OnMount(MediaEvents())], []) : null,
-      content.kind === "video" ? h.video([h.Src(content.url), h.Controls(true), h.Preload("metadata"), h.OnMount(MediaEvents())], []) : null,
+      content.kind === "audio" ? h.audio([h.Src(content.url), h.Controls(true), h.Preload("metadata"), h.OnMount(MediaEvents())]) : null,
+      content.kind === "video" ? h.video([h.Src(content.url), h.Controls(true), h.Preload("metadata"), h.OnMount(MediaEvents())]) : null,
     ],
   )
 }
@@ -211,5 +216,5 @@ const view = (model: Model, h: HtmlBuilder<Message>) => {
 // Both the iframe sandbox and the response header make the origin opaque.
 // Refuse to render when that boundary is absent.
 if (window.origin === "null") {
-  Runtime.run(Runtime.makeElement({ Model, init, update, view, container: document.body, devTools: false }))
+  Runtime.run(Runtime.makeElement({ Model, init, update, view, subscriptions, container: document.body, devTools: false }))
 }

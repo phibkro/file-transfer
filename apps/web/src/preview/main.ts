@@ -194,19 +194,15 @@ export const view = defineView<Model, Message>((model, h) => {
                         h.p([h.Class("preview-message"), h.Role("status")], [model.status]),
                         input === undefined
                           ? null
-                          : h.keyed("iframe")(
-                              String(model.generation),
-                              [
-                                h.Class("preview-frame"),
-                                h.Sandbox("allow-scripts"),
-                                h.Title("Preview"),
-                                h.Referrerpolicy("no-referrer"),
-                                h.Src("/preview.html"),
-                                h.Hidden(!model.shown),
-                                h.OnMount(PreviewChannel({ input: Redacted.make(input), generation: model.generation })),
-                              ],
-                              [],
-                            ),
+                          : h.keyed("iframe")(String(model.generation), [
+                              h.Class("preview-frame"),
+                              h.Sandbox("allow-scripts"),
+                              h.Title("Preview"),
+                              h.Referrerpolicy("no-referrer"),
+                              h.Src("/preview.html"),
+                              h.Hidden(!model.shown),
+                              h.OnMount(PreviewChannel({ input: Redacted.make(input), generation: model.generation })),
+                            ]),
                       ],
                     ),
                   ],
