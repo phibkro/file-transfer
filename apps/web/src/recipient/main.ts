@@ -17,7 +17,7 @@ interface Requirements {
   readonly fragment: string
 }
 
-const RecipientSession = ManagedResource.tag<ReturnType<typeof ownDownloads>>()("RecipientSession")
+const RecipientSession = ManagedResource.tag<Effect.Success<ReturnType<typeof ownDownloads>>>()("RecipientSession")
 
 type RecipientSessionService = ManagedResource.ServiceOf<typeof RecipientSession>
 
@@ -124,7 +124,7 @@ const RunRecipientAction = Command.define("RunRecipientAction", {
 const SaveRecipientFiles = Command.define("SaveRecipientFiles", {
   messages: [Message.CompletedSaveAll],
   execute: RecipientSession.get.pipe(
-    Effect.flatMap((session) => Effect.promise(async () => Message.CompletedSaveAll({ result: await session.saveAll() }))),
+    Effect.flatMap((session) => session.saveAll.pipe(Effect.map((result) => Message.CompletedSaveAll({ result })))),
     Effect.catchTag("ResourceNotAvailable", () => Effect.succeed(Message.CompletedSaveAll({ result: "failed" }))),
   ),
 })
@@ -228,12 +228,12 @@ export const managedResources = ManagedResource.make<Model, Message>()((entry) =
     resource: RecipientSession,
     modelToMaybeRequirements: (model) => model.requirements,
     acquire: (requirements) =>
-      Effect.sync(() => {
+      Effect.suspend(() => {
         const value = Redacted.value(requirements)
 
         return ownDownloads(createRecipientSession(value.roomIdentifier, value.fragment))
       }),
-    release: (session) => Effect.promise(session.dispose),
+    release: (session) => session.dispose,
     onAcquired: () => Message.AcquiredRecipientSession(),
     onReleased: () => Message.ReleasedRecipientSession(),
     onAcquireError: () => Message.FailedRecipientSession(),

@@ -1,16 +1,22 @@
+import { Effect, Fiber } from "effect"
 import { describe, expect, it, vi } from "vite-plus/test"
-import { ownDownloads, saveAll } from "../src/recipient/downloads.ts"
-import type { RecipientSession } from "../src/recipient.ts"
+import { saveAll } from "../src/recipient/downloads.ts"
 
 describe("recipient downloads", () => {
-  it("releases while the native picker is pending and ignores a late selection", async () => {
+  it("interrupts a pending picker and ignores a late selection", async () => {
     const picker = Promise.withResolvers<unknown>()
+    const started = Promise.withResolvers<undefined>()
     const getFileHandle = vi.fn()
-    vi.stubGlobal("window", { showDirectoryPicker: async () => await picker.promise })
-    const controller = new AbortController()
-    const pending = saveAll([{ name: "private.txt", file: new File(["private"], "private.txt"), url: "blob:private" }], controller.signal)
-    controller.abort()
-    expect(await pending).toBe("cancelled")
+    vi.stubGlobal("window", {
+      showDirectoryPicker: async () => {
+        started.resolve(undefined)
+
+        return await picker.promise
+      },
+    })
+    const fiber = Effect.runFork(saveAll([{ name: "private.txt", file: new File(["private"], "private.txt"), url: "blob:private" }]))
+    await started.promise
+    await Effect.runPromise(Fiber.interrupt(fiber))
     picker.resolve({ getFileHandle })
     await picker.promise
     await Promise.resolve()
@@ -18,66 +24,33 @@ describe("recipient downloads", () => {
     vi.unstubAllGlobals()
   })
 
-  it("waits for the session receipt and fences a pending picker on disposal", async () => {
-    const picker = Promise.withResolvers<unknown>()
-    const release = Promise.withResolvers<undefined>()
+  it("waits for a writable acquisition and aborts it before interruption completes", async () => {
+    const writable = Promise.withResolvers<unknown>()
+    const started = Promise.withResolvers<undefined>()
+    const abort = vi.fn().mockResolvedValue(undefined)
 
-    const disposed = vi.fn(async () => {
-      await release.promise
-    })
+    const createWritable = async () => {
+      started.resolve(undefined)
 
-    const markSaved = vi.fn()
-    const getFileHandle = vi.fn()
-    vi.stubGlobal("window", { showDirectoryPicker: async () => await picker.promise })
-
-    const session: RecipientSession = {
-      currentSnapshot: () => ({
-        phase: "Completed",
-        status: "complete",
-        statusText: "Complete",
-        files: [{ name: "private.txt", size: 1, file: new File(["x"], "private.txt"), url: "blob:private" }],
-        totalBytes: 1,
-        mobileWarning: false,
-        spaceShortfall: undefined,
-        spaceChecking: false,
-        progress: { done: 1, total: 1 },
-        filesRemoved: false,
-        unsavedFiles: true,
-        failure: undefined,
-        failureDetail: undefined,
-        path: "relay",
-        summary: { bytes: 1, seconds: 1, reconnects: 0, direct: false, secondsToDirect: undefined, directDrops: 0 },
-      }),
-      subscribe: () => () => undefined,
-      accept: async () => undefined,
-      decline: () => undefined,
-      rename: () => undefined,
-      markSaved: () => {
-        markSaved()
-      },
-      removeAll: async () => undefined,
-      dispose: disposed,
+      return await writable.promise
     }
 
-    const owner = ownDownloads(session)
-    const saving = owner.saveAll()
-    let finished = false
+    vi.stubGlobal("window", { showDirectoryPicker: async () => ({ getFileHandle: async () => ({ createWritable }) }) })
+    const fiber = Effect.runFork(saveAll([{ name: "private.txt", file: new File(["private"], "private.txt"), url: "blob:private" }]))
+    await started.promise
+    let interrupted = false
 
-    const closing = owner.dispose().then(() => {
-      finished = true
+    const receipt = Effect.runPromise(Fiber.interrupt(fiber)).then(() => {
+      interrupted = true
 
       return undefined
     })
 
-    expect(await saving).toBe("cancelled")
-    expect(finished).toBe(false)
-    release.resolve(undefined)
-    await closing
-    picker.resolve({ getFileHandle })
-    await picker.promise
-    expect(markSaved).not.toHaveBeenCalled()
-    expect(getFileHandle).not.toHaveBeenCalled()
-    expect(disposed).toHaveBeenCalledOnce()
+    await Promise.resolve()
+    expect(interrupted).toBe(false)
+    writable.resolve({ abort })
+    await receipt
+    expect(abort).toHaveBeenCalledOnce()
     vi.unstubAllGlobals()
   })
 })
