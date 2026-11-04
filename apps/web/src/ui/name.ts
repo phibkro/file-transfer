@@ -27,6 +27,8 @@ export interface Context {
 
 export const init = (identifier: string): Model => ({ identifier, editing: false, draft: Redacted.make(""), problem: Option.none() })
 
+export const boot = (identifier: string): Update.Return<Model, Message> => ({ model: init(identifier) })
+
 export const update = (model: Model, message: Message, context: Context): Update.ReturnWithOutMessage<Model, Message, OutMessage> =>
   Message.match(message, {
     Started: () => (context.canRename ? { model: { ...model, editing: true, draft: context.name, problem: Option.none() } } : { model }),
