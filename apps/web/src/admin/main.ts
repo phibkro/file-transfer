@@ -224,8 +224,8 @@ export const view = defineView<Model, Message>((model, h) => {
 
   const relayedToday = rows.slice(-24).reduce((sum, row) => sum + (row.snapshot?.relayedMegabytes ?? 0), 0)
 
-  return h.div(
-    [],
+  return h.main(
+    [h.Class("content admin"), h.Id("admin")],
     [
       h.h1([], ["Operator"]),
       h.p([h.Class("lead")], ["This instance's settings, and its counts when counting is on. Nothing here identifies a room, a person or a file."]),
