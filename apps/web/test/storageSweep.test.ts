@@ -7,6 +7,8 @@ afterEach(() => {
 
 const setup = () => {
   let held = false
+  let heldAtOpenerRequest = false
+  const openerRequested = Promise.withResolvers<undefined>()
   let released = Promise.withResolvers<undefined>()
   const enteredRemoval = Promise.withResolvers<undefined>()
   const finishRemoval = Promise.withResolvers<undefined>()
@@ -33,6 +35,11 @@ const setup = () => {
 
   const locks = {
     request: async (_name: string, options: { ifAvailable?: boolean }, handler: (lock: { name: string } | null) => Promise<undefined>) => {
+      if (options.ifAvailable !== true) {
+        heldAtOpenerRequest = held
+        openerRequested.resolve(undefined)
+      }
+
       if (held && options.ifAvailable === true) {
         await handler(null)
 
@@ -64,6 +71,8 @@ const setup = () => {
   return {
     removeEntry,
     getDirectory,
+    openerRequested,
+    wasHeldAtOpenerRequest: () => heldAtOpenerRequest,
     enteredRemoval,
     finishRemoval,
     pause: () => {
@@ -106,6 +115,26 @@ describe("stale transfer sweep", () => {
     await sweep
     const storage = await opening
     expect(opened).toBe(true)
+    await storage.discard()
+  })
+
+  it("retains the room lock until the pending removal settles", async () => {
+    const fixture = setup()
+    fixture.pause()
+    const sweep = sweepStaleTransfers()
+    await fixture.enteredRemoval.promise
+    // Let the lock callback finish if deletion was incorrectly detached from it.
+    await Promise.resolve()
+    await Promise.resolve()
+    await Promise.resolve()
+    await Promise.resolve()
+    const opening = openStorage("room", 0, new AbortController().signal)
+    await fixture.openerRequested.promise
+    expect(fixture.wasHeldAtOpenerRequest()).toBe(true)
+    expect(fixture.getDirectory).toHaveBeenCalledTimes(1)
+    fixture.resume()
+    await sweep
+    const storage = await opening
     await storage.discard()
   })
 })
