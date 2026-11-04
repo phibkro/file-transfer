@@ -71,6 +71,8 @@ let reconnects = 0
 /** When the direct path first opened during the transfer, and how often it closed before the end. */
 let directOpenedAt: number | undefined
 let directDrops = 0
+let publishedSummary: TransferSummary | undefined
+let publishedUnsavedFiles = false
 
 const flush = () => {
   frameRequested = false
@@ -169,26 +171,61 @@ export interface TransferSummary {
 }
 
 /** What the completion summary reports: sizes and timing only, never names, keys or the link. */
-export const transferSummary = (): TransferSummary => ({
-  bytes: totalBytes,
-  seconds: transferStartedAt === undefined || transferEndedAt === undefined ? 0 : (transferEndedAt - transferStartedAt) / 1000,
-  reconnects,
-  direct: wentDirect,
-  secondsToDirect: directOpenedAt === undefined || transferStartedAt === undefined ? undefined : Math.max(0, (directOpenedAt - transferStartedAt) / 1000),
-  directDrops,
-})
+export const transferSummary = (): TransferSummary =>
+  publishedSummary ?? {
+    bytes: totalBytes,
+    seconds: transferStartedAt === undefined || transferEndedAt === undefined ? 0 : (transferEndedAt - transferStartedAt) / 1000,
+    reconnects,
+    direct: wentDirect,
+    secondsToDirect: directOpenedAt === undefined || transferStartedAt === undefined ? undefined : Math.max(0, (directOpenedAt - transferStartedAt) / 1000),
+    directDrops,
+  }
 
 export const currentStatus = (): Status => status
+export const currentPublishedUnsavedFiles = (): boolean => publishedUnsavedFiles
 
 /** Calls `listener` after every status or progress change. */
 export const onReport = (listener: () => void) => {
   listeners.add(listener)
+
+  return () => {
+    listeners.delete(listener)
+  }
 }
 
 export const currentProgress = (): Progress => progress
 
+/** Publishes one recipient snapshot from the owned session boundary. */
+export const publishReport = (snapshot: {
+  readonly status: Status
+  readonly progress: Progress
+  readonly path: "relay" | "direct"
+  readonly summary: TransferSummary
+  readonly unsavedFiles: boolean
+  readonly failure?: string | undefined
+  readonly failureDetail?: string | undefined
+  readonly files: readonly File[]
+  readonly spaceShortfall?: number | undefined
+}) => {
+  status = snapshot.status
+  progress = snapshot.progress
+  path = snapshot.path
+  publishedSummary = snapshot.summary
+  wentDirect = snapshot.summary.direct
+  failure = snapshot.failure
+  failureDetail = snapshot.failureDetail
+  receivedFiles = snapshot.files
+  hashes = async () =>
+    await Promise.all(snapshot.files.map(async (file) => hexOf(new Uint8Array(await crypto.subtle.digest("SHA-256", await file.arrayBuffer())))))
+  spaceShortfall = snapshot.spaceShortfall
+  document.body.dataset.status = status
+  document.body.dataset.path = path
+  publishedUnsavedFiles = snapshot.unsavedFiles
+  flush()
+}
+
 export const installTestHook = () => {
-  window.fileTransferTest = {
+  const hook: TestHook = {
     status: () => status,
     progress: () => progress,
     failure: () => failure,
@@ -204,5 +241,17 @@ export const installTestHook = () => {
     path: () => path,
     wentDirect: () => wentDirect,
   }
+
+  window.fileTransferTest = hook
   document.body.dataset.status = status
+
+  return () => {
+    if (window.fileTransferTest === hook) {
+      delete window.fileTransferTest
+      receivedFiles = []
+      hashes = async () => []
+      failureDetail = undefined
+      publishedUnsavedFiles = false
+    }
+  }
 }

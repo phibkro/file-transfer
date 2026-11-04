@@ -5,12 +5,11 @@
  * browser, with a button that copies them as text for network testing. It never includes file names, the link or
  * keys. The location comes from Cloudflare's `/cdn-cgi/trace` on this same origin; elsewhere it reads "unknown".
  */
-import { currentStatus, onReport, transferSummary } from "./report.ts"
 import type { TransferSummary } from "./report.ts"
-import { element, formatSize } from "./view.ts"
+import { formatSize } from "./view.ts"
 
 /** The `colo` line of Cloudflare's trace endpoint, such as "OSL"; undefined off Cloudflare. */
-const edgeLocation = async (): Promise<string | undefined> => {
+export const edgeLocation = async (): Promise<string | undefined> => {
   try {
     const response = await fetch("/cdn-cgi/trace", { cache: "no-store" })
 
@@ -46,12 +45,13 @@ const browserName = (): string => {
   return `${names.get(name) ?? name} ${version}${/Android|iPhone|iPad/u.test(agent) ? " (mobile)" : ""}`
 }
 
-const megabytesPerSecond = (summary: TransferSummary): string => (summary.seconds > 0 ? `${(summary.bytes / 1e6 / summary.seconds).toFixed(1)} MB/s` : "n/a")
+export const megabytesPerSecond = (summary: TransferSummary): string =>
+  summary.seconds > 0 ? `${(summary.bytes / 1e6 / summary.seconds).toFixed(1)} MB/s` : "n/a"
 
-const pathText = (summary: TransferSummary): string => (summary.direct ? "direct between browsers" : "through the server's relay")
+export const pathText = (summary: TransferSummary): string => (summary.direct ? "direct between browsers" : "through the server's relay")
 
 /** The direct path's story: when it opened and how often it dropped, for testing on real networks. */
-const directText = (summary: TransferSummary): string => {
+export const directText = (summary: TransferSummary): string => {
   if (summary.secondsToDirect === undefined) {
     return "never opened"
   }
@@ -85,7 +85,7 @@ const networkText = (): string => {
   return parts.length === 0 ? "not reported by this browser" : parts.join(", ")
 }
 
-const reportText = (role: string, summary: TransferSummary, location: string): string =>
+export const reportText = (role: string, summary: TransferSummary, location: string): string =>
   [
     `file-transfer report (${role})`,
     `size: ${formatSize(summary.bytes)} (${summary.bytes} bytes)`,
@@ -98,60 +98,3 @@ const reportText = (role: string, summary: TransferSummary, location: string): s
     `cloudflare location: ${location}`,
     `browser: ${browserName()}`,
   ].join("\n")
-
-const render = async (root: HTMLElement, role: string) => {
-  const summary = transferSummary()
-  const location = (await edgeLocation()) ?? "unknown"
-  const text = reportText(role, summary, location)
-  const copy = element("button", { type: "button" }, ["Copy report"])
-
-  const copyReport = async () => {
-    // Undefined outside secure contexts, although the DOM types say otherwise; the report stays visible on the page.
-    const clipboard: Clipboard | undefined = navigator.clipboard
-
-    if (clipboard === undefined) {
-      return
-    }
-
-    await clipboard.writeText(text)
-    copy.textContent = "Copied"
-  }
-
-  copy.addEventListener("click", () => {
-    void copyReport()
-  })
-
-  const rows: readonly (readonly [string, string])[] = [
-    ["Size", formatSize(summary.bytes)],
-    ["Time", `${summary.seconds.toFixed(1)} s`],
-    ["Speed", megabytesPerSecond(summary)],
-    ["Reconnects", String(summary.reconnects)],
-    ["Path", pathText(summary)],
-    ["Direct path", directText(summary)],
-    ["Cloudflare location", location],
-  ]
-
-  root.append(
-    element("section", { class: "summary", "aria-label": "Transfer summary" }, [
-      element(
-        "dl",
-        {},
-        rows.flatMap(([term, value]) => [element("dt", {}, [term]), element("dd", {}, [value])]),
-      ),
-      copy,
-    ]),
-  )
-}
-
-/** Shows the summary once, when this page's transfer completes. */
-export const showSummaryOnCompletion = (root: HTMLElement, role: "sender" | "recipient") => {
-  let shown = false
-  onReport(() => {
-    if (shown || currentStatus() !== "complete") {
-      return
-    }
-
-    shown = true
-    void render(root, role)
-  })
-}

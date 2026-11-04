@@ -5,7 +5,7 @@
  * still waiting for its recipient (the link stops working when the sender leaves), or received files not yet saved
  * (they are deleted on the next visit, storage.ts). Browsers show their own wording; the page cannot set it.
  */
-import { currentStatus, onReport } from "./report.ts"
+import { currentPublishedUnsavedFiles, currentStatus, onReport } from "./report.ts"
 import type { Status } from "./report.ts"
 
 // Reviewing an offer or connecting loses nothing: the link can simply be opened again.
@@ -20,7 +20,7 @@ export const setUnsavedFiles = (unsaved: boolean) => {
   update()
 }
 
-const shouldAsk = (): boolean => statusesToKeep.has(currentStatus()) || unsavedFiles
+const shouldAsk = (): boolean => statusesToKeep.has(currentStatus()) || unsavedFiles || currentPublishedUnsavedFiles()
 
 const onBeforeUnload = (event: BeforeUnloadEvent) => {
   if (shouldAsk()) {
@@ -38,5 +38,12 @@ export const installLeaveGuard = () => {
     }
   }
 
-  onReport(update)
+  const unsubscribe = onReport(update)
+  update()
+
+  return () => {
+    unsubscribe()
+    window.removeEventListener("beforeunload", onBeforeUnload)
+    update = () => undefined
+  }
 }

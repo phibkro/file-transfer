@@ -7,7 +7,6 @@
  * the setting says so, and turning it off keeps every transfer on the relay.
  */
 import * as v from "valibot"
-import { element } from "./view.ts"
 
 const preferenceKey = "file-transfer:direct-connections"
 
@@ -25,7 +24,7 @@ export const directAllowed = (): boolean => {
   }
 }
 
-const setDirectAllowed = (allowed: boolean) => {
+export const setDirectAllowed = (allowed: boolean) => {
   try {
     if (allowed) {
       localStorage.removeItem(preferenceKey)
@@ -51,21 +50,4 @@ export const directOption = async (): Promise<{ readonly iceServers: readonly RT
   } catch {
     return undefined
   }
-}
-
-/** "Direct connections", on every page: the setting and what it means. */
-export const directPanel = (): HTMLElement => {
-  const checkbox = element("input", { type: "checkbox", id: "direct-connections" })
-  checkbox.checked = directAllowed()
-  checkbox.addEventListener("change", () => {
-    setDirectAllowed(checkbox.checked)
-  })
-
-  return element("details", { class: "direct-panel" }, [
-    element("summary", {}, ["Direct connections"]),
-    element("p", {}, [checkbox, " ", element("label", { for: "direct-connections" }, ["Connect directly to the other side when possible"])]),
-    element("p", { class: "direct-note" }, [
-      "Direct is faster and leaves the server less to carry, and the files stay end-to-end encrypted either way. But the other side learns this device's network (IP) address. Turned off, everything goes through the server, which keeps your address from them. Applies to transfers you start or open from now on.",
-    ]),
-  ])
 }
