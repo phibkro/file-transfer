@@ -503,6 +503,7 @@ const serve = (
       finished = true
       session++
       schedule = undefined
+      connection.sendControl({ type: "abort", reason: "sender-cancelled" })
       connection.close()
     }
 
@@ -513,10 +514,15 @@ const serve = (
 /** Start one transfer. The returned cleanup prevents later publications and closes its connection. */
 export const startTransfer = (entries: readonly SenderEntry[], onEvent: (event: SenderEvent) => void): (() => Promise<void>) => {
   let stopped = false
+  let terminal = false
   let stopServing: (() => Promise<void>) | undefined
   const abort = new AbortController()
 
   const publish: Publish = (event) => {
+    if (event.type === "finished" || event.type === "failure") {
+      terminal = true
+    }
+
     if (!stopped) {
       onEvent(event)
     }
@@ -575,6 +581,11 @@ export const startTransfer = (entries: readonly SenderEntry[], onEvent: (event: 
     }
 
     stopped = true
+
+    if (!terminal) {
+      setStatus("idle")
+    }
+
     abort.abort()
     const serving = stopServing?.()
     closing = (async () => {
