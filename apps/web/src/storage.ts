@@ -32,11 +32,13 @@ const waitForRelease = async (handOver: (release: () => void) => void) => {
 }
 
 /** Holds the lock until the returned function is called or the tab goes away. */
-const holdLock = async (roomIdentifier: string): Promise<() => void> =>
-  await new Promise<() => void>((resolve) => {
-    void navigator.locks.request(lockName(roomIdentifier), async () => {
-      await waitForRelease(resolve)
-    })
+const holdLock = async (roomIdentifier: string, signal: AbortSignal): Promise<() => void> =>
+  await new Promise<() => void>((resolve, reject) => {
+    void navigator.locks
+      .request(lockName(roomIdentifier), { signal }, async () => {
+        await waitForRelease(resolve)
+      })
+      .catch(reject)
   })
 
 /**
@@ -191,23 +193,30 @@ const abortAll = async (writables: readonly FileSystemWritableFileStream[]) => {
   )
 }
 
-export const openStorage = async (roomIdentifier: string, fileCount: number): Promise<ParcelStorage> => {
-  const releaseLock = await holdLock(roomIdentifier)
+export const openStorage = async (roomIdentifier: string, fileCount: number, signal: AbortSignal): Promise<ParcelStorage> => {
+  const releaseLock = await holdLock(roomIdentifier, signal)
   const handles: FileSystemFileHandle[] = []
   const writables: FileSystemWritableFileStream[] = []
   let transfers: FileSystemDirectoryHandle | undefined
 
   try {
+    signal.throwIfAborted()
     const root = await navigator.storage.getDirectory()
+    signal.throwIfAborted()
     transfers = await root.getDirectoryHandle(transfersDirectory, { create: true })
+    signal.throwIfAborted()
     await removeQuietly(transfers, roomIdentifier)
+    signal.throwIfAborted()
     const directory = await transfers.getDirectoryHandle(roomIdentifier, { create: true })
+    signal.throwIfAborted()
 
     for (let index = 0; index < fileCount; index++) {
       // Files are stored by position: manifest names may hold folders and characters this file system refuses.
       const handle = await directory.getFileHandle(String(index), { create: true })
       handles.push(handle)
+      signal.throwIfAborted()
       writables.push(await handle.createWritable({ keepExistingData: false }))
+      signal.throwIfAborted()
     }
   } catch (error) {
     // Opening failed part way (the disk is full, say): nobody will call discard, so undo what was made here and give

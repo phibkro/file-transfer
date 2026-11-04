@@ -1,14 +1,13 @@
 // oxlint-effect-plugin ignore-file:
 // reason: MVP transfer orchestration in plain TypeScript over browser Promises (Web Crypto, OPFS); it moves into libraries/client as Effect services once the MVP proves out (docs/plan.md)
 /**
- * The recipient view (`/r/<room>#<secret>`): open the contract, show what is on offer, and on acceptance receive,
+ * The recipient session: open the contract, publish the offer, and on acceptance receive,
  * verify and store every record (docs/protocol.md, "Order of a transfer"; docs/parcel.md, "Receiver rules").
  * Output stays provisional until the last record verifies; any parcel error aborts and discards it.
  */
 import { bytesEqual, decodeLinkSecret, deriveRoomToken, isParcelError, labelsPerPage, openHeader, toHex } from "@file-transfer/parcel"
 import type { Manifest, ParcelOpener, ParcelReceiver } from "@file-transfer/parcel"
 import type { ControlMessage, Unit } from "@file-transfer/transport/protocol"
-import { linkFragment } from "./address.ts"
 import { consume, createCreditWindow, grantDue, resetCredits } from "./credits.ts"
 import { openConnection } from "./connection.ts"
 import type { Connection, PathName } from "./connection.ts"
@@ -16,28 +15,13 @@ import { directOption } from "./directSettings.ts"
 import { spansFor } from "./files.ts"
 import { addRecord, containsRange, createRecordSet, hasRecord, isComplete, missingRanges, rangesOf } from "./ranges.ts"
 import type { RecordSet } from "./ranges.ts"
-import {
-  setFailureDetail,
-  setFileHashes,
-  setPath,
-  setProgress,
-  setReceivedFiles,
-  setSpaceShortfall,
-  setStatus,
-  setTotalBytes,
-  transferSummary,
-} from "./report.ts"
-import { setUnsavedFiles } from "./leaveGuard.ts"
-import { offerRemoval } from "./storagePanel.ts"
-import { previewButton } from "./preview.ts"
+import type { Status, Progress, TransferSummary } from "./report.ts"
 import { isAccepted, isSettled, nextPhase } from "./recipientPhase.ts"
 import type { RecipientCommand, RecipientPhase } from "./recipientPhase.ts"
-import { nameField } from "./rename.ts"
-import { saveAllControl } from "./saveAll.ts"
 import { renameProblem } from "./selection.ts"
 import { availableStorage, openStorage } from "./storage.ts"
 import type { ParcelStorage } from "./storage.ts"
-import { describeFailure, element, formatSize, progressBar, replaceChildren } from "./view.ts"
+import { describeFailure } from "./view.ts"
 
 const sequence = 0
 
@@ -95,31 +79,131 @@ class TransferError extends Error {
 
 const reasonOf = (cause: unknown): string => (isParcelError(cause) || cause instanceof TransferError ? cause.reason : "recipient-error")
 
-/** Names with folders download as one flat name; the browser sanitises the rest. */
-const downloadName = (name: string): string => name.split("/").join("_")
+export interface RecipientSnapshot {
+  readonly phase: RecipientPhase
+  readonly status: Status
+  readonly statusText: string
+  readonly files: readonly { readonly name: string; readonly size: number; readonly file?: File; readonly url?: string }[]
+  readonly totalBytes: number
+  readonly mobileWarning: boolean
+  readonly spaceShortfall: number | undefined
+  readonly spaceChecking: boolean
+  readonly progress: Progress
+  readonly filesRemoved: boolean
+  readonly unsavedFiles: boolean
+  readonly failure: string | undefined
+  readonly failureDetail: string | undefined
+  readonly path: PathName
+  readonly summary: TransferSummary
+}
 
-const sha256Hex = async (file: File): Promise<string> => toHex(new Uint8Array(await crypto.subtle.digest("SHA-256", await file.arrayBuffer())))
+export const createRecipientSession = (roomIdentifier: string, fragment: string) => {
+  let closed = false
+  let status: Status = "idle"
+  let statusText = ""
+  let totalBytes = 0
+  let mobileWarning = false
+  let spaceShortfall: number | undefined
+  let spaceChecking = false
+  let progress: Progress = { done: 0, total: 0 }
+  let failure: string | undefined
+  let failureDetail: string | undefined
+  let path: PathName = "relay"
+  let wentDirect = false
+  let startedAt: number | undefined
+  let endedAt: number | undefined
+  let directOpenedAt: number | undefined
+  let directDrops = 0
+  let reconnects = 0
+  const listeners = new Set<(snapshot: RecipientSnapshot) => void>()
 
-export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
-  const status = element("p", { class: "status", role: "status" })
-  const section = element("section", { "aria-labelledby": "receive-heading" }, [element("h1", { id: "receive-heading" }, ["Receive files"]), status])
-  replaceChildren(root, section)
+  const transferSummary = (): TransferSummary => ({
+    bytes: totalBytes,
+    seconds: startedAt === undefined || endedAt === undefined ? 0 : (endedAt - startedAt) / 1000,
+    reconnects,
+    direct: wentDirect,
+    secondsToDirect: directOpenedAt === undefined || startedAt === undefined ? undefined : Math.max(0, (directOpenedAt - startedAt) / 1000),
+    directDrops,
+  })
+
+  const currentSnapshot = (): RecipientSnapshot => ({
+    phase,
+    status,
+    statusText,
+    files: saveNames.map((name, index) => {
+      const size = fileSizes[index] ?? 0
+      const entry = savable?.[index]
+
+      return entry === undefined || filesRemoved ? { name, size } : { name, size, file: entry.file, url: entry.url }
+    }),
+    totalBytes,
+    mobileWarning,
+    spaceShortfall,
+    spaceChecking,
+    progress,
+    filesRemoved,
+    unsavedFiles,
+    failure,
+    failureDetail,
+    path,
+    summary: transferSummary(),
+  })
+
+  const publish = () => {
+    if (!closed) {
+      for (const listener of listeners) {
+        listener(currentSnapshot())
+      }
+    }
+  }
 
   const say = (text: string) => {
-    status.textContent = text
+    statusText = text
+    publish()
+  }
+
+  const setStatus = (next: Status, reason?: string) => {
+    if (next === "transferring" && startedAt === undefined) {
+      startedAt = performance.now()
+    }
+
+    if (next === "reconnecting" && status !== next) {
+      reconnects++
+    }
+
+    if (next === "complete" && endedAt === undefined) {
+      endedAt = performance.now()
+    }
+
+    status = next
+    failure = next === "failed" ? reason : undefined
+    publish()
+  }
+
+  const setProgress = (done: number, total: number) => {
+    progress = { done, total }
+    publish()
+  }
+
+  const setPath = (next: PathName) => {
+    if (next === "direct" && directOpenedAt === undefined) {
+      directOpenedAt = performance.now()
+    }
+
+    if (next === "relay" && path === "direct" && status === "transferring") {
+      directDrops++
+    }
+
+    path = next
+    wentDirect ||= next === "direct"
+    publish()
+  }
+
+  const setFailureDetail = (cause: unknown) => {
+    failureDetail = cause instanceof Error ? `${cause.name}: ${cause.message}` : String(cause)
   }
 
   let linkSecret: Uint8Array
-
-  try {
-    linkSecret = decodeLinkSecret(linkFragment())
-  } catch (error) {
-    const reason = reasonOf(error)
-    setStatus("failed", reason)
-    say(describeFailure(reason))
-
-    return
-  }
 
   let connection: Connection | undefined
   let opener: ParcelOpener | undefined
@@ -136,76 +220,27 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
   // lost.
   let phase: RecipientPhase = "Opening"
   let senderPresent = false
-  // Accept and Decline, while the offer is on screen; removed whenever the recipient leaves Reviewing.
-  let offerActions: HTMLElement | undefined
   let chain: Promise<void> = Promise.resolve()
+  let cleanup: Promise<void> | undefined
   const dropped = new Set<number>()
   let wantTimer: ReturnType<typeof setTimeout> | undefined
   const credits = createCreditWindow(creditWindow)
   let lastCount = -1
-  let progress: ReturnType<typeof progressBar> | undefined
   // The names files are saved under: the manifest's until the recipient renames one. Only this browser sees them; the
   // contract, the sender and the files' contents are unaffected.
   let saveNames: string[] = []
-  const fileList = element("ul", { class: "file-list" })
-  // Set once every file is committed; the files' download links are created once and reused across renders.
   let savable: { name: string; readonly file: File; readonly url: string }[] | undefined
   let filesRemoved = false
-  // The Save links on the page now, by file; Save all activates these where the browser has no folder picker.
-  const saveLinks: HTMLAnchorElement[] = []
+  let unsavedFiles = false
+  const abortOpening = new AbortController()
+  let opening: Promise<void> | undefined
+  let lingerTimer: ReturnType<typeof setTimeout> | undefined
 
-  /** Renders the file list; `focusRename` puts focus back on that row's Rename button after a rename. */
-  const renderFiles = (focusRename?: number) => {
-    const sizes = fileSizes
-    fileList.replaceChildren(
-      ...saveNames.map((name, index) => {
-        const item = element("li", {}, [
-          filesRemoved
-            ? element("span", { class: "name" }, [name])
-            : nameField({
-                name,
-                problem: (candidate) => renameProblem(saveNames, index, candidate),
-                onRename: (renamed) => {
-                  saveNames = saveNames.map((current, position) => (position === index ? renamed : current))
-                  const entry = savable?.[index]
-
-                  if (entry !== undefined) {
-                    entry.name = renamed
-                  }
-
-                  renderFiles(index)
-                },
-              }),
-          element("span", { class: "size" }, [formatSize(sizes[index] ?? 0)]),
-        ])
-
-        const entry = savable?.[index]
-
-        if (entry !== undefined && !filesRemoved) {
-          const link = element("a", { href: entry.url, download: downloadName(name), class: "save", "aria-label": `Save ${name}` }, ["Save"])
-          link.addEventListener("click", () => {
-            setUnsavedFiles(false)
-          })
-          saveLinks[index] = link
-          item.append(
-            link,
-            previewButton(
-              () => entry.file,
-              () => entry.name,
-            ),
-          )
-        }
-
-        return item
-      }),
-    )
-
-    if (focusRename !== undefined) {
-      fileList.querySelectorAll<HTMLButtonElement>("button.rename")[focusRename]?.focus()
+  const send = (message: ControlMessage) => {
+    if (!closed) {
+      connection?.sendControl(message)
     }
   }
-
-  const send = (message: ControlMessage) => connection?.sendControl(message)
 
   /** Moves to the phase `command` leads to; false, and no move, when the table rejects `command` in this phase. */
   const move = (command: RecipientCommand): boolean => {
@@ -217,10 +252,7 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
 
     phase = next
 
-    if (phase !== "Reviewing") {
-      offerActions?.remove()
-      offerActions = undefined
-    }
+    publish()
 
     return true
   }
@@ -229,10 +261,12 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
    * Stops the transfer for `reason`: tells the sender (unless its abort carried the reason), discards what was stored
    * and releases the storage lock. `command` is `commitFailed` when saving the files failed, and `fail` otherwise.
    */
-  const stop = async (reason: string, fromSender: boolean, command: "fail" | "commitFailed" = "fail") => {
+  const stop = async (reason: string, fromSender: boolean, command: "fail" | "commitFailed" = "fail", fromChain = false) => {
     if (!move(command)) {
       return
     }
+
+    abortOpening.abort()
 
     if (!fromSender) {
       send({ type: "abort", reason })
@@ -241,12 +275,25 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
     connection?.close()
     setStatus("failed", reason)
     say(fromSender ? `The sender stopped the transfer. ${describeFailure(reason)}` : describeFailure(reason))
-    await storage?.discard()
+    cleanup = (async () => {
+      if (!fromChain) {
+        await chain
+      }
+
+      const held = storage
+      storage = undefined
+      await held?.discard()
+    })()
+    await cleanup
   }
 
-  const fail = async (cause: unknown) => {
+  const fail = async (cause: unknown, fromChain = false) => {
+    if (closed) {
+      return
+    }
+
     setFailureDetail(cause)
-    await stop(reasonOf(cause), false, phase === "Committing" ? "commitFailed" : "fail")
+    await stop(reasonOf(cause), false, phase === "Committing" ? "commitFailed" : "fail", fromChain)
   }
 
   const topUp = () => {
@@ -283,7 +330,7 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
   }
 
   const finish = async () => {
-    if (receiver === undefined || storage === undefined || !move("lastRecordStored")) {
+    if (closed || receiver === undefined || storage === undefined || !move("lastRecordStored")) {
       return
     }
 
@@ -291,72 +338,19 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
     // A failure here reaches fail through the unit chain, in Committing, so it leads to Failed (commitFailed).
     const files = await storage.commit()
 
-    if (!move("commitSucceeded")) {
+    if (closed || !move("commitSucceeded")) {
       return
     }
 
     announceCompletion()
-    setTimeout(() => {
+    lingerTimer = setTimeout(() => {
       connection?.close()
     }, completionLingerMilliseconds)
-    setReceivedFiles(files)
-    setFileHashes(async () => await Promise.all(files.map(sha256Hex)))
     setStatus("complete")
     say("Every file arrived and matched what the sender promised.")
-
+    unsavedFiles = true
     savable = files.map((file, index) => ({ name: saveNames[index] ?? manifest.files[index]?.name ?? String(index), file, url: URL.createObjectURL(file) }))
-    fileList.classList.add("downloads")
-    renderFiles()
-
-    // Received files are decrypted and live only in this browser until saved: ask before leaving until then.
-    setUnsavedFiles(true)
-
-    if (savable.length > 1) {
-      const entries = savable
-      section.append(
-        // Read when pressed, so renames made after this point count.
-        saveAllControl(
-          () =>
-            entries.flatMap((entry, index) => {
-              const link = saveLinks[index]
-
-              return link === undefined ? [] : [{ name: entry.name, file: entry.file, link }]
-            }),
-          () => {
-            setUnsavedFiles(false)
-          },
-        ),
-      )
-    }
-
-    const remove = element("button", { type: "button" }, ["Remove from this browser"])
-
-    const removeFiles = async () => {
-      remove.disabled = true
-
-      for (const { url } of savable ?? []) {
-        URL.revokeObjectURL(url)
-      }
-
-      filesRemoved = true
-      renderFiles()
-      await storage?.remove()
-      setUnsavedFiles(false)
-      offerRemoval(undefined)
-      say("The files were removed from this browser. Copies you saved are not affected.")
-    }
-
-    remove.addEventListener("click", () => {
-      void removeFiles()
-    })
-    // The storage panel's Clear removes them the same way.
-    offerRemoval(removeFiles)
-    section.append(
-      element("div", { class: "remove-files" }, [
-        remove,
-        element("p", { class: "remove-files-note" }, ["Received files stay in this browser only until you leave the page."]),
-      ]),
-    )
+    publish()
   }
 
   const flushWant = () => {
@@ -371,22 +365,26 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
   }
 
   const onAccept = async () => {
-    if (receiver === undefined || !move("accept")) {
+    if (closed || spaceChecking || spaceShortfall !== undefined || receiver === undefined || !move("accept")) {
       return
     }
 
     let opened: ParcelStorage
 
     try {
-      opened = await openStorage(roomIdentifier, receiver.manifest.files.length)
+      opened = await openStorage(roomIdentifier, receiver.manifest.files.length, abortOpening.signal)
     } catch {
+      if (closed || phase !== "OpeningStorage") {
+        return
+      }
+
       await fail(new TransferError("storage-unavailable"))
 
       return
     }
 
     // The transfer may have failed while storage opened (an abort from the sender, say): give the storage back.
-    if (!move("storageOpened")) {
+    if (closed || !move("storageOpened")) {
       await opened.discard()
 
       return
@@ -394,70 +392,34 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
 
     storage = opened
     setStatus("transferring")
-    progress = progressBar("Receiving files")
-    section.append(progress.node)
     say("Receiving.")
     setProgress(0, receiver.recordCount)
     sendAcceptance(false)
   }
 
   const showOffer = (manifest: Manifest) => {
-    setTotalBytes(manifest.totalSize)
+    totalBytes = manifest.totalSize
+    saveNames = manifest.files.map((file) => file.name)
+    fileSizes = manifest.files.map((file) => file.size)
+    mobileWarning = onMobileData() && manifest.totalSize >= mobileDataWarningBytes
+    spaceChecking = true
     setStatus("reviewing")
     say("The sender is offering these files. Nothing is downloaded until you accept.")
-    const accept = element("button", { type: "button", class: "primary" }, ["Accept"])
-    const decline = element("button", { type: "button" }, ["Decline"])
-    const actions = element("div", { class: "actions" }, [accept, decline])
-    offerActions = actions
-    accept.addEventListener("click", () => {
-      void onAccept()
-    })
-    decline.addEventListener("click", () => {
-      if (!move("decline")) {
+    void (async () => {
+      const available = await availableStorage()
+
+      if (closed || phase !== "Reviewing") {
         return
       }
 
-      send({ type: "decline", sequence })
-      connection?.close()
-      setStatus("declined")
-      say("You declined the files. Nothing was downloaded.")
-    })
-    saveNames = manifest.files.map((file) => file.name)
-    fileSizes = manifest.files.map((file) => file.size)
-    renderFiles()
-    section.append(
-      fileList,
-      element("p", {}, [`${manifest.files.length} ${manifest.files.length === 1 ? "file" : "files"}, ${formatSize(manifest.totalSize)} in total`]),
-      element("p", { class: "rename-note" }, ["Renaming changes only the name a file is saved under in this browser. The sender's copies keep their names."]),
-      actions,
-    )
-    accept.focus()
-
-    if (onMobileData() && manifest.totalSize >= mobileDataWarningBytes) {
-      accept.textContent = `Accept and download ${formatSize(manifest.totalSize)} on mobile data`
-      actions.before(
-        element("p", { class: "mobile-data-warning", role: "note" }, [
-          `You seem to be on mobile data or in Data Saver mode. Accepting downloads ${formatSize(manifest.totalSize)}.`,
-        ]),
-      )
-    }
-
-    const checkSpace = async () => {
-      const available = await availableStorage()
+      spaceChecking = false
 
       if (available !== undefined && available < manifest.totalSize) {
-        accept.disabled = true
-        setSpaceShortfall(available)
-        actions.before(
-          element("p", { class: "space-warning", role: "alert" }, [
-            `This browser can store about ${formatSize(available)} for this site, but the files need ${formatSize(manifest.totalSize)}. `,
-            "Free up space, or open the link in a normal window: private windows have a small storage limit.",
-          ]),
-        )
+        spaceShortfall = available
       }
-    }
 
-    void checkSpace()
+      publish()
+    })()
   }
 
   const onHeader = async (bytes: Uint8Array) => {
@@ -551,6 +513,10 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
         wantTimer ??= setTimeout(flushWant, wantDelayMilliseconds)
       }
 
+      if (closed || phase !== "Receiving") {
+        return
+      }
+
       if (plaintext !== undefined) {
         const spans = spansFor(fileSizes, index * receiver.recordSize, plaintext.length)
 
@@ -560,6 +526,10 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
 
         for (const span of spans.spans) {
           await storage.write(span.fileIndex, span.fileOffset, plaintext.subarray(span.spanOffset, span.spanOffset + span.length))
+
+          if (closed || phase !== "Receiving") {
+            return
+          }
         }
 
         addRecord(received, index)
@@ -571,11 +541,6 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
         }
 
         setProgress(received.count, received.size)
-        progress?.update(
-          received.count,
-          received.size,
-          (done, total) => `Received ${Math.round((done / total) * 100)}% of ${formatSize(receiver?.manifest.totalSize ?? 0)}`,
-        )
       }
     }
 
@@ -590,6 +555,10 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
   }
 
   const handleUnit = async (unit: Unit, epoch: number) => {
+    if (closed) {
+      return
+    }
+
     if (phase === "Completed") {
       // The sender offering the contract again means it reconnected without hearing `complete`.
       if (unit.kind === "header") {
@@ -639,12 +608,16 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
       try {
         await handleUnit(unit, epoch)
       } catch (error) {
-        await fail(error)
+        await fail(error, true)
       }
     })()
   }
 
   const onControl = (message: ControlMessage) => {
+    if (closed) {
+      return
+    }
+
     if (phase === "Completed") {
       const senderJoined =
         (message.type === "joined" && message.senderPresent) || (message.type === "peer" && message.role === "sender" && message.event === "joined")
@@ -718,10 +691,14 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
 
   // A direct path that closes mid-transfer may have dropped records in flight, and the sender's credits with them:
   // accept again on the relay, as after a reconnect, so both sides start a fresh session from what is missing.
-  const onPath = (path: PathName) => {
-    setPath(path)
+  const onPath = (nextPath: PathName) => {
+    if (closed) {
+      return
+    }
 
-    if (path === "relay" && phase === "Receiving" && senderPresent) {
+    setPath(nextPath)
+
+    if (nextPath === "relay" && phase === "Receiving" && senderPresent) {
       sendAcceptance(true)
     }
   }
@@ -746,33 +723,185 @@ export const startRecipient = (root: HTMLElement, roomIdentifier: string) => {
   }, stallMilliseconds)
 
   void (async () => {
-    const roomToken = toHex(await deriveRoomToken(linkSecret))
-    setStatus("connecting")
-    say("Connecting.")
-    const direct = await directOption()
-    connection = openConnection({
-      roomIdentifier,
-      role: "recipient",
-      roomToken,
-      direct,
-      handlers: {
-        onPath,
-        onControl,
-        onUnit,
-        onState: (state) => {
-          if (isSettled(phase)) {
-            return
-          }
+    try {
+      try {
+        linkSecret = decodeLinkSecret(fragment)
+      } catch (error) {
+        await fail(error)
 
-          if (state === "reconnecting") {
-            setStatus("reconnecting")
-            say("Connection lost. Reconnecting.")
-          } else if (state === "joined" && isAccepted(phase)) {
-            setStatus("transferring")
-            say("Receiving.")
-          }
+        return
+      }
+
+      const roomToken = toHex(await deriveRoomToken(linkSecret))
+
+      if (closed) {
+        return
+      }
+
+      setStatus("connecting")
+      say("Connecting.")
+      const direct = await directOption()
+
+      if (closed) {
+        return
+      }
+
+      connection = openConnection({
+        roomIdentifier,
+        role: "recipient",
+        roomToken,
+        direct,
+        handlers: {
+          onPath,
+          onControl,
+          onUnit,
+          onState: (state) => {
+            if (closed || isSettled(phase)) {
+              return
+            }
+
+            if (state === "reconnecting") {
+              setStatus("reconnecting")
+              say("Connection lost. Reconnecting.")
+            } else if (state === "joined" && isAccepted(phase)) {
+              setStatus("transferring")
+              say("Receiving.")
+            }
+          },
         },
-      },
-    })
+      })
+    } catch (error) {
+      if (!closed) {
+        await fail(error)
+      }
+    }
   })()
+
+  let removal: Promise<void> | undefined
+
+  const removeAll = async (): Promise<void> => {
+    if (removal !== undefined) {
+      await removal
+
+      return
+    }
+
+    if (closed || phase !== "Completed") {
+      return
+    }
+
+    filesRemoved = true
+    unsavedFiles = false
+
+    for (const entry of savable ?? []) {
+      URL.revokeObjectURL(entry.url)
+    }
+
+    savable = undefined
+    const held = storage
+    storage = undefined
+    removal = (async () => {
+      await held?.remove()
+      say("The files were removed from this browser. Copies you saved are not affected.")
+    })()
+
+    await removal
+  }
+
+  let receipt: Promise<void> | undefined
+
+  const dispose = async (): Promise<void> => {
+    if (receipt !== undefined) {
+      await receipt
+
+      return
+    }
+
+    closed = true
+    abortOpening.abort()
+    listeners.clear()
+    connection?.close()
+    clearInterval(stallCheck)
+    clearTimeout(wantTimer)
+    clearTimeout(lingerTimer)
+    receipt = (async () => {
+      await chain
+      await cleanup
+      await opening
+      await removal
+
+      for (const entry of savable ?? []) {
+        URL.revokeObjectURL(entry.url)
+      }
+
+      savable = undefined
+
+      if (storage !== undefined) {
+        await (phase === "Completed" ? storage.remove() : storage.discard())
+        storage = undefined
+      }
+    })()
+
+    await receipt
+  }
+
+  return {
+    currentSnapshot,
+    subscribe: (listener: (snapshot: RecipientSnapshot) => void) => {
+      if (closed) {
+        return () => undefined
+      }
+
+      listeners.add(listener)
+      listener(currentSnapshot())
+
+      return () => {
+        listeners.delete(listener)
+      }
+    },
+    accept: async () => {
+      if (closed || phase !== "Reviewing" || spaceChecking || spaceShortfall !== undefined) {
+        return
+      }
+
+      opening ??= onAccept()
+
+      await opening
+    },
+    decline: () => {
+      if (closed || !move("decline")) {
+        return
+      }
+
+      send({ type: "decline", sequence })
+      connection?.close()
+      setStatus("declined")
+      say("You declined the files. Nothing was downloaded.")
+    },
+    rename: (index: number, name: string) => {
+      if (closed || filesRemoved || index < 0 || index >= saveNames.length || renameProblem(saveNames, index, name) !== undefined) {
+        return
+      }
+
+      saveNames[index] = name
+
+      if (savable?.[index] !== undefined) {
+        savable[index].name = name
+      }
+
+      publish()
+    },
+    markSaved: () => {
+      if (closed) {
+        return
+      }
+
+      unsavedFiles = false
+      publish()
+    },
+    removeAll,
+    dispose,
+  }
 }
+
+export type RecipientSession = ReturnType<typeof createRecipientSession>
