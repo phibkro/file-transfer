@@ -151,6 +151,25 @@ const sha256 = (buffer: Buffer) => createHash("sha256").update(buffer).digest("h
 const makeFiles = (sizes: readonly (readonly [string, number])[]) =>
   sizes.map(([name, size]) => ({ name, mimeType: "application/octet-stream", buffer: randomBytes(size) }))
 
+/** Wait for the disclosure to expose the actual fragment, not its masked value. */
+const revealLink = async (page: Page) => {
+  await page.getByRole("button", { name: "Show link" }).click()
+  await page.waitForFunction(() => /#[A-Za-z0-9_-]{33,}$/u.test(document.querySelector<HTMLInputElement>("#link")?.value ?? ""))
+  const link = await page.inputValue("#link")
+  privateLinks.push(link)
+
+  return link
+}
+
+const hideLink = async (page: Page) => {
+  await page.getByRole("button", { name: "Hide link" }).click()
+  await page.waitForFunction(() => {
+    const input = document.querySelector<HTMLInputElement>("#link")
+
+    return input === null || input.offsetParent === null || !/#[A-Za-z0-9_-]{33,}$/u.test(input.value)
+  })
+}
+
 /** The sender's side up to the link: choose files, seal, reveal the link. */
 const offer = async (sender: Page, files: ReturnType<typeof makeFiles>) => {
   await sender.goto(`${origin}/`)
@@ -159,11 +178,9 @@ const offer = async (sender: Page, files: ReturnType<typeof makeFiles>) => {
   await sender.getByRole("button", { name: "Seal parcel and create link" }).click()
   const sealed = await waitForStatus(sender, ["waiting-for-recipient", "failed"])
   step("seal parcel and create link", `sender status ${sealed}`, sealed === "waiting-for-recipient")
-  await sender.getByRole("button", { name: "Show link" }).click()
-  await sender.locator("#link").waitFor({ state: "visible" })
-  await sender.waitForFunction(() => (document.querySelector<HTMLInputElement>("#link")?.value ?? "").includes("#"))
-  const link = await sender.inputValue("#link")
+  const link = await revealLink(sender)
   step("show link", `link with a ${new URL(link).hash.length - 1} character fragment`, new URL(link).hash.length > 32)
+  await hideLink(sender)
   await capture(sender, "01-sender-waiting")
 
   return link
@@ -298,10 +315,13 @@ try {
   pages.push({ side: "sender", page: sender }, { side: "recipient", page: recipient })
 
   if (journey === "library") {
-    const [original] = makeFiles([["verify-library-private.bin", 4096]])
+    const [original, control] = makeFiles([
+      ["verify-library-private.bin", 4096],
+      ["verify-library-control.bin", 2048],
+    ])
 
-    if (original === undefined) {
-      throw new Error("Missing verification file")
+    if (original === undefined || control === undefined) {
+      throw new Error("Missing verification files")
     }
 
     const modified = { ...original, buffer: Buffer.from(original.buffer) }
@@ -333,8 +353,10 @@ try {
     await capture(sender, "02-library-empty")
     await chooseLibraryFile(sender, original)
     await sender.getByRole("checkbox", { name: original.name }).waitFor()
+    await chooseLibraryFile(sender, control)
+    await sender.getByRole("checkbox", { name: control.name }).waitFor()
     const indexed = await catalog(sender)
-    step("index an original", "one metadata entry, no stored file bytes", indexed.files.length === 1 && indexed.blobs === 0)
+    step("index originals", "two metadata entries, no stored file bytes", indexed.files.length === 2 && indexed.blobs === 0)
     await sender.getByRole("checkbox", { name: original.name }).click()
     await sender.getByRole("button", { name: "Add selected to Verification collection" }).click()
     await sender.getByRole("option", { name: "Verification collection (1)" }).waitFor({ state: "attached" })
@@ -347,16 +369,10 @@ try {
     const share = async (file: typeof original, prefix: string) => {
       await sender.getByRole("button", { name: "Approve and share current versions" }).click()
       await sender.getByRole("heading", { name: "Quick Share" }).waitFor()
-      await sender.getByRole("button", { name: "Seal parcel and create link" }).click()
       const state = await waitForStatus(sender, ["waiting-for-recipient", "failed"])
       step("seal collection share", `sender ${state}`, state === "waiting-for-recipient")
-      await sender.getByRole("button", { name: "Show link" }).click()
-      await sender.locator("#link").waitFor({ state: "visible" })
-      await sender.waitForFunction(() => (document.querySelector<HTMLInputElement>("#link")?.value ?? "").includes("#"))
-      const link = await sender.inputValue("#link")
-      links.push(link)
-      await sender.getByRole("button", { name: "Hide link" }).click()
-      await sender.locator("#link").waitFor({ state: "hidden" })
+      const link = await revealLink(sender)
+      await hideLink(sender)
       await recipient.goto(link)
       const stateRecipient = await waitForStatus(recipient, ["reviewing", "failed"])
       step("open collection share", `recipient ${stateRecipient}`, stateRecipient === "reviewing")
@@ -372,10 +388,22 @@ try {
     await sender.goto(`${origin}/library`)
     await sender.getByRole("option", { name: "Verification collection (1)" }).waitFor({ state: "attached" })
     await sender.getByLabel("Collection", { exact: true }).selectOption({ label: "Verification collection (1)" })
+    const roomRequests = sent.filter((entry) => entry.page === "sender" && entry.kind === "url" && entry.text.includes("/api/rooms")).length
+    await sender.getByRole("button", { name: "Review collection before sharing" }).click()
+    await sender.getByText("Could not complete this local operation", { exact: false }).waitFor()
+    const roomRequestsAfter = sent.filter((entry) => entry.page === "sender" && entry.kind === "url" && entry.text.includes("/api/rooms")).length
+    step(
+      "block missing original",
+      "review failed before creating a room",
+      roomRequestsAfter === roomRequests && (await sender.getByRole("heading", { name: "Library" }).isVisible()),
+    )
     await sender.getByRole("button", { name: "Reconnect original" }).click()
     await sender.getByText("Choose the original to reconnect").waitFor()
     await chooseLibraryFile(sender, modified)
     await sender.getByRole("button", { name: "Confirm replacement reference" }).click()
+    await sender.getByText("Library updated on this device only.").waitFor()
+    await sender.getByLabel("Collection", { exact: true }).selectOption({ label: "Verification collection (1)" })
+    await sender.getByRole("heading", { name: "Verification collection" }).waitFor()
     await sender.getByRole("button", { name: "Review collection before sharing" }).click()
     await sender.getByText("Changed since indexing or last approval").waitFor()
     const beforeApproval = await catalog(sender)
@@ -417,7 +445,7 @@ try {
         (await sender.getByRole("heading", { name: "My files" }).isVisible()),
     )
     await capture(sender, "06-library-opted-out")
-    await checkNothingLeaks(links, [original, modified])
+    await checkNothingLeaks(links, [original, modified, control])
   }
 
   if (journey === "send-receive") {

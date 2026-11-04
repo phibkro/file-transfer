@@ -14,7 +14,7 @@ The local Library indexes file metadata after opt-in. Collections group referenc
 
 - Open `Library` and turn on `Remember files on this device`.
 - Create a collection, add a file to `My files`, select it, and add it to the collection.
-- Review the collection, approve the current versions, and seal the Quick Share.
+- Review the collection and approve the current versions. Quick Share seals the approved files.
 - Reopen the Library and reconnect an edited original before the next review.
 - Turn remembering off and confirm forgetting to clear the catalog.
 
@@ -27,8 +27,8 @@ Preconditions:
 
 - **Run the journey.** `bun apps/web/scripts/verify/drive.ts library <origin> <run>/evidence`. It ends with `PASS library`.
 - **Default and collection.** The driver observes `My files` with remembering off. It opts in and creates an empty collection.
-- **Index and share.** The driver adds a file through the file input, adds it to the collection, and approves its review. The recipient accepts and receives identical bytes.
-- **Reconnect and review.** The driver reopens the Library and reconnects different bytes with the same name, size, and modification time. The changed review appears and the prior approval remains until explicit approval.
+- **Index and share.** The driver adds two files through the file input, but adds only one to the collection. The recipient accepts and receives exactly that file.
+- **Reconnect and review.** After reopening, review fails without the original and creates no room. The driver reconnects different bytes with the same name, size, and modification time. The changed review appears and the prior approval remains until explicit approval.
 - **Resend and opt out.** The recipient receives the modified bytes. Opt-out leaves no catalog files or collections and retains `My files`.
 - **Privacy.** The driver inspects IndexedDB read-only for metadata and stored blobs. `sent.json` covers observed URLs, bodies, and socket frames during indexing and both shares.
 
