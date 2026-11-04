@@ -428,7 +428,7 @@ export const view = Submodel.defineView<Model, Message>((model, h) => {
       ...(snapshot?.phase !== "Completed" || snapshot.filesRemoved
         ? []
         : [
-            ...(files.length > 1 ? [button("Save all", Message.RequestedSaveAll())] : []),
+            ...(files.length > 1 ? [button("Save all files", Message.RequestedSaveAll())] : []),
             h.div(
               [h.Class("remove-files")],
               [
