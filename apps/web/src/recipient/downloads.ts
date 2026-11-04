@@ -117,7 +117,7 @@ export const ownDownloads = (session: RecipientSession) =>
           Effect.tap((result) =>
             Effect.sync(() => {
               if (result === "saved") {
-                session.markSaved()
+                session.markAllSaved()
               }
             }),
           ),

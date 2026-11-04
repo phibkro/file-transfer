@@ -20,7 +20,8 @@ describe("recipient session", () => {
     await Promise.all([receipt, secondReceipt])
     const count = snapshots.length
     session.decline()
-    session.markSaved()
+    session.markSaved(0)
+    session.markAllSaved()
     session.subscribe((snapshot) => {
       snapshots.push(snapshot.status)
     })

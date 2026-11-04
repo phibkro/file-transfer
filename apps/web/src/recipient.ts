@@ -22,6 +22,7 @@ import { renameProblem } from "./selection.ts"
 import { availableStorage, openStorage } from "./storage.ts"
 import type { ParcelStorage } from "./storage.ts"
 import { describeFailure } from "./view.ts"
+import { createUnsavedFiles } from "./recipient/unsavedFiles.ts"
 
 const sequence = 0
 
@@ -142,7 +143,7 @@ export const createRecipientSession = (roomIdentifier: string, fragment: string)
     spaceChecking,
     progress,
     filesRemoved,
-    unsavedFiles,
+    unsavedFiles: unsavedFiles.hasUnsaved,
     failure,
     failureDetail,
     path,
@@ -231,7 +232,7 @@ export const createRecipientSession = (roomIdentifier: string, fragment: string)
   let saveNames: string[] = []
   let savable: { name: string; readonly file: File; readonly url: string }[] | undefined
   let filesRemoved = false
-  let unsavedFiles = false
+  let unsavedFiles = createUnsavedFiles(0)
   const abortOpening = new AbortController()
   let opening: Promise<void> | undefined
   let lingerTimer: ReturnType<typeof setTimeout> | undefined
@@ -346,11 +347,10 @@ export const createRecipientSession = (roomIdentifier: string, fragment: string)
     lingerTimer = setTimeout(() => {
       connection?.close()
     }, completionLingerMilliseconds)
+    unsavedFiles = createUnsavedFiles(files.length)
+    savable = files.map((file, index) => ({ name: saveNames[index] ?? manifest.files[index]?.name ?? String(index), file, url: URL.createObjectURL(file) }))
     setStatus("complete")
     say("Every file arrived and matched what the sender promised.")
-    unsavedFiles = true
-    savable = files.map((file, index) => ({ name: saveNames[index] ?? manifest.files[index]?.name ?? String(index), file, url: URL.createObjectURL(file) }))
-    publish()
   }
 
   const flushWant = () => {
@@ -791,7 +791,7 @@ export const createRecipientSession = (roomIdentifier: string, fragment: string)
     }
 
     filesRemoved = true
-    unsavedFiles = false
+    unsavedFiles.markAllSaved()
 
     for (const entry of savable ?? []) {
       URL.revokeObjectURL(entry.url)
@@ -891,12 +891,20 @@ export const createRecipientSession = (roomIdentifier: string, fragment: string)
 
       publish()
     },
-    markSaved: () => {
-      if (closed) {
+    markSaved: (fileIdentifier: number) => {
+      if (closed || phase !== "Completed" || filesRemoved || !unsavedFiles.markSaved(fileIdentifier)) {
         return
       }
 
-      unsavedFiles = false
+      publish()
+    },
+    markAllSaved: () => {
+      if (closed || phase !== "Completed" || filesRemoved || !unsavedFiles.hasUnsaved) {
+        return
+      }
+
+      unsavedFiles.markAllSaved()
+
       publish()
     },
     removeAll,

@@ -64,7 +64,10 @@ export const boot = (roomIdentifier: string, fragment: Redacted.Redacted): Retur
   model: { ...init().model, requirements: Option.some(Redacted.make({ roomIdentifier, fragment: Redacted.value(fragment) })) },
 })
 
-type Action = { readonly kind: "accept" | "decline" | "markSaved" | "removeAll" } | { readonly kind: "rename"; readonly index: number; readonly name: string }
+type Action =
+  | { readonly kind: "accept" | "decline" | "removeAll" }
+  | { readonly kind: "markSaved"; readonly fileIdentifier: number }
+  | { readonly kind: "rename"; readonly index: number; readonly name: string }
 
 class RecipientActionError extends Data.TaggedError("RecipientActionError")<{ readonly reason: string }> {}
 
@@ -92,7 +95,7 @@ const RunRecipientAction = Command.define("RunRecipientAction", {
               }
 
               case "markSaved": {
-                session.markSaved()
+                session.markSaved(value.fileIdentifier)
 
                 break
               }
@@ -197,7 +200,7 @@ export const update = (model: Model, message: Message): Return =>
     },
     RequestedDecline: () =>
       Option.isSome(model.snapshot) && Redacted.value(model.snapshot.value).phase === "Reviewing" ? run(model, { kind: "decline" }) : { model },
-    RequestedSave: () => run(model, { kind: "markSaved" }),
+    RequestedSave: ({ index }) => run(model, { kind: "markSaved", fileIdentifier: index }),
     RequestedSaveAll: () =>
       Option.isSome(model.snapshot) && Redacted.value(model.snapshot.value).phase === "Completed" && !Redacted.value(model.snapshot.value).filesRemoved
         ? { model, commands: [SaveRecipientFiles()] }
