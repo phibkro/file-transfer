@@ -1,8 +1,8 @@
 // oxlint-effect-plugin ignore-file:
 // reason: MVP transfer orchestration in plain TypeScript over browser Promises (Web Crypto, Blob, fetch); it moves into libraries/client as Effect services once the MVP proves out (docs/plan.md)
 /**
- * The sender view (`/`): pick files, label them, open a room, show the link, and serve the parcel to the
- * recipient that accepts it (docs/protocol.md, "Order of a transfer"). MVP: one recipient, sequence number 0.
+ * Prepare and serve a parcel to the recipient that accepts it
+ * (docs/protocol.md, "Order of a transfer"). One recipient, sequence number 0.
  */
 import * as v from "valibot"
 import {
@@ -33,13 +33,6 @@ import { directOption } from "./directSettings.ts"
 import { addRecord, createRecordSet, createSchedule, markSent, peekNext, prioritise, rangesAreValid, replaceDebt } from "./ranges.ts"
 import type { Schedule } from "./ranges.ts"
 import { setPath, setProgress, setStatus, setTotalBytes } from "./report.ts"
-import { previewButton } from "./preview.ts"
-import { estimatedRelayedBytes, fetchServerLimits } from "./serverLimits.ts"
-import type { ServerLimits } from "./serverLimits.ts"
-import { nameField } from "./rename.ts"
-import { addToSelection, removeFromSelection, renameProblem } from "./selection.ts"
-import { sharePanel } from "./share.ts"
-import { describeFailure, element, formatSize, progressBar, replaceChildren } from "./view.ts"
 
 const sequence = 0
 
@@ -51,12 +44,12 @@ interface Prepared {
 }
 
 /** A chosen file and the name it is sent under, which the sender may change until the parcel is sealed. */
-interface Entry {
+export interface SenderEntry {
   readonly file: File
   readonly name: string
 }
 
-const manifestEntry = ({ file, name }: Entry): ManifestFile => {
+const manifestEntry = ({ file, name }: SenderEntry): ManifestFile => {
   const mediaType = file.type.toLowerCase()
 
   return { name, size: file.size, mediaType: isValidMediaType(mediaType) ? mediaType : "" }
@@ -127,7 +120,7 @@ const reasonOf = (cause: unknown): string => {
 }
 
 /** Labels every record, showing progress, and seals the contract. */
-const prepare = async (entries: readonly Entry[], onProgress: (done: number, total: number) => void): Promise<Prepared> => {
+const prepare = async (entries: readonly SenderEntry[], onProgress: (done: number, total: number) => void): Promise<Prepared> => {
   const manifest = createManifest(entries.map(manifestEntry))
   const linkSecret = createSecret()
   const sealer = await createParcelSealer({ linkSecret, sequence, manifest })
@@ -145,22 +138,36 @@ const prepare = async (entries: readonly Entry[], onProgress: (done: number, tot
   return { sealer, contract: await sealer.sealContract(labels), readRecord, linkSecret }
 }
 
-const requestRoom = async (roomTokenHash: string): Promise<Response> =>
+const requestRoom = async (roomTokenHash: string, signal: AbortSignal): Promise<Response> =>
   await fetch("/api/rooms", {
     method: "POST",
+    signal,
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ roomTokenHash, maximumRecipients: 1 }),
   })
 
-const createRoom = async (roomTokenHash: string): Promise<string> => {
-  let response = await requestRoom(roomTokenHash)
+const createRoom = async (roomTokenHash: string, signal: AbortSignal): Promise<string> => {
+  let response = await requestRoom(roomTokenHash, signal)
 
   // A server error names no room, so asking once more after a second is safe (docs/spikes/0003-relay-load.md).
   if (response.status >= 500) {
-    await new Promise<void>((resolve) => {
-      setTimeout(resolve, 1000)
+    await new Promise<void>((resolve, reject) => {
+      signal.throwIfAborted()
+
+      const onAbort = () => {
+        clearTimeout(timer)
+        reject(new DOMException("Transfer cancelled", "AbortError"))
+      }
+
+      const timer = setTimeout(() => {
+        signal.removeEventListener("abort", onAbort)
+        resolve()
+      }, 1000)
+
+      signal.addEventListener("abort", onAbort, { once: true })
     })
-    response = await requestRoom(roomTokenHash)
+    signal.throwIfAborted()
+    response = await requestRoom(roomTokenHash, signal)
   }
 
   if (response.status === 429) {
@@ -182,10 +189,14 @@ const createRoom = async (roomTokenHash: string): Promise<string> => {
   return body.roomIdentifier
 }
 
-interface SenderView {
-  readonly update: (text: string) => void
-  readonly progress: (done: number, total: number) => void
-}
+export type SenderEvent =
+  | { readonly type: "status"; readonly text: string }
+  | { readonly type: "progress"; readonly phase: "sealing" | "sending"; readonly done: number; readonly total: number }
+  | { readonly type: "link"; readonly link: string }
+  | { readonly type: "failure"; readonly reason: string; readonly detail?: string }
+  | { readonly type: "finished"; readonly status: "complete" | "declined" }
+
+type Publish = (event: SenderEvent) => void
 
 /**
  * Serves one prepared parcel through the room until the recipient completes, declines or aborts. Units go over a
@@ -195,7 +206,7 @@ const serve = (
   prepared: Prepared,
   roomIdentifier: string,
   roomToken: string,
-  view: SenderView,
+  publish: Publish,
   direct: { readonly iceServers: readonly RTCIceServer[] } | undefined,
 ) => {
   const { sealer, contract, readRecord } = prepared
@@ -203,6 +214,7 @@ const serve = (
   const everSent = createRecordSet(contract.recordCount)
   const balance: CreditBalance = { available: 0 }
   const pagesSent = new Set<number>()
+  const pendingPumps = new Set<Promise<void>>()
   let schedule: Schedule | undefined
   let awaitingFirstCredit = false
   let session = 0
@@ -215,19 +227,24 @@ const serve = (
     }
 
     finished = true
+    session++
     connection.close()
     setStatus(status, reason)
 
     if (status === "complete") {
-      view.update("Delivered. The recipient has every file, checked against the contract.")
+      publish({ type: "finished", status: "complete" })
     } else if (status === "declined") {
-      view.update("The recipient declined the files.")
+      publish({ type: "finished", status: "declined" })
     } else {
-      view.update(describeFailure(reason ?? "sender-error"))
+      publish({ type: "failure", reason: reason ?? "sender-error" })
     }
   }
 
   const fail = (cause: unknown) => {
+    if (finished) {
+      return
+    }
+
     const reason = reasonOf(cause)
     connection.sendControl({ type: "abort", reason })
     finish("failed", reason)
@@ -246,7 +263,7 @@ const serve = (
     }
 
     setStatus("offering")
-    view.update("The recipient is looking at the files.")
+    publish({ type: "status", text: "The recipient is looking at the files." })
   }
 
   const pump = async () => {
@@ -292,7 +309,7 @@ const serve = (
         markSent(schedule, index)
         addRecord(everSent, index)
         setProgress(everSent.count, contract.recordCount)
-        view.progress(everSent.count, contract.recordCount)
+        publish({ type: "progress", phase: "sending", done: everSent.count, total: contract.recordCount })
       }
     } catch (error) {
       fail(error)
@@ -302,16 +319,31 @@ const serve = (
 
     // The direct path's send buffer is full: carry on once it drains.
     if (!finished && schedule !== undefined && balance.available > 0 && !connection.writable()) {
-      void (async () => {
-        await connection.untilWritable()
-        await pump()
-      })()
+      await connection.untilWritable()
+      await pump()
     }
   }
 
+  const startPump = () => {
+    if (finished) {
+      return
+    }
+
+    const work = pump()
+    pendingPumps.add(work)
+    void work.then(
+      () => pendingPumps.delete(work),
+      () => pendingPumps.delete(work),
+    )
+  }
+
   const onPath = (path: PathName) => {
+    if (finished) {
+      return
+    }
+
     setPath(path)
-    void pump()
+    startPump()
   }
 
   const onControl = (message: ControlMessage) => {
@@ -325,7 +357,7 @@ const serve = (
           offerContract()
         } else {
           setStatus("waiting-for-recipient")
-          view.update("Waiting for the recipient to open the link.")
+          publish({ type: "status", text: "Waiting for the recipient to open the link." })
         }
 
         return
@@ -342,7 +374,7 @@ const serve = (
           session++
           schedule = undefined
           setStatus("waiting-for-recipient")
-          view.update("The recipient disconnected. Waiting for them to come back.")
+          publish({ type: "status", text: "The recipient disconnected. Waiting for them to come back." })
         }
 
         return
@@ -362,7 +394,7 @@ const serve = (
         pagesSent.clear()
         setStatus("transferring")
         setProgress(everSent.count, contract.recordCount)
-        view.update("Sending.")
+        publish({ type: "status", text: "Sending." })
 
         return
       }
@@ -382,7 +414,7 @@ const serve = (
 
         receiveCredit(balance, message.records)
         awaitingFirstCredit = false
-        void pump()
+        startPump()
 
         return
       }
@@ -405,7 +437,7 @@ const serve = (
           }
         }
 
-        void pump()
+        startPump()
 
         return
       }
@@ -413,7 +445,7 @@ const serve = (
       case "complete": {
         if (message.sequence === sequence) {
           setProgress(contract.recordCount, contract.recordCount)
-          view.progress(contract.recordCount, contract.recordCount)
+          publish({ type: "progress", phase: "sending", done: contract.recordCount, total: contract.recordCount })
           finish("complete")
         }
 
@@ -460,217 +492,101 @@ const serve = (
           session++
           schedule = undefined
           setStatus("reconnecting")
-          view.update("Connection lost. Reconnecting.")
+          publish({ type: "status", text: "Connection lost. Reconnecting." })
         }
       },
     },
   })
+
+  return async () => {
+    if (!finished) {
+      finished = true
+      session++
+      schedule = undefined
+      connection.close()
+    }
+
+    await Promise.all(pendingPumps)
+  }
 }
 
-export const startSender = (root: HTMLElement) => {
-  const input = element("input", { type: "file", multiple: "", id: "files", class: "visually-hidden" })
-  const pickLabel = element("strong", {}, ["Choose files"])
-  const label = element("label", { for: "files", class: "drop-zone" }, [pickLabel, element("span", {}, [" or drop them here"])])
-  const status = element("p", { class: "status", role: "status" })
-  const list = element("ul", { class: "file-list", "aria-label": "Files to send" })
-  const totals = element("p", { class: "selection-total" })
-  const rejections = element("ul", { class: "rejections", role: "alert" })
-  const createLink = element("button", { type: "button", class: "primary", disabled: "" }, ["Seal parcel and create link"])
-  const sealNote = element("p", { class: "seal-note" }, ["Sealing locks these files and their names. To change them, you start a new parcel."])
-  const sealing = element("h2", { class: "sealing-heading", hidden: "" }, ["Sealing parcel"])
-  const sendOther = element("button", { type: "button", hidden: "" }, ["Send other files"])
-  const limitWarning = element("p", { class: "limit-warning", role: "alert", hidden: "" })
-  let selected: readonly Entry[] = []
-  let sealed = false
-  let serverLimits: ServerLimits | undefined
+/** Start one transfer. The returned cleanup prevents later publications and closes its connection. */
+export const startTransfer = (entries: readonly SenderEntry[], onEvent: (event: SenderEvent) => void): (() => Promise<void>) => {
+  let stopped = false
+  let stopServing: (() => Promise<void>) | undefined
+  const abort = new AbortController()
 
-  const section = element("section", { "aria-labelledby": "send-heading" }, [
-    element("h1", { id: "send-heading" }, ["Send files"]),
-    element("p", {}, ["Files are encrypted in this browser. The link holds the key; the server never sees it."]),
-    element("ul", { class: "promises", "aria-label": "What this site promises" }, [
-      element("li", {}, [element("a", { href: "/security" }, ["End-to-end encrypted"])]),
-      element("li", {}, [element("a", { href: "/privacy" }, ["No files kept on servers"])]),
-      element("li", {}, [element("a", { href: "/run-your-own" }, ["Free software you can run yourself"])]),
-    ]),
-    input,
-    label,
-    rejections,
-    sealing,
-    list,
-    totals,
-    limitWarning,
-    createLink,
-    sealNote,
-    status,
-    sendOther,
-  ])
-
-  replaceChildren(root, section)
-
-  /** Renders the list; `focusRename` puts focus back on that row's Rename button after a rename. */
-  const renderSelection = (focusRename?: number) => {
-    list.classList.toggle("sealed", sealed)
-    list.replaceChildren(
-      ...selected.map((entry, index) => {
-        const name = sealed
-          ? element("span", { class: "name" }, [entry.name])
-          : nameField({
-              name: entry.name,
-              problem: (candidate) =>
-                renameProblem(
-                  selected.map((chosen) => chosen.name),
-                  index,
-                  candidate,
-                ),
-              onRename: (renamed) => {
-                selected = selected.map((chosen, position) => (position === index ? { ...chosen, name: renamed } : chosen))
-                renderSelection(index)
-              },
-            })
-
-        const item = element("li", {}, [
-          name,
-          element("span", { class: "size" }, [formatSize(entry.file.size)]),
-          previewButton(
-            () => entry.file,
-            () => entry.name,
-          ),
-        ])
-
-        if (!sealed) {
-          const remove = element("button", { type: "button", class: "remove", "aria-label": `Remove ${entry.name}` }, ["Remove"])
-          remove.addEventListener("click", () => {
-            selected = removeFromSelection(selected, index)
-            renderSelection()
-          })
-          item.append(remove)
-        }
-
-        return item
-      }),
-    )
-
-    if (focusRename !== undefined) {
-      list.querySelectorAll<HTMLButtonElement>("button.rename")[focusRename]?.focus()
+  const publish: Publish = (event) => {
+    if (!stopped) {
+      onEvent(event)
     }
-
-    const total = selected.reduce((sum, entry) => sum + entry.file.size, 0)
-    totals.textContent = selected.length === 0 ? "" : `${selected.length} ${selected.length === 1 ? "file" : "files"}, ${formatSize(total)} in total`
-    pickLabel.textContent = selected.length === 0 ? "Choose files" : "Add more files"
-    // The room stops a parcel that passes the instance's relay limit, so say so before sealing rather than partway.
-    const tooLarge = serverLimits !== undefined && estimatedRelayedBytes(total) > serverLimits.relayedBytesPerRoom
-    limitWarning.hidden = !tooLarge || sealed
-    limitWarning.textContent = tooLarge
-      ? `This server relays up to ${formatSize(serverLimits?.relayedBytesPerRoom ?? 0)} per parcel, and these files need about ${formatSize(estimatedRelayedBytes(total))}. Remove some files, send them in more than one parcel, or use an instance with a higher limit.`
-      : ""
-    createLink.disabled = sealed || selected.length === 0 || tooLarge
   }
 
-  const add = (files: readonly File[]) => {
-    if (sealed) {
-      return
-    }
-
-    const change = addToSelection(
-      selected,
-      files.map((file) => ({ file, name: file.name.normalize("NFC") })),
-    )
-
-    selected = change.selected
-    rejections.replaceChildren(...change.rejected.map((rejection) => element("li", {}, [`${rejection.name} was not added: ${rejection.reason}.`])))
-    renderSelection()
-  }
-
-  const begin = async (entries: readonly Entry[]) => {
-    if (entries.length === 0) {
-      return
-    }
-
-    sealed = true
-    input.disabled = true
-    label.classList.add("disabled")
-    label.hidden = true
-    createLink.hidden = true
-    sealNote.hidden = true
-    sealing.hidden = false
-    rejections.replaceChildren()
-    renderSelection()
-    const progress = progressBar("Sealing parcel")
+  const begin = async () => {
     const total = entries.reduce((sum, entry) => sum + entry.file.size, 0)
     setTotalBytes(total)
-    status.before(progress.node)
     setStatus("labelling")
+    publish({ type: "status", text: "Sealing parcel." })
 
     try {
       const prepared = await prepare(entries, (done, count) => {
+        abort.signal.throwIfAborted()
         setProgress(done, count)
-        progress.update(done, count, () => `Encrypting and sealing ${formatSize(total)}: ${Math.round((done / count) * 100)}%`)
+        publish({ type: "progress", phase: "sealing", done, total: count })
       })
 
-      sealing.textContent = "Parcel sealed"
-      sendOther.hidden = false
-
+      abort.signal.throwIfAborted()
       setStatus("creating-room")
-      status.textContent = "Opening a room."
+      publish({ type: "status", text: "Opening a room." })
       const roomToken = await deriveRoomToken(prepared.linkSecret)
-      const roomIdentifier = await createRoom(await hashRoomToken(roomToken))
+      abort.signal.throwIfAborted()
+      const tokenHash = await hashRoomToken(roomToken)
+      abort.signal.throwIfAborted()
+      const roomIdentifier = await createRoom(tokenHash, abort.signal)
+      abort.signal.throwIfAborted()
       const link = `${pageOrigin()}/r/${roomIdentifier}#${encodeLinkSecret(prepared.linkSecret)}`
-      progress.update(0, prepared.contract.recordCount, () => "")
-      status.before(sharePanel(link))
+      publish({ type: "link", link })
+      abort.signal.throwIfAborted()
       const direct = await directOption()
-      serve(
-        prepared,
-        roomIdentifier,
-        toHex(roomToken),
-        {
-          update: (text) => {
-            status.textContent = text
-          },
-          progress: (done, count) => {
-            progress.update(done, count, () => `Sent ${Math.round((done / count) * 100)}% of ${formatSize(total)}`)
-          },
-        },
-        direct,
-      )
+      abort.signal.throwIfAborted()
+      stopServing = serve(prepared, roomIdentifier, toHex(roomToken), publish, direct)
       setProgress(0, prepared.contract.recordCount)
+      publish({ type: "progress", phase: "sending", done: 0, total: prepared.contract.recordCount })
     } catch (error) {
+      if (stopped) {
+        return
+      }
+
       const reason = reasonOf(error)
       setStatus("failed", reason)
       const detail = detailOf(error)
-      status.textContent = detail === undefined ? describeFailure(reason) : `${describeFailure(reason)} ${detail}`
+      publish(detail === undefined ? { type: "failure", reason } : { type: "failure", reason, detail })
     }
   }
 
-  input.addEventListener("change", () => {
-    add([...(input.files ?? [])])
-    // Cleared so choosing the same file again still fires `change`.
-    input.value = ""
-  })
-  createLink.addEventListener("click", () => {
-    void begin(selected)
-  })
+  const beginning = begin()
+  let closing: Promise<void> | undefined
 
-  const loadLimits = async () => {
-    serverLimits = await fetchServerLimits()
-    renderSelection()
+  return async () => {
+    if (closing !== undefined) {
+      await closing
+
+      return
+    }
+
+    stopped = true
+    abort.abort()
+    const serving = stopServing?.()
+    closing = (async () => {
+      await beginning
+      await serving
+    })()
+
+    await closing
   }
+}
 
-  void loadLimits()
-  // A sealed parcel cannot take more files; other files go in a new parcel with its own link, in a new tab, so this
-  // one keeps serving its recipient.
-  sendOther.addEventListener("click", () => {
-    window.open("/", "_blank", "noopener")
-  })
-  label.addEventListener("dragover", (event) => {
-    event.preventDefault()
-    label.classList.add("active")
-  })
-  label.addEventListener("dragleave", () => {
-    label.classList.remove("active")
-  })
-  label.addEventListener("drop", (event) => {
-    event.preventDefault()
-    label.classList.remove("active")
-    add([...(event.dataTransfer?.files ?? [])])
-  })
+/** Open a separate transfer without interrupting the current one. */
+export const openOtherTransfer = (): void => {
+  window.open("/", "_blank", "noopener")
 }
