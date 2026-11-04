@@ -1,11 +1,12 @@
-// oxlint-effect-plugin ignore-file:
-// reason: DOM glue inside the sandboxed preview frame; plain browser APIs, no services to compose
-/**
- * The inside of the preview frame (preview.html). It runs with an opaque origin (the frame's `sandbox` attribute and
- * the page's `sandbox` header), so a hostile file rendered here cannot read the app's storage or link secrets. It takes
- * one message type from its parent, renders only the kinds on sniff.ts's allowlist, and reports whether the browser
- * could decode the file. Text is shown through `textContent`, never parsed as markup.
- */
+import type { Cause } from "effect"
+import { Effect, Queue, Redacted, Schema, Stream } from "effect"
+import type { Update } from "foldkit"
+import { Command, Mount, Runtime } from "foldkit"
+import type { HtmlBuilder } from "foldkit/html"
+import { defineMessageUnion } from "foldkit/message"
+import * as v from "valibot"
+import { privateValue } from "./privateValue.ts"
+import { ParentMessage } from "./preview/protocol.ts"
 import type { PreviewKind } from "./sniff.ts"
 import { textPreviewLength } from "./sniff.ts"
 
@@ -23,107 +24,192 @@ export interface FrameMessage {
   readonly type: "ready" | "shown" | "failed"
 }
 
-const kinds = new Set<string>(["image", "video", "audio", "text"])
+type Content =
+  | { readonly kind: "empty" }
+  | { readonly kind: "text"; readonly text: string; readonly truncated: boolean }
+  | { readonly kind: "image" | "audio" | "video"; readonly url: string }
 
-const isShowMessage = (data: unknown): data is ShowMessage =>
-  typeof data === "object" &&
-  data !== null &&
-  "type" in data &&
-  data.type === "show" &&
-  "kind" in data &&
-  typeof data.kind === "string" &&
-  kinds.has(data.kind) &&
-  "blob" in data &&
-  data.blob instanceof Blob
+const Model = Schema.Struct({ content: privateValue<Content>() })
 
-const isClearMessage = (data: unknown): data is ClearMessage => typeof data === "object" && data !== null && "type" in data && data.type === "clear"
+type Model = typeof Model.Type
 
-const tell = (message: FrameMessage) => {
-  // The parent's origin is the app's; this frame's is opaque, so "*" is the only target that reaches it. Nothing
-  // secret is sent: only whether a preview rendered.
-  window.parent.postMessage(message, "*")
-}
+const Message = defineMessageUnion({
+  ChangedContent: { content: privateValue<Content>() },
+  Loaded: {},
+  Failed: {},
+  CompletedReply: {},
+})
 
-let currentUrl: string | undefined
+type Message = typeof Message.Type
 
-/** Stops any playing media and forgets the file. */
-const clear = () => {
-  document.body.replaceChildren()
+const Reply = Command.define("PreviewReply", {
+  args: { type: Schema.Literals(["shown", "failed"]) },
+  messages: [Message.CompletedReply],
+  execute: ({ type }) =>
+    Effect.sync(() => {
+      window.parent.postMessage({ type } satisfies FrameMessage, "*")
 
-  if (currentUrl !== undefined) {
-    URL.revokeObjectURL(currentUrl)
-    currentUrl = undefined
-  }
-}
+      return Message.CompletedReply()
+    }),
+})
 
-const show = async ({ kind, blob }: ShowMessage) => {
-  clear()
+const init = () => ({ model: { content: Redacted.make<Content>({ kind: "empty" }) } })
 
-  if (kind === "text") {
-    const text = await blob.slice(0, textPreviewLength).text()
-    const nodes: HTMLElement[] = [Object.assign(document.createElement("pre"), { textContent: text })]
-
-    if (blob.size > textPreviewLength) {
-      nodes.push(Object.assign(document.createElement("p"), { className: "note", textContent: "Only the beginning of the file is shown." }))
-    }
-
-    document.body.replaceChildren(...nodes)
-    tell({ type: "shown" })
-
-    return
-  }
-
-  const url = URL.createObjectURL(blob)
-  currentUrl = url
-
-  if (kind === "image") {
-    const image = document.createElement("img")
-    image.alt = ""
-    image.addEventListener("load", () => {
-      tell({ type: "shown" })
-    })
-    image.addEventListener("error", () => {
-      tell({ type: "failed" })
-    })
-    image.src = url
-    document.body.replaceChildren(image)
-
-    return
-  }
-
-  const media = document.createElement(kind)
-  media.controls = true
-  media.preload = "metadata"
-  media.addEventListener("loadedmetadata", () => {
-    tell({ type: "shown" })
+const update = (model: Model, message: Message): Update.Return<Model, Message> =>
+  Message.match(message, {
+    ChangedContent: ({ content }) => ({ model: { ...model, content } }),
+    Loaded: () => ({ model, commands: [Reply({ type: "shown" })] }),
+    Failed: () => ({ model, commands: [Reply({ type: "failed" })] }),
+    CompletedReply: () => ({ model }),
   })
-  media.addEventListener("error", () => {
-    tell({ type: "failed" })
-  })
-  media.src = url
-  document.body.replaceChildren(media)
+
+const ReceivePreview = Mount.defineStream("ReceivePreview", {
+  messages: [Message.ChangedContent, Message.Loaded, Message.Failed],
+  execute: () =>
+    Stream.callback<typeof Message.ChangedContent.Type | typeof Message.Loaded.Type | typeof Message.Failed.Type>((queue) =>
+      Effect.gen(function* () {
+        yield* Effect.acquireRelease(
+          Effect.sync(() => {
+            let currentUrl: string | undefined
+            let generation = 0
+            let active = true
+
+            const clear = () => {
+              generation++
+
+              if (currentUrl !== undefined) {
+                URL.revokeObjectURL(currentUrl)
+              }
+
+              currentUrl = undefined
+              Queue.offerUnsafe(queue, Message.ChangedContent({ content: Redacted.make({ kind: "empty" }) }))
+            }
+
+            const listener = (event: MessageEvent<unknown>) => {
+              if (event.source !== window.parent) {
+                return
+              }
+
+              const parsed = v.safeParse(ParentMessage, event.data)
+
+              if (!parsed.success) {
+                return
+              }
+
+              if (parsed.output.type === "clear") {
+                clear()
+
+                return
+              }
+
+              const { kind, blob } = parsed.output
+              clear()
+              const current = generation
+
+              if (kind === "text") {
+                void blob
+                  .slice(0, textPreviewLength)
+                  .text()
+                  .then((text) => {
+                    if (!active || generation !== current) {
+                      return null
+                    }
+
+                    Queue.offerUnsafe(queue, Message.ChangedContent({ content: Redacted.make({ kind, text, truncated: blob.size > textPreviewLength }) }))
+                    Queue.offerUnsafe(queue, Message.Loaded())
+
+                    return null
+                  })
+                  .catch(() => {
+                    if (active && generation === current) {
+                      Queue.offerUnsafe(queue, Message.Failed())
+                    }
+                  })
+
+                return
+              }
+
+              currentUrl = URL.createObjectURL(blob)
+              Queue.offerUnsafe(queue, Message.ChangedContent({ content: Redacted.make({ kind, url: currentUrl }) }))
+            }
+
+            window.addEventListener("message", listener)
+            window.parent.postMessage({ type: "ready" } satisfies FrameMessage, "*")
+
+            return () => {
+              active = false
+              window.removeEventListener("message", listener)
+              clear()
+            }
+          }),
+          (release) => Effect.sync(release),
+        )
+
+        return yield* Effect.never
+      }),
+    ),
+})
+
+const mediaEventHandler = (queue: Queue.Queue<typeof Message.Loaded.Type | typeof Message.Failed.Type, Cause.Done>) => (event: Event) => {
+  Queue.offerUnsafe(queue, event.type === "error" ? Message.Failed() : Message.Loaded())
 }
 
-// Refuse to run with a real origin: then this page would share the app's storage.
+const MediaEvents = Mount.defineStream("PreviewMediaEvents", {
+  messages: [Message.Loaded, Message.Failed],
+  execute: ({ element }) =>
+    Stream.callback<typeof Message.Loaded.Type | typeof Message.Failed.Type>((queue) =>
+      Effect.gen(function* () {
+        yield* Effect.acquireRelease(
+          Effect.sync(() => {
+            const receive = mediaEventHandler(queue)
+
+            element.addEventListener("loadedmetadata", receive)
+            element.addEventListener("load", receive)
+            element.addEventListener("error", receive)
+
+            if (element instanceof HTMLImageElement && element.complete) {
+              Queue.offerUnsafe(queue, element.naturalWidth > 0 ? Message.Loaded() : Message.Failed())
+            } else if (element instanceof HTMLMediaElement && element.error !== null) {
+              Queue.offerUnsafe(queue, Message.Failed())
+            } else if (element instanceof HTMLMediaElement && element.readyState >= 1) {
+              Queue.offerUnsafe(queue, Message.Loaded())
+            }
+
+            return () => {
+              element.removeEventListener("loadedmetadata", receive)
+              element.removeEventListener("load", receive)
+              element.removeEventListener("error", receive)
+            }
+          }),
+          (release) => Effect.sync(release),
+        )
+
+        return yield* Effect.never
+      }),
+    ),
+})
+
+const view = (model: Model, h: HtmlBuilder<Message>) => {
+  const content = Redacted.value(model.content)
+
+  return h.div(
+    [h.Class("preview-content"), h.OnMount(ReceivePreview())],
+    [
+      content.kind === "text"
+        ? h.div(
+            [h.Class("preview-text")],
+            [h.pre([], [content.text]), content.truncated ? h.p([h.Class("note")], ["Only the beginning of the file is shown."]) : null],
+          )
+        : null,
+      content.kind === "image" ? h.img([h.Src(content.url), h.Alt(""), h.OnMount(MediaEvents())]) : null,
+      content.kind === "audio" ? h.audio([h.Src(content.url), h.Controls(true), h.Preload("metadata"), h.OnMount(MediaEvents())], []) : null,
+      content.kind === "video" ? h.video([h.Src(content.url), h.Controls(true), h.Preload("metadata"), h.OnMount(MediaEvents())], []) : null,
+    ],
+  )
+}
+
+// Both the iframe sandbox and the response header make the origin opaque.
+// Refuse to render when that boundary is absent.
 if (window.origin === "null") {
-  window.addEventListener("message", (event) => {
-    if (event.source !== window.parent) {
-      return
-    }
-
-    if (isClearMessage(event.data)) {
-      clear()
-
-      return
-    }
-
-    if (!isShowMessage(event.data)) {
-      return
-    }
-
-    void show(event.data).catch(() => {
-      tell({ type: "failed" })
-    })
-  })
-  tell({ type: "ready" })
+  Runtime.run(Runtime.makeElement({ Model, init, update, view, container: document.body, devTools: false }))
 }
