@@ -398,7 +398,13 @@ export const view = defineView<Model, Message>((model, h) => {
                     viewInputs: { name: Redacted.make(entry.name), names: entries.map((item) => item.name), index, canRename: true },
                   }),
               h.span([h.Class("size")], [formatSize(entry.file.size)]),
-              Button.view({ onClick: Message.RequestedPreview({ key: entry.key }), toView: (attributes) => h.button(attributes.button, ["Preview"]) }, h),
+              Button.view(
+                {
+                  onClick: Message.RequestedPreview({ key: entry.key }),
+                  toView: (attributes) => h.button([...attributes.button, h.AriaLabel(`Preview ${entry.name}`)], ["Preview"]),
+                },
+                h,
+              ),
               ...(model.sealed
                 ? []
                 : [
