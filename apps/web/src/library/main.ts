@@ -15,7 +15,7 @@ type Review = readonly Catalog.ReviewedFile[]
 
 type Action =
   | { readonly kind: "load" }
-  | { readonly kind: "configure"; readonly enabled: boolean }
+  | { readonly kind: "configure"; readonly enabled: boolean; readonly epoch: number }
   | { readonly kind: "index"; readonly files: readonly File[]; readonly epoch: number; readonly reconnect: Entry | undefined }
   | { readonly kind: "picker"; readonly epoch: number }
   | { readonly kind: "create"; readonly name: string; readonly epoch: number }
@@ -35,7 +35,7 @@ type Result =
 
 type Confirmation =
   | { readonly kind: "none" }
-  | { readonly kind: "disable" }
+  | { readonly kind: "disable"; readonly epoch: number }
   | { readonly kind: "forgetFile"; readonly entry: Entry; readonly epoch: number }
   | { readonly kind: "forgetCollection"; readonly collection: Catalog.LibraryCollection; readonly epoch: number }
   | { readonly kind: "candidate"; readonly previous: Entry; readonly current: Catalog.IndexedVersion; readonly epoch: number }
@@ -109,7 +109,7 @@ const perform = Effect.fnUntraced(function* (action: Action): Effect.fn.Return<R
     }
 
     case "configure": {
-      return { kind: "snapshot", snapshot: yield* committedSnapshot(Catalog.configureCatalog(action.enabled)) }
+      return { kind: "snapshot", snapshot: yield* committedSnapshot(Catalog.configureCatalog(action.enabled, action.epoch)) }
     }
 
     case "index": {
@@ -303,8 +303,8 @@ export const update = (model: Model, incoming: Message): Return => {
       },
     }),
     RequestedReload: () => start(model, { kind: "load" }),
-    RequestedEnable: () => start(model, { kind: "configure", enabled: true }),
-    RequestedDisable: () => (model.busy ? { model } : ask(model, { kind: "disable" })),
+    RequestedEnable: () => start(model, { kind: "configure", enabled: true, epoch }),
+    RequestedDisable: () => (model.busy ? { model } : ask(model, { kind: "disable", epoch })),
     RequestedCreateCollection: () =>
       snapshot.enabled && Redacted.value(model.name).trim().length > 0
         ? start(model, { kind: "create", name: Redacted.value(model.name).trim(), epoch })
@@ -380,7 +380,7 @@ export const update = (model: Model, incoming: Message): Return => {
         }
 
         case "disable": {
-          action = { kind: "configure", enabled: false }
+          action = { kind: "configure", enabled: false, epoch: confirmation.epoch }
           break
         }
 

@@ -87,6 +87,15 @@ describe("Library page transitions", () => {
     }
   })
 
+  test("consent commands retain the epoch seen when requested", () => {
+    const enabled = catalogModel()
+    const disableDialog = update(enabled, Message.RequestedDisable()).model
+    const changed = { ...disableDialog, snapshot: Redacted.make({ ...Redacted.value(enabled.snapshot), epoch: 15 }) }
+
+    expect(actionFrom(update(changed, Message.ConfirmedAction()))).toEqual({ kind: "configure", enabled: false, epoch: 12 })
+    expect(actionFrom(update(init().model, Message.RequestedEnable()))).toEqual({ kind: "configure", enabled: true, epoch: 0 })
+  })
+
   test("consent is explicit and repeated clicks cannot admit concurrent edits", () => {
     const started = update(init().model, Message.RequestedEnable())
     expect(started.commands).toHaveLength(1)

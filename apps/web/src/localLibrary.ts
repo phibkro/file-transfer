@@ -75,7 +75,7 @@ export const deriveMyFiles = (snapshot: LibrarySnapshot): LibraryCollection => (
 
 type Operation =
   | { readonly mode: "read" }
-  | { readonly mode: "configure"; readonly edit: Edit }
+  | { readonly mode: "configure"; readonly epoch: number; readonly edit: Edit }
   | { readonly mode: "edit"; readonly epoch: number; readonly edit: Edit }
 
 const transaction = (operation: Operation) =>
@@ -160,7 +160,7 @@ const transaction = (operation: Operation) =>
               }),
             }
 
-            if (operation.mode === "edit" && (!snapshot.enabled || snapshot.epoch !== operation.epoch)) {
+            if (operation.mode !== "read" && (snapshot.epoch !== operation.epoch || (operation.mode === "edit" && !snapshot.enabled))) {
               throw conflict()
             }
 
@@ -227,9 +227,10 @@ const transaction = (operation: Operation) =>
 
 export const readLibrary = transaction({ mode: "read" })
 
-export const configureCatalog = (enabled: boolean) =>
+export const configureCatalog = (enabled: boolean, epoch: number) =>
   transaction({
     mode: "configure",
+    epoch,
     edit: (snapshot, files, collections, settings, committed) => {
       settings.put({ enabled, epoch: snapshot.epoch + 1 }, "consent")
       committed.push(() => {
