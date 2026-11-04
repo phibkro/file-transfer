@@ -15,6 +15,7 @@ describe("Library page transitions", () => {
     const message = Message.GotFileDropMessage({
       message: Redacted.make(FileDrop.Message.DroppedFiles({ files: [new File(["private"], "private-fixture.txt")] })),
     })
+
     const next = update(init().model, message)
     expect(next.commands ?? []).toEqual([])
     expect(Redacted.value(next.model.snapshot).files).toEqual([])
@@ -44,13 +45,13 @@ describe("Library page transitions", () => {
 
   test("switches the visible storage location while idle", () => {
     const next = update(init().model, Message.GotTabsMessage({ message: Tabs.Message.SelectedTab({ index: 1, value: "cloud" }) }))
-    expect(next.model.location).toBe("cloud")
+    expect(next.model.storageLocation).toBe("cloud")
   })
 
   test("does not switch storage panels while an operation owns the selection", () => {
     const pending = boot().model
     const next = update(pending, Message.GotTabsMessage({ message: Tabs.Message.SelectedTab({ index: 1, value: "cloud" }) }))
-    expect(next.model.location).toBe("device")
+    expect(next.model.storageLocation).toBe("device")
     expect(next.model.busy).toBe(true)
     expect(next.model.generation).toBe(pending.generation)
   })
@@ -60,6 +61,7 @@ describe("Library page transitions", () => {
     const stopped = cancel(pending)
     expect(stopped.commands?.map((command) => command.name)).toEqual(["RunLibraryAction.Interrupt"])
     expect(stopped.model.generation).toBeGreaterThan(pending.generation)
+
     const stale = update(
       stopped.model,
       Message.SucceededLibraryAction({
@@ -67,6 +69,7 @@ describe("Library page transitions", () => {
         result: Redacted.make({ kind: "snapshot", snapshot: { enabled: true, epoch: 1, files: [], collections: [] } }),
       }),
     )
+
     expect(stale.model).toBe(stopped.model)
     expect(stale.outMessage).toBeUndefined()
   })

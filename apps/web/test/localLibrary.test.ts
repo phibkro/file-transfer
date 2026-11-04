@@ -1,17 +1,24 @@
 import { Effect } from "effect"
 import { describe, expect, it } from "vite-plus/test"
-import { deriveMyFiles, indexCatalogFiles, reviewCatalogFiles, type IndexedVersion, type LibrarySnapshot } from "../src/localLibrary.ts"
+import { deriveMyFiles, indexCatalogFiles, reviewCatalogFiles } from "../src/localLibrary.ts"
+import type { IndexedVersion, LibrarySnapshot } from "../src/localLibrary.ts"
 
 const storedFile = (entry: IndexedVersion, identifier = 1) => ({ ...entry, identifier, revision: 3 })
+
 const snapshot = (files: LibrarySnapshot["files"]): LibrarySnapshot => ({
   enabled: true,
   epoch: 7,
   files,
   collections: [{ identifier: 9, revision: 0, name: "Selected", fileIdentifiers: [] }],
 })
-const first = <A>(values: ReadonlyArray<A>): A => {
+
+const first = <A>(values: readonly A[]): A => {
   const value = values[0]
-  if (value === undefined) throw new Error("Expected one test fixture")
+
+  if (value === undefined) {
+    throw new Error("Expected one test fixture")
+  }
+
   return value
 }
 
@@ -20,12 +27,14 @@ const readableHandle = (getFile: () => Promise<File>, permission: PermissionStat
   kind: "file",
   name: "fixture",
   getFile,
-  requestPermission: () => Promise.resolve(permission),
-  isSameEntry: () => Promise.resolve(false),
-  createWritable: () => Promise.reject(new DOMException("Read-only fixture", "NotAllowedError")),
+  requestPermission: async () => permission,
+  isSameEntry: async () => false,
+  createWritable: async () => {
+    throw new DOMException("Read-only fixture", "NotAllowedError")
+  },
 })
 
-const inspect = (files: ReadonlyArray<File>) => Effect.runPromise(indexCatalogFiles(files))
+const inspect = async (files: readonly File[]) => await Effect.runPromise(indexCatalogFiles(files))
 
 describe("local Library derived My files", () => {
   it("derives every indexed identifier independently of saved membership", () => {
@@ -49,7 +58,7 @@ describe("local Library file capabilities", () => {
     expect(entry).toMatchObject({ name: "notes.txt", size: 5, lastModified: 42 })
     expect(entry.file).toBe(file)
     expect(entry.handle).toBeUndefined()
-    expect(entry.fingerprint).toMatch(/^v1:[0-9a-f]{64}$/)
+    expect(entry.fingerprint).toMatch(/^v1:[0-9a-f]{64}$/u)
   })
 
   it("keeps the v1 empty-file fingerprint compatible", async () => {
@@ -61,7 +70,7 @@ describe("local Library file capabilities", () => {
     const options = { lastModified: 123 }
     const original = first(await inspect([new File(["first"], "same.txt", options)]))
     const replacement = new File(["other"], "same.txt", options)
-    const handle = readableHandle(() => Promise.resolve(replacement))
+    const handle = readableHandle(async () => replacement)
     const reviewed = first(await Effect.runPromise(reviewCatalogFiles([storedFile({ ...original, handle })])))
     expect(reviewed.changed).toBe(true)
     expect(reviewed.current.fingerprint).not.toBe(original.fingerprint)
@@ -72,10 +81,13 @@ describe("local Library file capabilities", () => {
     const original = first(await inspect([new File(["old"], "old.txt", { lastModified: 1 })]))
     const current = new File(["newer"], "new.txt", { lastModified: 2 })
     let reads = 0
-    const handle = readableHandle(() => {
+
+    const handle = readableHandle(async () => {
       reads++
-      return Promise.resolve(current)
+
+      return current
     })
+
     const reviewed = first(await Effect.runPromise(reviewCatalogFiles([storedFile({ ...original, handle })])))
     expect(reads).toBe(1)
     expect(reviewed.changed).toBe(true)
@@ -99,6 +111,7 @@ describe("local Library file capabilities", () => {
     const error = await Effect.runPromise(
       Effect.flip(reviewCatalogFiles([storedFile({ name: "missing.txt", size: 3, lastModified: 1, fingerprint: "v1:fixture" })])),
     )
+
     expect(error._tag).toBe("LibraryStorageError")
     expect(error.cause).toBeInstanceOf(DOMException)
     expect(error.cause).toMatchObject({ name: "NotFoundError" })
@@ -119,10 +132,13 @@ describe("local Library file capabilities", () => {
   it("does not read or substitute a captured File when durable permission is denied", async () => {
     const original = first(await inspect([new File(["private"], "private.txt", { lastModified: 1 })]))
     let reads = 0
-    const handle = readableHandle(() => {
+
+    const handle = readableHandle(async () => {
       reads++
-      return Promise.resolve(new File(["must not read"], "private.txt"))
+
+      return new File(["must not read"], "private.txt")
     }, "denied")
+
     const error = await Effect.runPromise(Effect.flip(reviewCatalogFiles([storedFile({ ...original, handle })])))
     expect(reads).toBe(0)
     expect(error._tag).toBe("LibraryStorageError")
@@ -132,7 +148,11 @@ describe("local Library file capabilities", () => {
   it("preserves foreign read failures instead of silently sharing a stale snapshot", async () => {
     const original = first(await inspect([new File(["old"], "draft.txt", { lastModified: 1 })]))
     const cause = new DOMException("The original file was removed", "NotFoundError")
-    const handle = readableHandle(() => Promise.reject(cause))
+
+    const handle = readableHandle(async () => {
+      throw cause
+    })
+
     const error = await Effect.runPromise(Effect.flip(reviewCatalogFiles([storedFile({ ...original, handle })])))
     expect(error._tag).toBe("LibraryStorageError")
     expect(error.cause).toBe(cause)
@@ -140,10 +160,13 @@ describe("local Library file capabilities", () => {
 
   it("does not acquire file bytes or permissions when review is constructed and discarded", () => {
     let reads = 0
-    const handle = readableHandle(() => {
+
+    const handle = readableHandle(async () => {
       reads++
-      return Promise.resolve(new File([], "empty"))
+
+      return new File([], "empty")
     })
+
     const review = reviewCatalogFiles([storedFile({ name: "empty", size: 0, lastModified: 0, fingerprint: "v1:fixture", handle })])
     expect(review).toBeDefined()
     expect(reads).toBe(0)

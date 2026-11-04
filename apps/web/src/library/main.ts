@@ -1,33 +1,38 @@
 import { DateTime, Effect, Option, Redacted, Schema } from "effect"
 import { Command, Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { type HtmlBuilder } from "foldkit/html"
+import type { HtmlBuilder } from "foldkit/html"
 import { defineView } from "foldkit/submodel"
 import { Button, Checkbox, Dialog, Fieldset, FileDrop, Input, Select, Switch, Tabs } from "@foldkit/ui"
 import { privateValue } from "../privateValue.ts"
 import * as Catalog from "../localLibrary.ts"
 
 type Snapshot = Catalog.LibrarySnapshot
+
 type Entry = Snapshot["files"][number]
-type Review = ReadonlyArray<Catalog.ReviewedFile>
+
+type Review = readonly Catalog.ReviewedFile[]
+
 type Action =
   | { readonly kind: "load" }
   | { readonly kind: "configure"; readonly enabled: boolean }
-  | { readonly kind: "index"; readonly files: ReadonlyArray<File>; readonly epoch: number; readonly reconnect: Entry | undefined }
+  | { readonly kind: "index"; readonly files: readonly File[]; readonly epoch: number; readonly reconnect: Entry | undefined }
   | { readonly kind: "picker"; readonly epoch: number }
   | { readonly kind: "create"; readonly name: string; readonly epoch: number }
-  | { readonly kind: "add"; readonly collection: number; readonly files: ReadonlyArray<number>; readonly epoch: number }
+  | { readonly kind: "add"; readonly collection: number; readonly files: readonly number[]; readonly epoch: number }
   | { readonly kind: "remove"; readonly collection: number; readonly file: number; readonly epoch: number }
   | { readonly kind: "forgetFile"; readonly file: number; readonly epoch: number }
   | { readonly kind: "forgetCollection"; readonly collection: number; readonly epoch: number }
   | { readonly kind: "reconnect"; readonly previous: Entry; readonly current: Catalog.IndexedVersion; readonly epoch: number }
   | { readonly kind: "review"; readonly entries: Snapshot["files"]; readonly collection: Catalog.LibraryCollection | undefined; readonly epoch: number }
   | { readonly kind: "approve"; readonly reviewed: Review; readonly collection: Catalog.LibraryCollection | undefined; readonly epoch: number }
+
 type Result =
   | { readonly kind: "snapshot"; readonly snapshot: Snapshot }
   | { readonly kind: "review"; readonly reviewed: Review; readonly collection: Catalog.LibraryCollection | undefined; readonly epoch: number }
   | { readonly kind: "candidate"; readonly previous: Entry; readonly current: Catalog.IndexedVersion; readonly epoch: number }
-  | { readonly kind: "share"; readonly snapshot: Snapshot; readonly files: ReadonlyArray<File> }
+  | { readonly kind: "share"; readonly snapshot: Snapshot; readonly files: readonly File[] }
+
 type Confirmation =
   | { readonly kind: "none" }
   | { readonly kind: "disable" }
@@ -43,7 +48,7 @@ export const Model = Schema.Struct({
   name: privateValue<string>(),
   confirmation: privateValue<Confirmation>(),
   reconnect: Schema.Option(Schema.Int),
-  location: Schema.Literals(["device", "cloud"]),
+  storageLocation: Schema.Literals(["device", "cloud"]),
   tabs: Tabs.Model,
   dialog: Dialog.Model,
   fileDrop: FileDrop.Model,
@@ -51,7 +56,9 @@ export const Model = Schema.Struct({
   generation: Schema.Int,
   status: Schema.String,
 })
+
 export type Model = typeof Model.Type
+
 export const Message = defineMessageUnion({
   GotTabsMessage: { message: Tabs.Message },
   GotDialogMessage: { message: Dialog.Message },
@@ -77,50 +84,85 @@ export const Message = defineMessageUnion({
   FailedLibraryAction: { generation: Schema.Int },
   CompletedCancelRunLibraryAction: {},
 })
+
 export type Message = typeof Message.Type
-export const OutMessage = defineMessageUnion({ RequestedQuickShare: { files: privateValue<ReadonlyArray<File>>() } })
+
+export const OutMessage = defineMessageUnion({ RequestedQuickShare: { files: privateValue<readonly File[]>() } })
+
 export type OutMessage = typeof OutMessage.Type
+
 type Return = Update.ReturnWithOutMessage<Model, Message, OutMessage>
 
 const LocationTabs = Tabs.create<"device" | "cloud">()
+
 /** Catalog mutations return the pre-edit snapshot. Read only after commit. */
 const committedSnapshot = Effect.fnUntraced(function* (operation: Effect.Effect<Snapshot, Catalog.LibraryStorageError>) {
   yield* operation
+
   return yield* Catalog.readLibrary
 })
+
 const perform = Effect.fnUntraced(function* (action: Action): Effect.fn.Return<Result, Catalog.LibraryStorageError> {
   switch (action.kind) {
-    case "load":
+    case "load": {
       return { kind: "snapshot", snapshot: yield* Catalog.readLibrary }
-    case "configure":
+    }
+
+    case "configure": {
       return { kind: "snapshot", snapshot: yield* committedSnapshot(Catalog.configureCatalog(action.enabled)) }
+    }
+
     case "index": {
       const indexed = yield* Catalog.indexCatalogFiles(action.files)
+
       if (action.reconnect !== undefined) {
         const current = indexed[0]
-        if (current === undefined || indexed.length !== 1) return yield* new Catalog.LibraryStorageError({ cause: "Choose exactly one original to reconnect" })
+
+        if (current === undefined || indexed.length !== 1) {
+          return yield* new Catalog.LibraryStorageError({ cause: "Choose exactly one original to reconnect" })
+        }
+
         return { kind: "candidate", previous: action.reconnect, current, epoch: action.epoch }
       }
+
       return { kind: "snapshot", snapshot: yield* committedSnapshot(Catalog.rememberFiles(indexed, action.epoch)) }
     }
-    case "picker":
+
+    case "picker": {
       return { kind: "snapshot", snapshot: yield* committedSnapshot(Catalog.rememberFiles(yield* Catalog.chooseCatalogFiles(true), action.epoch)) }
-    case "create":
+    }
+
+    case "create": {
       return { kind: "snapshot", snapshot: yield* committedSnapshot(Catalog.createCollection(action.name, action.epoch)) }
-    case "add":
+    }
+
+    case "add": {
       return { kind: "snapshot", snapshot: yield* committedSnapshot(Catalog.addToCollection(action.collection, action.files, action.epoch)) }
-    case "remove":
+    }
+
+    case "remove": {
       return { kind: "snapshot", snapshot: yield* committedSnapshot(Catalog.removeFromCollection(action.collection, action.file, action.epoch)) }
-    case "forgetFile":
+    }
+
+    case "forgetFile": {
       return { kind: "snapshot", snapshot: yield* committedSnapshot(Catalog.deleteFile(action.file, action.epoch)) }
-    case "forgetCollection":
+    }
+
+    case "forgetCollection": {
       return { kind: "snapshot", snapshot: yield* committedSnapshot(Catalog.deleteCollection(action.collection, action.epoch)) }
-    case "reconnect":
+    }
+
+    case "reconnect": {
       return { kind: "snapshot", snapshot: yield* committedSnapshot(Catalog.reconnectFile(action.previous, action.current, action.epoch)) }
-    case "review":
+    }
+
+    case "review": {
       return { kind: "review", reviewed: yield* Catalog.reviewCatalogFiles(action.entries), collection: action.collection, epoch: action.epoch }
+    }
+
     case "approve": {
       const snapshot = yield* committedSnapshot(Catalog.approveVersions(action.reviewed, action.epoch, action.collection))
+
       return { kind: "share", snapshot, files: action.reviewed.map((entry) => entry.file) }
     }
   }
@@ -140,10 +182,12 @@ export const RunLibraryAction = Command.define("RunLibraryAction", {
       Effect.catchTag("LibraryStorageError", () => Effect.succeed(Message.FailedLibraryAction({ generation }))),
     ),
 })
+
 export const cancel = (model: Model): Update.Return<Model, Message> => ({
   model: { ...model, busy: false, generation: model.generation + 1 },
   commands: [RunLibraryAction.Interrupt(() => Message.CompletedCancelRunLibraryAction())],
 })
+
 const start = (model: Model, action: Action): Update.Return<Model, Message> =>
   model.busy
     ? { model }
@@ -151,6 +195,7 @@ const start = (model: Model, action: Action): Update.Return<Model, Message> =>
         model: { ...model, busy: true, generation: model.generation + 1, status: "Working locally. No file content is being uploaded." },
         commands: [RunLibraryAction({ action: Redacted.make(action), generation: model.generation + 1 })],
       }
+
 export const init = (): Update.Return<Model, Message> => ({
   model: {
     snapshot: Redacted.make({ enabled: false, epoch: 0, files: [], collections: [] }),
@@ -159,7 +204,7 @@ export const init = (): Update.Return<Model, Message> => ({
     name: Redacted.make(""),
     confirmation: Redacted.make({ kind: "none" }),
     reconnect: Option.none(),
-    location: "device",
+    storageLocation: "device",
     tabs: Tabs.init({ id: "library-location" }),
     dialog: Dialog.init({ id: "library-confirmation" }),
     fileDrop: FileDrop.init({ id: "library-files" }),
@@ -168,13 +213,16 @@ export const init = (): Update.Return<Model, Message> => ({
     status: "Loading local Library.",
   },
 })
+
 export const boot = (): Update.Return<Model, Message> => start(init().model, { kind: "load" })
 
 const liftDialog = (message: Dialog.Message): Message => Message.GotDialogMessage({ message })
+
 const foldDialogOut =
   (out: Dialog.OutMessage) =>
   (model: Model): Update.Return<Model, Message> =>
     out._tag === "Closed" ? { model: { ...model, confirmation: Redacted.make({ kind: "none" }) } } : { model }
+
 const foldDialog = Update.foldChild({
   update: Dialog.update,
   read: (model: Model) => Option.some(model.dialog),
@@ -182,6 +230,7 @@ const foldDialog = Update.foldChild({
   toParentMessage: liftDialog,
   foldOutMessage: foldDialogOut,
 })
+
 const openDialog = Update.foldChildStep({
   update: Dialog.open,
   read: (model: Model) => Option.some(model.dialog),
@@ -189,6 +238,7 @@ const openDialog = Update.foldChildStep({
   toParentMessage: liftDialog,
   foldOutMessage: foldDialogOut,
 })
+
 const closeDialog = Update.foldChildStep({
   update: Dialog.close,
   read: (model: Model) => Option.some(model.dialog),
@@ -196,7 +246,9 @@ const closeDialog = Update.foldChildStep({
   toParentMessage: liftDialog,
   foldOutMessage: foldDialogOut,
 })
+
 const ask = (model: Model, confirmation: Confirmation): Return => openDialog({ ...model, confirmation: Redacted.make(confirmation) })
+
 const foldTabs = Update.foldChild({
   update: LocationTabs.update,
   read: (model: Model) => Option.some(model.tabs),
@@ -204,8 +256,9 @@ const foldTabs = Update.foldChild({
   toParentMessage: (message: Tabs.Message) => Message.GotTabsMessage({ message }),
   foldOutMessage:
     (out: Tabs.OutMessage) =>
-    (model: Model): Return => ({ model: { ...model, location: out.value === "cloud" ? "cloud" : "device" } }),
+    (model: Model): Return => ({ model: { ...model, storageLocation: out.value === "cloud" ? "cloud" : "device" } }),
 })
+
 const foldDrop = Update.foldChild({
   update: FileDrop.update,
   read: (model: Model) => Option.some(model.fileDrop),
@@ -215,129 +268,139 @@ const foldDrop = Update.foldChild({
     (out: FileDrop.OutMessage) =>
     (model: Model): Return => {
       const snapshot = Redacted.value(model.snapshot)
-      if (out._tag === "RejectedNonFiles") return { model: { ...model, status: "Choose or drop files, not text or folders." } }
-      if (!snapshot.enabled || model.busy) return { model }
+
+      if (out._tag === "RejectedNonFiles") {
+        return { model: { ...model, status: "Choose or drop files, not text or folders." } }
+      }
+
+      if (!snapshot.enabled || model.busy) {
+        return { model }
+      }
+
       const reconnect = snapshot.files.find((entry) => Option.contains(model.reconnect, entry.identifier))
+
       return start(model, { kind: "index", files: out.files, epoch: snapshot.epoch, reconnect })
     },
 })
 
-export const update = (model: Model, message: Message): Return => {
+export const update = (model: Model, incoming: Message): Return => {
   const snapshot = Redacted.value(model.snapshot)
   const collection = snapshot.collections.find((entry) => entry.identifier === model.collection)
-  const epoch = snapshot.epoch
-  return Message.match<Return>(message, {
-    GotTabsMessage: (message) => {
-      return model.busy ? { model } : foldTabs(model, message.message)
-    },
-    GotDialogMessage: (message) => {
-      return foldDialog(model, message.message)
-    },
-    GotFileDropMessage: (message) => {
-      return foldDrop(model, Redacted.value(message.message))
-    },
-    ChangedCollectionName: (message) => {
-      return { model: { ...model, name: message.name } }
-    },
-    SelectedCollection: (message) => {
-      return { model: { ...model, collection: message.identifier, selected: [] } }
-    },
-    ToggledFile: (message) => {
-      return {
-        model: {
-          ...model,
-          selected: model.selected.includes(message.identifier)
-            ? model.selected.filter((id) => id !== message.identifier)
-            : [...model.selected, message.identifier],
-        },
-      }
-    },
-    RequestedReload: () => {
-      return start(model, { kind: "load" })
-    },
-    RequestedEnable: () => {
-      return start(model, { kind: "configure", enabled: true })
-    },
-    RequestedDisable: () => {
-      return model.busy ? { model } : ask(model, { kind: "disable" })
-    },
-    RequestedCreateCollection: () => {
-      return snapshot.enabled && Redacted.value(model.name).trim().length > 0
+  const { epoch } = snapshot
+
+  return Message.match<Return>(incoming, {
+    GotTabsMessage: (message) => (model.busy ? { model } : foldTabs(model, message.message)),
+    GotDialogMessage: (message) => foldDialog(model, message.message),
+    GotFileDropMessage: (message) => foldDrop(model, Redacted.value(message.message)),
+    ChangedCollectionName: (message) => ({ model: { ...model, name: message.name } }),
+    SelectedCollection: (message) => ({ model: { ...model, collection: message.identifier, selected: [] } }),
+    ToggledFile: (message) => ({
+      model: {
+        ...model,
+        selected: model.selected.includes(message.identifier)
+          ? model.selected.filter((id) => id !== message.identifier)
+          : [...model.selected, message.identifier],
+      },
+    }),
+    RequestedReload: () => start(model, { kind: "load" }),
+    RequestedEnable: () => start(model, { kind: "configure", enabled: true }),
+    RequestedDisable: () => (model.busy ? { model } : ask(model, { kind: "disable" })),
+    RequestedCreateCollection: () =>
+      snapshot.enabled && Redacted.value(model.name).trim().length > 0
         ? start(model, { kind: "create", name: Redacted.value(model.name).trim(), epoch })
-        : { model }
-    },
-    RequestedDurablePicker: () => {
-      return snapshot.enabled ? start(model, { kind: "picker", epoch }) : { model }
-    },
-    RequestedAddMembers: (message) => {
-      return snapshot.enabled && model.selected.length > 0 && message.identifier !== 0
+        : { model },
+    RequestedDurablePicker: () => (snapshot.enabled ? start(model, { kind: "picker", epoch }) : { model }),
+    RequestedAddMembers: (message) =>
+      snapshot.enabled && model.selected.length > 0 && message.identifier !== 0
         ? start(model, { kind: "add", collection: message.identifier, files: model.selected, epoch })
-        : { model }
-    },
-    RequestedRemoveMember: (message) => {
-      return collection === undefined ? { model } : start(model, { kind: "remove", collection: collection.identifier, file: message.identifier, epoch })
-    },
+        : { model },
+    RequestedRemoveMember: (message) =>
+      collection === undefined ? { model } : start(model, { kind: "remove", collection: collection.identifier, file: message.identifier, epoch }),
     RequestedForgetFile: (message) => {
       const entry = snapshot.files.find((file) => file.identifier === message.identifier)
+
       return entry === undefined || model.busy ? { model } : ask(model, { kind: "forgetFile", entry })
     },
-    RequestedForgetCollection: () => {
-      return collection === undefined || model.busy ? { model } : ask(model, { kind: "forgetCollection", collection })
-    },
-    RequestedReconnect: (message) => {
-      return {
-        model: {
-          ...model,
-          reconnect: Option.some(message.identifier),
-          status: "Choose exactly one original in the file chooser below. Review and confirm before replacing its reference.",
-        },
-      }
-    },
-    CancelledReconnect: () => {
-      return { model: { ...model, reconnect: Option.none(), status: "Reconnection cancelled. The saved reference is unchanged." } }
-    },
+    RequestedForgetCollection: () => (collection === undefined || model.busy ? { model } : ask(model, { kind: "forgetCollection", collection })),
+    RequestedReconnect: (message) => ({
+      model: {
+        ...model,
+        reconnect: Option.some(message.identifier),
+        status: "Choose exactly one original in the file chooser below. Review and confirm before replacing its reference.",
+      },
+    }),
+    CancelledReconnect: () => ({ model: { ...model, reconnect: Option.none(), status: "Reconnection cancelled. The saved reference is unchanged." } }),
     RequestedReview: () => {
       const entries = snapshot.files.filter((entry) => model.selected.includes(entry.identifier))
+
       return entries.length === 0 ? { model } : start(model, { kind: "review", entries, collection, epoch })
     },
     RequestedReviewCollection: () => {
       const current = collection ?? Catalog.deriveMyFiles(snapshot)
       const entries = snapshot.files.filter((entry) => current.fileIdentifiers.includes(entry.identifier))
+
       return entries.length === 0 ? { model } : start(model, { kind: "review", entries, collection: current, epoch })
     },
     ConfirmedAction: () => {
-      if (model.busy) return { model }
+      if (model.busy) {
+        return { model }
+      }
+
       const confirmation = Redacted.value(model.confirmation)
       let action: Action
+
       switch (confirmation.kind) {
-        case "none":
+        case "none": {
           return { model }
-        case "disable":
+        }
+
+        case "disable": {
           action = { kind: "configure", enabled: false }
           break
-        case "forgetFile":
+        }
+
+        case "forgetFile": {
           action = { kind: "forgetFile", file: confirmation.entry.identifier, epoch }
           break
-        case "forgetCollection":
+        }
+
+        case "forgetCollection": {
           action = { kind: "forgetCollection", collection: confirmation.collection.identifier, epoch }
           break
-        case "candidate":
+        }
+
+        case "candidate": {
           action = { kind: "reconnect", previous: confirmation.previous, current: confirmation.current, epoch: confirmation.epoch }
           break
-        case "review":
+        }
+
+        case "review": {
           action = { kind: "approve", reviewed: confirmation.reviewed, collection: confirmation.collection, epoch: confirmation.epoch }
           break
+        }
       }
+
       const closed = closeDialog(model)
       const started = start(closed.model, action)
+
       return { ...started, commands: [...(closed.commands ?? []), ...(started.commands ?? [])] }
     },
     SucceededLibraryAction: (message) => {
-      if (!model.busy || message.generation !== model.generation) return { model }
+      if (!model.busy || message.generation !== model.generation) {
+        return { model }
+      }
+
       const result = Redacted.value(message.result)
       const ready: Model = { ...model, busy: false, status: "Library updated on this device only." }
-      if (result.kind === "review") return ask(ready, result)
-      if (result.kind === "candidate") return ask(ready, result)
+
+      if (result.kind === "review") {
+        return ask(ready, result)
+      }
+
+      if (result.kind === "candidate") {
+        return ask(ready, result)
+      }
+
       const next: Model = {
         ...ready,
         snapshot: Redacted.make(result.snapshot),
@@ -346,12 +409,12 @@ export const update = (model: Model, message: Message): Return => {
         name: Redacted.make(""),
         collection: result.snapshot.collections.some((entry) => entry.identifier === model.collection) ? model.collection : 0,
       }
+
       return result.kind === "share" ? { model: next, outMessage: OutMessage.RequestedQuickShare({ files: Redacted.make(result.files) }) } : { model: next }
     },
-    FailedLibraryAction: (message) => {
-      return message.generation !== model.generation
-        ? { model }
-        : {
+    FailedLibraryAction: (message) =>
+      message.generation === model.generation
+        ? {
             model: {
               ...model,
               busy: false,
@@ -359,23 +422,25 @@ export const update = (model: Model, message: Message): Return => {
                 "Could not complete this local operation. Permission may be denied, the browser may not support durable references, or the catalog changed in another tab. Reload the Library and review again, or reselect the original. Nothing was shared.",
             },
           }
-    },
-    CompletedCancelRunLibraryAction: () => {
-      return { model: { ...model, busy: false, generation: model.generation + 1 } }
-    },
+        : { model },
+    CompletedCancelRunLibraryAction: () => ({ model: { ...model, busy: false, generation: model.generation + 1 } }),
   })
 }
 
 const button = (h: HtmlBuilder<Message>, label: string, message: Message, disabled = false) =>
   Button.view({ onClick: message, isDisabled: disabled, toView: (attributes) => h.button([...attributes.button], [label]) }, h)
+
 export const view = defineView<Model, Message>((model, h) => {
   const snapshot = Redacted.value(model.snapshot)
+
   const collection =
     model.collection === 0
       ? Catalog.deriveMyFiles(snapshot)
       : (snapshot.collections.find((entry) => entry.identifier === model.collection) ?? Catalog.deriveMyFiles(snapshot))
+
   const disabled = model.busy || !snapshot.enabled
   const files = snapshot.files.filter((entry) => collection.fileIdentifiers.includes(entry.identifier))
+
   const device = () =>
     h.section(
       [],
@@ -437,11 +502,7 @@ export const view = defineView<Model, Message>((model, h) => {
                   h.select(
                     [...attributes.select],
                     [Catalog.deriveMyFiles(snapshot), ...snapshot.collections].map((entry) =>
-                      h.keyed("option")(
-                        String(entry.identifier),
-                        [h.Value(String(entry.identifier))],
-                        [entry.name + " (" + entry.fileIdentifiers.length + ")"],
-                      ),
+                      h.keyed("option")(String(entry.identifier), [h.Value(String(entry.identifier))], [`${entry.name} (${entry.fileIdentifiers.length})`]),
                     ),
                   ),
                 ],
@@ -517,7 +578,7 @@ export const view = defineView<Model, Message>((model, h) => {
                   [
                     Checkbox.view(
                       {
-                        id: "library-file-" + entry.identifier,
+                        id: `library-file-${entry.identifier}`,
                         isChecked: model.selected.includes(entry.identifier),
                         isDisabled: disabled,
                         onToggle: () => Message.ToggledFile({ identifier: entry.identifier }),
@@ -535,9 +596,9 @@ export const view = defineView<Model, Message>((model, h) => {
                     h.p(
                       [],
                       [
-                        String(entry.size) +
-                          " bytes. " +
-                          (entry.handle === undefined ? "Reselect after edits or reopening this page." : "Original reference: access checked before sharing."),
+                        `${String(entry.size)} bytes. ${
+                          entry.handle === undefined ? "Reselect after edits or reopening this page." : "Original reference: access checked before sharing."
+                        }`,
                       ],
                     ),
                     button(h, "Reconnect original", Message.RequestedReconnect({ identifier: entry.identifier }), disabled),
@@ -549,17 +610,49 @@ export const view = defineView<Model, Message>((model, h) => {
                 ),
               ),
             ),
-        h.p([], [String(model.selected.length) + " selected"]),
+        h.p([], [`${String(model.selected.length)} selected`]),
         button(h, "Review selected files before sharing", Message.RequestedReview(), disabled || model.selected.length === 0),
         button(h, "Review collection before sharing", Message.RequestedReviewCollection(), disabled || files.length === 0),
         ...snapshot.collections.map((entry) =>
-          button(h, "Add selected to " + entry.name, Message.RequestedAddMembers({ identifier: entry.identifier }), disabled || model.selected.length === 0),
+          button(h, `Add selected to ${entry.name}`, Message.RequestedAddMembers({ identifier: entry.identifier }), disabled || model.selected.length === 0),
         ),
       ],
     )
+
   const confirmation = Redacted.value(model.confirmation)
-  const confirmationTitle =
-    confirmation.kind === "review" ? "Review current versions" : confirmation.kind === "candidate" ? "Confirm reconnection" : "Confirm forgetting"
+
+  const confirmationTitle = confirmation.kind === "review" ? "Review current versions" : "Confirm forgetting"
+  const title = confirmation.kind === "candidate" ? "Confirm reconnection" : confirmationTitle
+
+  const description =
+    confirmation.kind === "candidate"
+      ? "Confirm that this is the intended original. Reconnecting changes its future shares, not an existing share."
+      : "Only Library metadata and references will be forgotten. Your original files are never deleted."
+
+  const actionLabel = confirmation.kind === "candidate" ? "Confirm replacement reference" : "Forget"
+
+  const confirmationDetail = () => {
+    switch (confirmation.kind) {
+      case "candidate": {
+        return h.p([], [`${confirmation.previous.name} → ${confirmation.current.name}, ${confirmation.current.size} bytes`])
+      }
+
+      case "forgetFile": {
+        return h.p([], [confirmation.entry.name])
+      }
+
+      case "forgetCollection": {
+        return h.p([], [`${confirmation.collection.name}. Its files remain in My files.`])
+      }
+
+      case "disable":
+      case "none":
+      case "review": {
+        return null
+      }
+    }
+  }
+
   return h.div(
     [h.Class("library-page"), h.AriaBusy(model.busy)],
     [
@@ -573,7 +666,7 @@ export const view = defineView<Model, Message>((model, h) => {
         toParentMessage: (message) => Message.GotTabsMessage({ message }),
         viewInputs: {
           tabs: ["device", "cloud"],
-          selectedValue: model.location,
+          selectedValue: model.storageLocation,
           ariaLabel: "Storage location",
           isTabDisabled: () => model.busy,
           toView: (render) =>
@@ -630,15 +723,13 @@ export const view = defineView<Model, Message>((model, h) => {
                         h.div(
                           [...render.panel, h.Class("dialog-panel")],
                           [
-                            h.h2([...render.title], [confirmationTitle]),
+                            h.h2([...render.title], [title]),
                             h.p(
                               [...render.description],
                               [
                                 confirmation.kind === "review"
                                   ? "Review original edits before approving. Fingerprints were checked locally, including edits that keep size and modification time unchanged. Captured File values do not track later edits: reselect after changing an original. Nothing has been sent."
-                                  : confirmation.kind === "candidate"
-                                    ? "Confirm that this is the intended original. Reconnecting changes its future shares, not an existing share."
-                                    : "Only Library metadata and references will be forgotten. Your original files are never deleted.",
+                                  : description,
                               ],
                             ),
                             confirmation.kind === "review"
@@ -654,38 +745,23 @@ export const view = defineView<Model, Message>((model, h) => {
                                         h.p(
                                           [],
                                           [
-                                            "Previous: " +
-                                              entry.previous.size +
-                                              " bytes, modified " +
-                                              Option.match(DateTime.make(entry.previous.lastModified), {
-                                                onNone: () => "unknown",
-                                                onSome: DateTime.formatIso,
-                                              }) +
-                                              ". Current: " +
-                                              entry.current.size +
-                                              " bytes, modified " +
-                                              Option.match(DateTime.make(entry.current.lastModified), { onNone: () => "unknown", onSome: DateTime.formatIso }) +
-                                              ".",
+                                            `Previous: ${entry.previous.size} bytes, modified ${Option.match(DateTime.make(entry.previous.lastModified), {
+                                              onNone: () => "unknown",
+                                              onSome: DateTime.formatIso,
+                                            })}. Current: ${entry.current.size} bytes, modified ${Option.match(DateTime.make(entry.current.lastModified), {
+                                              onNone: () => "unknown",
+                                              onSome: DateTime.formatIso,
+                                            })}.`,
                                           ],
                                         ),
                                       ],
                                     ),
                                   ),
                                 )
-                              : confirmation.kind === "candidate"
-                                ? h.p([], [confirmation.previous.name + " → " + confirmation.current.name + ", " + confirmation.current.size + " bytes"])
-                                : confirmation.kind === "forgetFile"
-                                  ? h.p([], [confirmation.entry.name])
-                                  : confirmation.kind === "forgetCollection"
-                                    ? h.p([], [confirmation.collection.name + ". Its files remain in My files."])
-                                    : null,
+                              : confirmationDetail(),
                             button(
                               h,
-                              confirmation.kind === "review"
-                                ? "Approve and share current versions"
-                                : confirmation.kind === "candidate"
-                                  ? "Confirm replacement reference"
-                                  : "Forget",
+                              confirmation.kind === "review" ? "Approve and share current versions" : actionLabel,
                               Message.ConfirmedAction(),
                               model.busy,
                             ),
