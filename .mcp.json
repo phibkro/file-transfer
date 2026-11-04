@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "foldkit-devtools": {
-      "command": "bun",
-      "args": ["run", "--cwd", "apps/web", "foldkit-devtools-mcp"]
+      "command": "nix-shell",
+      "args": ["shell.nix", "--run", "bun run --cwd apps/web foldkit-devtools-mcp"]
     }
   }
 }

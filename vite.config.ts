@@ -84,7 +84,12 @@ export default defineConfig({
     },
     overrides: [
       {
-        files: ["apps/web/src/{sender,recipient,library,admin,preview,ui,site}/**/*.ts", "apps/web/src/entry.ts", "apps/web/src/previewFrame.ts"],
+        files: [
+          "apps/web/src/{sender,recipient,library,admin,preview,ui,site}/**/*.ts",
+          "apps/web/src/main.ts",
+          "apps/web/src/entry.ts",
+          "apps/web/src/previewFrame.ts",
+        ],
         // SAFETY: the installed recommended preset contains only error and off severities.
         rules: foldkitRecommended.rules as Record<string, "error" | "off">,
       },

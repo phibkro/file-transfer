@@ -11,8 +11,8 @@
   // which effect-tsgo provides.
   "ignoreDependencies": ["@effect/tsgo", "@effect/language-service"],
   "workspaces": {
-    // Launched by the repository MCP client configuration, not by an application import or package script.
-    "apps/web": { "entry": ["scripts/**/*.ts"], "ignoreDependencies": ["@foldkit/devtools-mcp"] },
+    // The Vite plugin injects the DevTools overlay; the repository MCP configuration launches its server.
+    "apps/web": { "entry": ["scripts/**/*.ts"], "ignoreDependencies": ["@foldkit/devtools", "@foldkit/devtools-mcp"] },
     // knip reads the Workers runtime module `cloudflare:workers` as a package named `cloudflare`.
     "platforms/cloudflare": { "entry": ["alchemy.run.ts", "scripts/**/*.ts"], "ignoreDependencies": ["cloudflare"] },
     "platforms/self-hosted": { "entry": ["src/*.ts", "scripts/**/*.ts"] },

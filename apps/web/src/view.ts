@@ -1,29 +1,3 @@
-/** Small DOM helpers. Text always goes in through `textContent`, never as markup. */
-
-type Child = Node | string
-
-export const element = <K extends keyof HTMLElementTagNameMap>(
-  tag: K,
-  attributes: Readonly<Record<string, string>> = {},
-  children: readonly Child[] = [],
-): HTMLElementTagNameMap[K] => {
-  const node = document.createElement(tag)
-
-  for (const [name, value] of Object.entries(attributes)) {
-    node.setAttribute(name, value)
-  }
-
-  for (const child of children) {
-    node.append(child)
-  }
-
-  return node
-}
-
-export const replaceChildren = (parent: HTMLElement, ...children: readonly Child[]) => {
-  parent.replaceChildren(...children)
-}
-
 const units = ["bytes", "KB", "MB", "GB", "TB"] as const
 
 /** Decimal units, as file managers on most systems show them. */
@@ -37,19 +11,6 @@ export const formatSize = (bytes: number): string => {
   }
 
   return unit === 0 ? `${bytes} ${bytes === 1 ? "byte" : "bytes"}` : `${value.toFixed(value < 10 ? 1 : 0)} ${units[unit]}`
-}
-
-/** A progress bar with a text label, updated through the returned function. */
-export const progressBar = (label: string) => {
-  const bar = element("progress", { max: "1", value: "0", "aria-label": label })
-  const text = element("p", { class: "progress-text" })
-
-  const update = (done: number, total: number, describe: (done: number, total: number) => string) => {
-    bar.value = total === 0 ? 1 : done / total
-    text.textContent = describe(done, total)
-  }
-
-  return { node: element("div", { class: "progress" }, [bar, text]), update }
 }
 
 /** Human text for a failure reason code. */

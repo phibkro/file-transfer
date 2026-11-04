@@ -70,7 +70,7 @@ const subscriptions = Subscription.make<Model, Message>()((entry) => ({
       modelToDependencies: () => ({}),
       dependenciesToStream: () =>
         Stream.callback<typeof Message.ChangedContent.Type | typeof Message.Loaded.Type | typeof Message.Failed.Type>((queue) =>
-          Effect.gen(function*() {
+          Effect.gen(function* () {
             yield* Effect.acquireRelease(
               Effect.sync(() => {
                 let currentUrl: string | undefined
@@ -163,7 +163,7 @@ const MediaEvents = Mount.defineStream("PreviewMediaEvents", {
   messages: [Message.Loaded, Message.Failed],
   execute: ({ element }) =>
     Stream.callback<typeof Message.Loaded.Type | typeof Message.Failed.Type>((queue) =>
-      Effect.gen(function*() {
+      Effect.gen(function* () {
         yield* Effect.acquireRelease(
           Effect.sync(() => {
             const receive = mediaEventHandler(queue)
@@ -202,9 +202,9 @@ const view = (model: Model, h: HtmlBuilder<Message>) => {
     [
       content.kind === "text"
         ? h.div(
-          [h.Class("preview-text")],
-          [h.pre([], [content.text]), content.truncated ? h.p([h.Class("note")], ["Only the beginning of the file is shown."]) : null],
-        )
+            [h.Class("preview-text")],
+            [h.pre([], [content.text]), content.truncated ? h.p([h.Class("note")], ["Only the beginning of the file is shown."]) : null],
+          )
         : null,
       content.kind === "image" ? h.img([h.Src(content.url), h.Alt(""), h.OnMount(MediaEvents())]) : null,
       content.kind === "audio" ? h.audio([h.Src(content.url), h.Controls(true), h.Preload("metadata"), h.OnMount(MediaEvents())]) : null,
@@ -216,5 +216,7 @@ const view = (model: Model, h: HtmlBuilder<Message>) => {
 // Both the iframe sandbox and the response header make the origin opaque.
 // Refuse to render when that boundary is absent.
 if (window.origin === "null") {
-  Runtime.run(Runtime.makeElement({ Model, init, update, view, subscriptions, container: document.querySelector<HTMLElement>("#preview-app"), devTools: false }))
+  Runtime.run(
+    Runtime.makeElement({ Model, init, update, view, subscriptions, container: document.querySelector<HTMLElement>("#preview-app"), devTools: false }),
+  )
 }

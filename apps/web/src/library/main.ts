@@ -560,7 +560,7 @@ export const view = defineView<Model, Message>((model, h) => {
               h.label(
                 [...attributes.root, h.Class("drop-zone")],
                 [
-                  h.input([...attributes.input]),
+                  h.input([...attributes.input, h.Class("visually-hidden")]),
                   Option.isNone(model.reconnect) ? "Choose or drop files to add to My files" : "Choose the original to reconnect",
                 ],
               ),

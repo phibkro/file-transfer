@@ -7,6 +7,4 @@ export const offerRemoval = (remove: (() => Promise<void>) | undefined) => {
 
 export const hasOfferedRemoval = (): boolean => removeHere !== undefined
 
-export const removeOfferedFiles = async (): Promise<void> => {
-  await removeHere?.()
-}
+export const removeOfferedFiles = (): Promise<void> | undefined => removeHere?.()

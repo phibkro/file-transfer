@@ -21,6 +21,7 @@
  * test-only endpoint. Exits non-zero on the first failed check.
  *
  * `E2E_BROWSER` picks chromium (default), firefox or webkit for both sides. `E2E_SUITE` picks what runs:
+ * `E2E_BROWSER_EXECUTABLE_PATH` selects an explicit installed browser binary; otherwise Playwright uses its bundled browser.
  *
  * - `standard` (default): the scenarios above;
  * - `latency`: 128 MB throughput through scripts/latencyProxy.ts at round trips of 0, 50, 150 and 300 ms (local only);
@@ -168,7 +169,11 @@ const browserTypes = new Map([
   ["webkit", webkit],
 ])
 
-const browserType = browserTypes.get(browserName) ?? chromium
+const browserType = browserTypes.get(browserName)
+
+if (browserType === undefined) {
+  throw new Error(`Unknown E2E_BROWSER ${browserName}; use chromium, firefox or webkit`)
+}
 
 /**
  * Two pages in one browser on one machine connect directly through their host candidates, which browsers hide behind
@@ -180,6 +185,11 @@ const launchOptionsByBrowser = new Map<string, LaunchOptions>([
 ])
 
 const launchOptions: LaunchOptions = launchOptionsByBrowser.get(browserName) ?? {}
+const browserExecutablePath = process.env.E2E_BROWSER_EXECUTABLE_PATH
+
+if (browserExecutablePath !== undefined) {
+  launchOptions.executablePath = browserExecutablePath
+}
 
 /**
  * WebKit sends data channel messages from a queue and, when a send fails there (the channel's transport went away under
@@ -2165,7 +2175,11 @@ const lab = async () => {
     const only = process.env.E2E_LAB_ONLY
 
     const launchIn = async (side: LabSide) => {
-      const launched = await browserType.launch({ ...labLaunchOptions(), executablePath: browserInHome(side, browserType.executablePath(), scratch) })
+      const launched = await browserType.launch({
+        ...labLaunchOptions(),
+        executablePath: browserInHome(side, launchOptions.executablePath ?? browserType.executablePath(), scratch),
+      })
+
       browsers.push(launched)
 
       return launched

@@ -1,32 +1,36 @@
 import * as Nav from "@foldkit/ui/nav"
 import type { Html, HtmlBuilder } from "foldkit/html"
+import { howItWorksRouter, libraryRouter, privacyRouter, quickShareRouter, runYourOwnRouter, securityRouter } from "../routes.ts"
 
 /** Operators of modified versions should point this at their own source. */
 export const sourceUrl = "https://github.com/phibkro/file-transfer"
 
 const pages = {
-  "/": "Quick Share",
-  "/library": "Library",
-  "/how-it-works": "How it works",
-  "/security": "Security",
-  "/privacy": "Privacy",
-  "/run-your-own": "Run your own",
+  QuickShare: { path: quickShareRouter(), label: "Quick Share" },
+  Library: { path: libraryRouter(), label: "Library" },
+  HowItWorks: { path: howItWorksRouter(), label: "How it works" },
+  Security: { path: securityRouter(), label: "Security" },
+  Privacy: { path: privacyRouter(), label: "Privacy" },
+  RunYourOwn: { path: runYourOwnRouter(), label: "Run your own" },
 } as const
 
-// SAFETY: pages is a closed object literal with only its declared own string keys.
-const paths = Object.keys(pages) as (keyof typeof pages)[]
+type Page = keyof typeof pages
 
-export const siteHeader = <Message>(h: HtmlBuilder<Message>, currentPath: string): Html =>
+// SAFETY: pages is a closed local object with only its declared own string keys.
+const destinations = Object.keys(pages) as Page[]
+
+export const siteHeader = <Message>(h: HtmlBuilder<Message>, currentPath: string | undefined): Html =>
   h.header(
     [h.Class("site-header")],
     [
-      h.a([h.Href("/"), h.Class("site-name")], ["File transfer"]),
-      Nav.view({
-        items: paths,
+      h.a([h.Href(quickShareRouter()), h.Class("site-name")], ["File transfer"]),
+      Nav.view<Page>({
+        items: destinations,
         ariaLabel: "Site",
-        toHref: (path) => path,
-        isItemCurrent: (path) => path === currentPath,
-        toView: ({ nav, items }) => h.nav(nav, [...items.map((item) => h.a(item.link, [pages[item.value]])), h.a([h.Href(sourceUrl)], ["Source code"])]),
+        toHref: (page) => pages[page].path,
+        isItemCurrent: (page) => pages[page].path === currentPath,
+        toView: ({ nav, items }) =>
+          h.nav(nav, [...items.map((item) => h.keyed("a")(item.value, item.link, [pages[item.value].label])), h.a([h.Href(sourceUrl)], ["Source code"])]),
       }),
     ],
   )
@@ -43,9 +47,9 @@ export const siteFooter = <Message>(h: HtmlBuilder<Message>): Html =>
           ". Files are encrypted in your browser; servers carry only ciphertext and keep no files. ",
           h.a([h.Href(sourceUrl)], ["Read the code"]),
           ", ",
-          h.a([h.Href("/security#report")], ["report a problem"]),
+          h.a([h.Href(`${securityRouter()}#report`)], ["report a problem"]),
           ", or ",
-          h.a([h.Href("/run-your-own")], ["run your own"]),
+          h.a([h.Href(runYourOwnRouter())], ["run your own"]),
           ".",
         ],
       ),
