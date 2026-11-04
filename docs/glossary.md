@@ -57,6 +57,16 @@ One meaning per term, used the same way in code, docs and conversation. Code nam
 | Save tier     | How the browser writes to disk: file picker, service worker download, or OPFS.                                                | `SaveTier`                         |
 | Resume        | Continuing an interrupted transfer from data record `i` of the same contract; both sides check records against their labels.  | `ResumeBitmap`                     |
 
+## Product features
+
+| Term              | Meaning                                                                                                                                                      |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Quick Share       | A live encrypted transfer, without retaining a catalog or storing a server-side copy.                                                                        |
+| Local Library     | An opt-in, on-device index of original files. Stores only browser file handles, metadata, content fingerprints and collection membership, not file contents. |
+| Collection        | A reusable named set of indexed file references. Original edits affect future shares; approved versions are fixed for each active transfer.                  |
+| Index / Add files | Remember references and metadata locally. Does not copy or upload file contents.                                                                             |
+| Cloud Library     | Future explicit encrypted server storage. Hosted storage requires an account and Premium; a configurable self-hosted server requires no paid subscription.   |
+
 ## Words we avoid
 
 - "Format", for the parcel: it also means code formatting (`vp fmt`) and file formats.

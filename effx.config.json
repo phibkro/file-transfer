@@ -77,7 +77,9 @@
           "apps/web/src/report.ts",
           "apps/web/src/view.ts",
           "apps/web/src/sender.ts",
-          "apps/web/src/recipient.ts"
+          "apps/web/src/recipient.ts",
+          "apps/web/src/localLibrary.ts",
+          "apps/web/src/libraryView.ts"
         ],
         "role": "runtime-adapter",
         "platform": "browser"

@@ -264,12 +264,12 @@ const serve = (prepared: Prepared, roomIdentifier: string, roomToken: string, vi
   })
 }
 
-export const startSender = (root: HTMLElement) => {
+export const startSender = (root: HTMLElement, initialFiles: ReadonlyArray<File> = []) => {
   const input = element("input", { type: "file", multiple: "", id: "files", class: "visually-hidden" })
   const label = element("label", { for: "files", class: "drop-zone" }, [element("strong", {}, ["Choose files"]), element("span", {}, [" or drop them here"])])
   const status = element("p", { class: "status", role: "status" })
   const section = element("section", { "aria-labelledby": "send-heading" }, [
-    element("h1", { id: "send-heading" }, ["Send files"]),
+    element("h1", { id: "send-heading" }, ["Quick Share"]),
     element("p", {}, ["Files are encrypted in this browser. The link holds the key; the server never sees it."]),
     input,
     label,
@@ -337,4 +337,5 @@ export const startSender = (root: HTMLElement) => {
     label.classList.remove("active")
     if (!input.disabled) void begin([...(event.dataTransfer?.files ?? [])])
   })
+  if (initialFiles.length > 0) void begin(initialFiles)
 }

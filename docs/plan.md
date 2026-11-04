@@ -12,6 +12,12 @@ Startup phase: prove that people want this and that some will pay, before stabil
 | 3 Stabilise        | Own relays (workerd or celld, Bun fallback), coturn, self-host parity                             | Teams or self-hosters asking for private networks and native clients                          |
 | 4 The network      | Rust iroh nodes and CLI, network directory and policies, seeding, PAKE codes                      |                                                                                               |
 
+## Library product policy
+
+Quick Share and the opt-in Local Library are free and accountless. Local Library indexes originals, rather than copying or uploading file contents. Original edits affect future shares; content fingerprints are reviewed locally before each explicit share approval. See [the feature contract](specs/quick-share-local-library.md).
+
+Cloud Library remains phase 2 work, separate from indexing and live sharing. Hosted cloud storage requires both an account and Premium, with no free hosted storage tier. Users may configure their own cloud server without a paid subscription. This exception removes the subscription requirement, not server authentication or endpoint-only key ownership. Cloud storage must be an explicit encrypted upload, never automatic synchronization of the Local Library.
+
 ## M0 Spike (week 1)
 
 - [x] Scaffold the monorepo (this commit)

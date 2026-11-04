@@ -156,3 +156,80 @@ a:focus-visible {
 a {
   color: var(--accent);
 }
+
+nav {
+  display: flex;
+  gap: 1.5rem;
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: 1rem 1rem 0;
+}
+
+fieldset {
+  display: grid;
+  gap: 0.75rem;
+  min-width: 0;
+  margin-top: 1.5rem;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+}
+
+input[type="text"],
+select {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0.6rem;
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0.25rem;
+}
+
+.catalog-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.catalog-list li {
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--border);
+  overflow-wrap: anywhere;
+}
+
+.catalog-file,
+.catalog-consent {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.catalog-file span:not(.size) {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.catalog-file .size {
+  margin-left: auto;
+  white-space: nowrap;
+}
+.catalog-list .actions {
+  margin-top: 0.5rem;
+}
+.actions {
+  flex-wrap: wrap;
+}
+.library-notice {
+  border-left: 3px solid var(--accent);
+  padding-left: 0.75rem;
+}
+button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+button[aria-pressed="true"] {
+  border-color: var(--accent);
+  font-weight: 700;
+}
