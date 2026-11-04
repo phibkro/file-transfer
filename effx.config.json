@@ -129,15 +129,10 @@
           "apps/web/src/view.ts",
           "apps/web/src/sender.ts",
           "apps/web/src/recipient.ts",
-          "apps/web/src/share.ts",
           "apps/web/src/summary.ts",
-          "apps/web/src/saveAll.ts",
           "apps/web/src/leaveGuard.ts",
           "apps/web/src/storagePanel.ts",
-          "apps/web/src/preview.ts",
-          "apps/web/src/rename.ts",
           "apps/web/src/serverLimits.ts",
-          "apps/web/src/admin.ts",
           "apps/web/src/direct.ts",
           "apps/web/src/directSettings.ts",
           "apps/web/src/localLibrary.ts"
@@ -151,20 +146,31 @@
           "apps/web/src/sender/**",
           "apps/web/src/recipient/**",
           "apps/web/src/library/**",
-          "apps/web/src/admin/**",
+          "apps/web/src/admin/main.ts",
+          "apps/web/src/admin/data.ts",
+          "apps/web/src/admin/chart.ts",
           "apps/web/src/preview/**",
           "apps/web/src/ui/**",
           "apps/web/src/site/**",
-          "apps/web/src/privateValue.ts"
+          "apps/web/src/privateValue.ts",
+          "apps/web/src/routes.ts",
+          "apps/web/src/main.ts"
         ],
         "role": "runtime-adapter",
         "platform": "browser",
         "adapterDependencies": ["foldkit", "@foldkit/ui", "@effect/platform-browser", "uplot", "uqr", "valibot"]
       },
       {
-        "files": ["apps/web/src/main.ts", "apps/web/src/entry.ts", "apps/web/src/previewFrame.ts"],
+        "files": ["apps/web/src/entry.ts", "apps/web/src/previewFrame.ts", "apps/web/src/admin/entry.ts"],
         "role": "composition-root",
-        "platform": "browser"
+        "platform": "browser",
+        "adapterDependencies": ["foldkit"]
+      },
+      {
+        "files": ["apps/*/test/**"],
+        "role": "test",
+        "platform": "node",
+        "adapterDependencies": ["foldkit", "@foldkit/ui"]
       },
       {
         "files": [
@@ -173,7 +179,6 @@
           "services/*/test/**",
           "platforms/*/test/**",
           "integrations/*/test/**",
-          "apps/*/test/**",
           "tools/*/test/**"
         ],
         "role": "test",

@@ -1,0 +1,71 @@
+diff --git a/dist/config/expand.d.ts b/dist/config/expand.d.ts
+index 971504421cef3af4d772a82df85a13d5bee33887..43d9bd6d40cd10f4fef9640293043f80e6f3201c 100644
+--- a/dist/config/expand.d.ts
++++ b/dist/config/expand.d.ts
+@@ -22,7 +22,7 @@ export interface RuleGroup {
+     readonly strictness?: Strictness;
+     /** Per-rule severity overrides; applicability context never changes severity. */
+     readonly severityOverrides?: Partial<Readonly<Record<RuleName, Severity>>>;
+-    /** Raw package roots this runtime adapter is responsible for binding. */
++    /** Raw package roots this runtime adapter, composition root, or test uses. */
+     readonly adapterDependencies?: readonly string[];
+     /** Extra rule-specific options merged into the expanded options object. */
+     readonly ruleOptions?: Partial<Readonly<Record<RuleName, Readonly<Record<string, unknown>>>>>;
+diff --git a/dist/config/expand.js b/dist/config/expand.js
+index ae8bd4f263777f8d5d3a0044516380ae6d8cd510..8077cf5cfe9bbaa1b81aaf52bdf992e8ad9886ad 100644
+--- a/dist/config/expand.js
++++ b/dist/config/expand.js
+@@ -59,8 +59,8 @@ function assertValidGroup(group, index) {
+         }
+     }
+     const adapterDependencies = group.adapterDependencies ?? [];
+-    if (adapterDependencies.length > 0 && group.role !== "runtime-adapter") {
+-        throw new Error(`oxlint-effect-plugin: group ${index} declares adapterDependencies but its role is not "runtime-adapter"`);
++    if (adapterDependencies.length > 0 && !["runtime-adapter", "composition-root", "test"].includes(group.role)) {
++        throw new Error(`oxlint-effect-plugin: group ${index} declares adapterDependencies but its role is not a runtime adapter, composition root, or test`);
+     }
+     const seenAdapterDependencies = new Set();
+     for (const dependency of adapterDependencies) {
+diff --git a/dist/import-closure.d.ts b/dist/import-closure.d.ts
+index b4f3e9537bd89d72fc79eb1140afc205d75ffa30..6e6159a5ddfe7ae69ca1554c83f9335a0eff038c 100644
+--- a/dist/import-closure.d.ts
++++ b/dist/import-closure.d.ts
+@@ -14,7 +14,7 @@ export interface ImporterContext {
+     readonly role: Role;
+     /** Declared runtime platform, when the group has one. */
+     readonly platform?: Platform;
+-    /** Raw package roots this group-level runtime adapter owns. */
++    /** Raw package roots this runtime adapter, composition root, or test uses. */
+     readonly adapterDependencies?: readonly string[];
+ }
+ export interface EffectImportTarget {
+diff --git a/dist/import-closure.js b/dist/import-closure.js
+index 2aae8feb2b5e93bc18f0ae97082a02ac334eb510..5a18991c2c7a8f6b70f9bee3dad3ff7b323f5d75 100644
+--- a/dist/import-closure.js
++++ b/dist/import-closure.js
+@@ -71,7 +71,7 @@ function packageRootMatches(root, specifier) {
+     return specifier === root || specifier.startsWith(`${root}/`);
+ }
+ function hasDeclaredAdapterDependency(edge) {
+-    if (edge.importer.role !== "runtime-adapter")
++    if (!["runtime-adapter", "composition-root", "test"].includes(edge.importer.role))
+         return false;
+     return (edge.importer.adapterDependencies ?? []).some((dependency) => packageRootMatches(dependency, edge.specifier));
+ }
+@@ -98,13 +98,13 @@ function rejectReason(edge, trustedPureDependencies) {
+             return `The ${edge.importer.role} role cannot import a governed ${edge.target.role} module.`;
+         case "package":
+             if (edge.kind === "side-effect") {
+-                return "Side-effect-only package imports require a declared runtime-adapter dependency.";
++                return "Side-effect-only package imports require a declared adapter dependency.";
+             }
+             if (hasTrustedPureDependency(edge.specifier, trustedPureDependencies)) {
+                 return "The trusted-pure dependency is only valid for value imports; side-effect imports need an adapter allowance.";
+             }
+-            if (edge.importer.role === "runtime-adapter") {
+-                return `The runtime adapter does not declare package ${JSON.stringify(edge.specifier)} in adapterDependencies.`;
++            if (["runtime-adapter", "composition-root", "test"].includes(edge.importer.role)) {
++                return `The ${edge.importer.role} does not declare package ${JSON.stringify(edge.specifier)} in adapterDependencies.`;
+             }
+             return `Raw package ${JSON.stringify(edge.specifier)} is not admitted for the ${edge.importer.role} role.`;
+         case "unknown":
