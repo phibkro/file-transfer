@@ -19,7 +19,7 @@ export const previewBundle = (): Plugin => {
       root = config.root
     },
     async writeBundle(options) {
-      return Effect.runPromise(
+      await Effect.runPromise(
         Effect.gen(function* () {
           const path = yield* Path.Path
           const filesystem = yield* FileSystem.FileSystem
@@ -28,7 +28,7 @@ export const previewBundle = (): Plugin => {
 
           const result = yield* Effect.tryPromise({
             try: async () =>
-              build({
+              await build({
                 configFile: false,
                 root,
                 publicDir: false,
