@@ -63,4 +63,6 @@ nix-shell shell.nix --run 'bun apps/web/scripts/verify/launch.ts /tmp/file-trans
 
 Doctor checks the revision and [snapshot fingerprint](scripts/verify/snapshot.ts), including tracked changes and untracked file contents. Untracked symlinks fingerprint their targets, not external file contents. The launcher refuses an instance if source changes while it builds or copies assets. After edits, stop and relaunch the instance. Do not drive stale assets. On NixOS, select a system browser through `E2E_BROWSER_EXECUTABLE_PATH`. The default remains Playwright's bundled browser. The deeper `scripts/endToEnd.ts` suites cover completion, lifecycle, faults, network emulation and large transfers.
 
+Native transfer reports can arrive before Foldkit paints. Browser lifecycle checks wait for the rendered controls they assert, not only the native status hook.
+
 The read-only `window.fileTransferTest` hook exposes transfer status/progress, failure information, path and received-file hashes. It is evidence for browser-driven actions, not an API for causing state transitions.

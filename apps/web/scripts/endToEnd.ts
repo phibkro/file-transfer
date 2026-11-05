@@ -1521,16 +1521,19 @@ const recipientLifeCycle = async (browser: Browser, base: string) => {
     try {
       const link = await offer(sender.page, base, payload([["golf-review.bin", 10_000]]))
       await recipient.page.goto(link)
-      await waitForStatus(recipient.page, ["reviewing", "failed"])
+      await recipient.page.bringToFront()
+      await waitForStatus(recipient.page, ["reviewing"])
+
+      const accept = recipient.page.getByRole("button", { name: /^Accept/u })
+      const decline = recipient.page.getByRole("button", { name: "Decline", exact: true })
+
+      // Native reports precede queued Foldkit snapshots, so observe both rendered sides of the transition.
+      await Promise.all([accept.waitFor({ state: "visible", timeout: 10_000 }), decline.waitFor({ state: "visible", timeout: 10_000 })])
       abortRecipient(recipient.observed)
       await waitForStatus(recipient.page, ["failed"], 10_000)
-      const accept = recipient.page.getByRole("button", { name: /^Accept/u })
-      const buttons = (await accept.count()) + (await recipient.page.getByRole("button", { name: "Decline", exact: true }).count())
+      await Promise.all([accept.waitFor({ state: "hidden", timeout: 10_000 }), decline.waitFor({ state: "hidden", timeout: 10_000 })])
 
-      if ((await accept.count()) > 0) {
-        await accept.click()
-        await recipient.page.waitForTimeout(1500)
-      }
+      const buttons = (await accept.count()) + (await decline.count())
 
       check(buttons === 0 && (await status(recipient.page)) === "failed", "life cycle: after a failure while reviewing, Accept and Decline are gone (R2)", {
         buttons,
