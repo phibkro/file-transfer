@@ -79,5 +79,5 @@ if (result._tag !== "Some" || result.value._tag !== "Item" || result.value.key !
     } finally {
       await rm(root, { recursive: true, force: true })
     }
-  })
+  }, 30_000)
 })

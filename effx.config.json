@@ -213,8 +213,8 @@
         "adapterDependencies": ["node:path", "vite-plus"]
       },
       {
-        "files": ["checkWebRoles.ts"],
-        "role": "runtime-adapter",
+        "files": ["tools/quality/src/checkWebRoles.ts"],
+        "role": "composition-root",
         "platform": "bun",
         "adapterDependencies": ["bun"]
       },
@@ -228,7 +228,7 @@
         "files": ["apps/web/generator-test/**"],
         "role": "composition-root",
         "platform": "node",
-        "adapterDependencies": ["@effect/platform-node", "node:fs", "node:path"]
+        "adapterDependencies": ["@effect/platform-node", "node:fs", "node:os", "node:path"]
       },
       {
         "files": ["apps/*/test/**"],

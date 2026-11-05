@@ -34,6 +34,7 @@
     "integrations/*/src/**/*.ts",
     "apps/*/src/**/*.ts",
     "apps/*/test/**/*.ts",
+    "apps/web/generator-test/**/*.ts",
     "apps/*/scripts/**/*.ts",
     "tools/*/src/**/*.ts",
     "tools/*/test/**/*.ts"
