@@ -50,6 +50,7 @@ type Confirmation =
 
 export const Model = Schema.Struct({
  snapshot: privateValue<Snapshot>(),
+ loadState: Schema.Literals(["loading", "ready", "failed"]),
  collection: Schema.Int,
  selected: Schema.Array(Schema.Int),
  name: privateValue<string>(),
@@ -216,6 +217,7 @@ const start = (model: Model, action: Action): Update.Return<Model, Message> =>
 export const init = (): Update.Return<Model, Message> => ({
  model: {
   snapshot: Redacted.make({ enabled: false, epoch: 0, files: [], collections: [] }),
+  loadState: "loading",
   collection: 0,
   selected: [],
   name: Redacted.make(""),
@@ -347,7 +349,7 @@ export const update = (model: Model, incoming: Message): Return => {
      : [...model.selected, message.identifier],
    },
   }),
-  RequestedReload: () => start(model, { kind: "load" }),
+  RequestedReload: () => start(model.loadState === "failed" ? { ...model, loadState: "loading" } : model, { kind: "load" }),
   RequestedEnable: () => start(model, { kind: "configure", enabled: true, epoch }),
   RequestedDisable: () => (model.operation === "idle" ? ask(model, { kind: "disable", epoch }) : { model }),
   RequestedCreateCollection: () =>
@@ -476,7 +478,7 @@ export const update = (model: Model, incoming: Message): Return => {
    }
 
    const result = Redacted.value(message.result)
-   const ready: Model = { ...model, operation: "idle", status: result.kind === "loaded" ? "" : "Library updated on this device only." }
+   const ready: Model = { ...model, loadState: result.kind === "loaded" ? "ready" : model.loadState, operation: "idle", status: result.kind === "loaded" ? "" : "Library updated on this device only." }
 
    if (result.kind === "review") {
     return ask(ready, result)
@@ -506,6 +508,7 @@ export const update = (model: Model, incoming: Message): Return => {
     ? {
      model: {
       ...model,
+      loadState: model.loadState === "loading" ? "failed" : model.loadState,
       operation: "idle",
       status:
        "Could not complete this local operation. Permission may be denied, the browser may not support durable references, or the catalog changed in another tab. Reload the Library and review again, or reselect the original. Nothing was shared.",
@@ -517,6 +520,7 @@ export const update = (model: Model, incoming: Message): Return => {
     ? {
      model: {
       ...model,
+      loadState: model.loadState === "loading" ? "failed" : model.loadState,
       operation: "idle",
       status: "Local operation cancelled. Reload the Library to check for any change that committed before cancellation.",
      },
@@ -529,6 +533,21 @@ const button = (h: HtmlBuilder<Message>, label: string, message: Message, disabl
  Button.view({ onClick: message, isDisabled: disabled, toView: (attributes) => h.button([...attributes.button, h.Class("button")], [label]) }, h)
 
 export const view = defineView<Model, Message, { readonly sharingDisabled: boolean }>((model, inputs, h) => {
+ if (model.loadState !== "ready") {
+  return h.div(
+   [h.Id("library"), h.Tabindex(-1), h.Class("library library-page"), h.AriaBusy(model.loadState === "loading")],
+   [
+    h.div([h.Class("library-header")], [h.div([h.Class("heading")], [h.span([h.Class("section-icon lilac")], [icon(h, "folder")]), h.h2([], ["Local Library"])])]),
+    h.div(
+     [h.Class("panel flex min-h-48 flex-col items-center justify-center gap-3 px-4 py-10 text-center")],
+     model.loadState === "loading"
+      ? [h.p([h.Role("status")], ["Loading local Library…"])]
+      : [h.p([h.Role("status")], [model.status]), button(h, "Reload Library", Message.RequestedReload(), model.operation !== "idle")],
+    ),
+   ],
+  )
+ }
+
  const snapshot = Redacted.value(model.snapshot)
 
  const collection =
