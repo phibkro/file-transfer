@@ -1117,9 +1117,10 @@ const checkPdfPreview = async (page: Page, who: string, name = "report.pdf", pag
 
   for (let number = 1; number <= pages; number++) {
     await frame.locator(`canvas[aria-label="PDF page ${number}"]`).waitFor({ timeout: 10_000 })
-    const target = page.frames().find((candidate) => candidate.url().includes("/preview.html"))
+    const frameElement = await page.locator("iframe.preview-frame").elementHandle()
+    const target = await frameElement?.contentFrame()
 
-    if (target === undefined) {
+    if (target === undefined || target === null) {
       throw new Error("The PDF preview frame is missing")
     }
 
