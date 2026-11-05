@@ -689,7 +689,7 @@ export const contentPages = {
             h.p(
               [],
               [
-                "When both sides allow direct connections, encrypted pieces travel between browsers through WebRTC. Browsers exchange network addresses through the room and can contact the operator's configured STUN service. The other endpoint learns your network (IP) address. To prevent that disclosure, open Browser settings, then Direct connections, and switch direct connections off. Transfers you start or open afterwards use the relay. The relay still sees your network address.",
+                "When both sides allow direct connections, encrypted pieces travel between browsers through WebRTC. Browsers exchange network addresses through the room and can contact the operator's configured STUN service. The other endpoint learns your network (IP) address. To prevent that disclosure, open Settings, then Direct connections, and switch direct connections off. Transfers you start or open afterwards use the relay. The relay still sees your network address.",
               ],
             ),
             "\n\n      ",
@@ -706,7 +706,7 @@ export const contentPages = {
                   ],
                 ),
                 "\n        ",
-                h.li([], ["Browser settings contains Storage in this browser. This panel shows storage use and controls for clearing received output."]),
+                h.li([], ["Settings contains Storage in this browser. This panel shows storage use and controls for clearing received output."]),
                 "\n        ",
                 h.li([], ["Whether you allow direct connections is remembered in this browser only."]),
                 h.li(

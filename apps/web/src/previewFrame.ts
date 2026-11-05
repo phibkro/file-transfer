@@ -1,3 +1,5 @@
+import { Button } from "@foldkit/ui"
+import type { Appearance } from "./appearance.ts"
 import type { Cause } from "effect"
 import { Effect, Queue, Redacted, Schema, Stream } from "effect"
 import type { Update } from "foldkit"
@@ -18,6 +20,7 @@ export interface ShowMessage {
   readonly type: "show"
   readonly kind: PreviewKind
   readonly blob: Blob
+  readonly appearance: Appearance
 }
 
 export interface ClearMessage {
@@ -137,7 +140,8 @@ const subscriptions = Subscription.make<Model, Message>()((entry) => ({
                     return
                   }
 
-                  const { kind, blob } = parsed.output
+                  const { kind, blob, appearance } = parsed.output
+                  document.documentElement.dataset.appearance = appearance
                   clear()
                   const current = generation
 
@@ -155,6 +159,8 @@ const subscriptions = Subscription.make<Model, Message>()((entry) => ({
                           return null
                         }
 
+                        // The bundled worker executes locally; no worker URL or auxiliary fetch is needed.
+                        Object.assign(globalThis, { pdfjsWorker: pdfWorker })
                         currentPdf = getDocument({
                           data: new Uint8Array(buffer),
                           disableFontFace: true,
@@ -283,9 +289,6 @@ class PdfBinaryDataFactory {
   }
 }
 
-// PDF.js uses its bundled main-thread worker rather than fetching a worker from the opaque origin.
-Object.assign(globalThis, { pdfjsWorker: pdfWorker })
-
 const PdfPage = Mount.defineStream("PreviewPdfPage", {
   args: { document: privateValue<PDFDocumentProxy>(), page: Schema.Int, generation: Schema.Int },
   messages: [Message.LoadedPdf, Message.FailedPdf],
@@ -365,11 +368,22 @@ const view = (model: Model, h: HtmlBuilder<Message>) => {
               h.div(
                 [h.Class("preview-pdf-controls")],
                 [
-                  h.button([h.Type("button"), h.Disabled(content.page <= 1), h.OnClick(Message.RequestedPage({ page: content.page - 1 }))], ["Previous"]),
+                  Button.view(
+                    {
+                      onClick: Message.RequestedPage({ page: content.page - 1 }),
+                      isDisabled: content.page <= 1,
+                      toView: (attributes) => h.button([...attributes.button, h.Class("button")], ["Previous"]),
+                    },
+                    h,
+                  ),
                   h.span([h.Role("status")], [content.pages > 0 ? `Page ${content.page} of ${content.pages}` : "Loading PDF"]),
-                  h.button(
-                    [h.Type("button"), h.Disabled(content.page >= content.pages), h.OnClick(Message.RequestedPage({ page: content.page + 1 }))],
-                    ["Next"],
+                  Button.view(
+                    {
+                      onClick: Message.RequestedPage({ page: content.page + 1 }),
+                      isDisabled: content.page >= content.pages,
+                      toView: (attributes) => h.button([...attributes.button, h.Class("button")], ["Next"]),
+                    },
+                    h,
                   ),
                 ],
               ),

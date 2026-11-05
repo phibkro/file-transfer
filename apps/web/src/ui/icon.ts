@@ -1,8 +1,14 @@
-// Icon paths adapted from the operator-provided pocketdrop-source.zip (https://pocketdrop-design.philib-krogh.chatgpt.site/).
+// Other icon paths: operator-provided pocketdrop-source.zip (https://pocketdrop-design.philib-krogh.chatgpt.site/).
+/*! Package icon: Lucide (https://lucide.dev/icons/package), ISC license.
+ * Copyright (c) 2026 Lucide Icons and Contributors
+ * Permission to use, copy, modify, and/or distribute this software for any purpose with or without fee is hereby granted, provided that the above copyright notice and this permission notice appear in all copies.
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
 import type { Html, HtmlBuilder } from "foldkit/html"
 
 const paths = {
-  mark: "M3 7.5h18v12H3zM7 7.5l2.2-3h5.6l2.2 3M3 12h5l2 2h4l2-2h5",
+  package:
+    "M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73zM12 22V12M3.29 7 12 12 20.71 7m-13.21-2.73 9 5.15",
   send: "M3 11.5 21 3l-5 18-4.2-7-8.8-2.5ZM21 3l-9.2 11",
   receive: "M12 3v12m-4-4 4 4 4-4M4 15v5h16v-5",
   upload: "M12 16V4m-5 5 5-5 5 5M4 16v4h16v-4",
@@ -24,4 +30,11 @@ const paths = {
 } as const
 
 export const icon = <Message>(h: HtmlBuilder<Message>, name: keyof typeof paths, className = ""): Html =>
-  h.svg([h.Class(`icon ${className}`), h.Attribute("viewBox", "0 0 24 24"), h.Attribute("aria-hidden", "true")], [h.path([h.Attribute("d", paths[name])])])
+  h.svg(
+    [
+      h.Class(`icon ${name === "package" ? "lucide lucide-package" : ""} ${className}`),
+      h.Attribute("viewBox", "0 0 24 24"),
+      h.Attribute("aria-hidden", "true"),
+    ],
+    [h.path([h.Attribute("d", paths[name])])],
+  )

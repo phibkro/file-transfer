@@ -9,6 +9,7 @@ export const AppRoute = Route.defineRouteUnion({
   Security: {},
   Privacy: {},
   RunYourOwn: {},
+  ThirdPartyNotices: {},
 })
 
 export const MainRoute = AppRoute.subset(["QuickShare", "Library", "Recipient"])
@@ -18,3 +19,4 @@ export const howItWorksRouter = pipe(Route.literal("how-it-works"), Route.mapTo(
 export const securityRouter = pipe(Route.literal("security"), Route.mapTo(AppRoute.Security))
 export const privacyRouter = pipe(Route.literal("privacy"), Route.mapTo(AppRoute.Privacy))
 export const runYourOwnRouter = pipe(Route.literal("run-your-own"), Route.mapTo(AppRoute.RunYourOwn))
+export const thirdPartyNoticesRouter = pipe(Route.literal("pdfjs-notices.txt"), Route.mapTo(AppRoute.ThirdPartyNotices))

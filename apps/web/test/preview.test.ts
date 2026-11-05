@@ -7,7 +7,7 @@ import { FrameReply, ParentMessage } from "../src/preview/protocol.ts"
 
 describe("preview dialog", () => {
   test("opening retains private input without exposing the name in diagnostics", () => {
-    const input = Redacted.make({ file: new Blob(["private contents"]), name: "private-name.txt" })
+    const input = Redacted.make({ file: new Blob(["private contents"]), name: "private-name.txt", returnFocusId: "preview-trigger" })
     const message = Message.RequestedOpen({ input })
     const result = update(init().model, message)
     expect(result.model.dialog.isOpen).toBe(true)
@@ -16,15 +16,27 @@ describe("preview dialog", () => {
   })
 
   test("a new request ignores replies from an older frame", () => {
-    const first = update(init().model, Message.RequestedOpen({ input: Redacted.make({ file: new Blob(["one"]), name: "one.txt" }) })).model
-    const second = update(first, Message.RequestedOpen({ input: Redacted.make({ file: new Blob(["two"]), name: "two.txt" }) })).model
+    const first = update(
+      init().model,
+      Message.RequestedOpen({ input: Redacted.make({ file: new Blob(["one"]), name: "one.txt", returnFocusId: "preview-trigger" }) }),
+    ).model
+
+    const second = update(
+      first,
+      Message.RequestedOpen({ input: Redacted.make({ file: new Blob(["two"]), name: "two.txt", returnFocusId: "preview-trigger" }) }),
+    ).model
+
     const stale = update(second, Message.ChangedStatus({ generation: first.generation, status: "old", phase: "shown" }))
     expect(stale.model).toBe(second)
     expect(stale.model.phase).toBe("loading")
   })
 
   test("closing releases private input and invalidates late replies", () => {
-    const opened = update(init().model, Message.RequestedOpen({ input: Redacted.make({ file: new Blob(["file"]), name: "name.txt" }) })).model
+    const opened = update(
+      init().model,
+      Message.RequestedOpen({ input: Redacted.make({ file: new Blob(["file"]), name: "name.txt", returnFocusId: "preview-trigger" }) }),
+    ).model
+
     const closed = update(opened, Message.GotDialogMessage({ message: Dialog.Message.RequestedClose() })).model
     expect(Redacted.value(closed.input)).toBeUndefined()
     expect(closed.generation).toBeGreaterThan(opened.generation)
@@ -32,7 +44,11 @@ describe("preview dialog", () => {
   })
 
   test("loading stays distinct from a decoded or unavailable preview", () => {
-    const opened = update(init().model, Message.RequestedOpen({ input: Redacted.make({ file: new Blob(["file"]), name: "name.txt" }) })).model
+    const opened = update(
+      init().model,
+      Message.RequestedOpen({ input: Redacted.make({ file: new Blob(["file"]), name: "name.txt", returnFocusId: "preview-trigger" }) }),
+    ).model
+
     expect(opened.phase).toBe("loading")
 
     const decoded = update(opened, Message.ChangedStatus({ generation: opened.generation, status: "", phase: "shown" })).model
@@ -43,10 +59,10 @@ describe("preview dialog", () => {
   })
 
   test("the frame channel accepts only supported messages and Blob content", () => {
-    expect(v.safeParse(ParentMessage, { type: "show", kind: "text", blob: new Blob(["text"]) }).success).toBe(true)
-    expect(v.safeParse(ParentMessage, { type: "show", kind: "pdf", blob: new Blob(["%PDF-"]) }).success).toBe(true)
-    expect(v.safeParse(ParentMessage, { type: "show", kind: "html", blob: new Blob(["text"]) }).success).toBe(false)
-    expect(v.safeParse(ParentMessage, { type: "show", kind: "text", blob: "text" }).success).toBe(false)
+    expect(v.safeParse(ParentMessage, { type: "show", kind: "text", blob: new Blob(["text"]), appearance: "system" }).success).toBe(true)
+    expect(v.safeParse(ParentMessage, { type: "show", kind: "pdf", blob: new Blob(["%PDF-"]), appearance: "dark" }).success).toBe(true)
+    expect(v.safeParse(ParentMessage, { type: "show", kind: "html", blob: new Blob(["text"]), appearance: "system" }).success).toBe(false)
+    expect(v.safeParse(ParentMessage, { type: "show", kind: "text", blob: "text", appearance: "system" }).success).toBe(false)
     expect(v.safeParse(FrameReply, { type: "unexpected" }).success).toBe(false)
   })
 })

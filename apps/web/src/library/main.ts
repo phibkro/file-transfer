@@ -37,7 +37,7 @@ type Result =
   | { readonly kind: "snapshot"; readonly snapshot: Snapshot }
   | { readonly kind: "review"; readonly reviewed: Review; readonly collection: LibraryCollection | undefined; readonly epoch: number }
   | { readonly kind: "candidate"; readonly previous: Entry; readonly current: BrowserCatalog.IndexedVersion; readonly epoch: number }
-  | { readonly kind: "preview"; readonly file: File }
+  | { readonly kind: "preview"; readonly file: File; readonly identifier: number }
   | { readonly kind: "share"; readonly snapshot: Snapshot; readonly files: readonly File[] }
 
 type Confirmation =
@@ -181,7 +181,7 @@ const perform = Effect.fnUntraced(function* (action: Action): Effect.fn.Return<R
         return yield* new BrowserCatalog.LibraryStorageError({ cause: "Original unavailable" })
       }
 
-      return { kind: "preview", file: entry.file }
+      return { kind: "preview", file: entry.file, identifier: action.entry.identifier }
     }
 
     case "review": {
@@ -357,9 +357,9 @@ const foldPreview = Update.foldChild({
   toParentMessage: liftPreview,
 })
 
-const openPreview = (model: Model, file: File): Return =>
+const openPreview = (model: Model, file: File, identifier: number): Return =>
   Update.foldChildStep({
-    update: (preview: Preview.Model) => Preview.open(preview, Redacted.make({ file, name: file.name })),
+    update: (preview: Preview.Model) => Preview.open(preview, Redacted.make({ file, name: file.name, returnFocusId: `library-preview-${identifier}` })),
     read: (parent: Model) => Option.some(parent.preview),
     write: (parent: Model, preview: Preview.Model): Model => ({ ...parent, preview }),
     toParentMessage: liftPreview,
@@ -535,7 +535,7 @@ export const update = (model: Model, incoming: Message): Return => {
       const result = Redacted.value(message.result)
 
       if (result.kind === "preview") {
-        return openPreview({ ...model, operation: "idle", status: "" }, result.file)
+        return openPreview({ ...model, operation: "idle", status: "" }, result.file, result.identifier)
       }
 
       const ready: Model = {
@@ -633,60 +633,76 @@ export const view = defineView<Model, Message, { readonly sharingDisabled: boole
 
   const sharingDisabled = disabled || inputs.sharingDisabled
 
+  const consent = () =>
+    Checkbox.view(
+      {
+        id: "library-consent",
+        isChecked: snapshot.enabled,
+        isDisabled: model.operation !== "idle",
+        onToggle: (enabled) => (enabled ? Message.RequestedEnable() : Message.RequestedDisable()),
+        toView: (attributes) =>
+          h.div(
+            [h.Class("flex items-center gap-2 text-sm")],
+            [
+              h.button([...attributes.checkbox, h.Class("library-checkbox")], [snapshot.enabled ? icon(h, "check") : null]),
+              h.span([...attributes.label], ["Remember files on this device"]),
+            ],
+          ),
+      },
+      h,
+    )
+
   const device = () =>
     h.section(
       [h.Class("space-y-3")],
       [
-        Checkbox.view(
-          {
-            id: "library-consent",
-            isChecked: snapshot.enabled,
-            isDisabled: model.operation !== "idle",
-            onToggle: (enabled) => (enabled ? Message.RequestedEnable() : Message.RequestedDisable()),
-            toView: (attributes) =>
-              h.div(
-                [h.Class("flex items-center gap-2")],
-                [
-                  h.button([...attributes.checkbox, h.Class("library-checkbox")], [snapshot.enabled ? icon(h, "check") : null]),
-                  h.span([...attributes.label], ["Remember files on this device"]),
-                ],
-              ),
-          },
-          h,
-        ),
-        h.p([h.Class("text-sm text-muted-foreground")], ["Originals stay on this device. Local edits affect future shares."]),
-        Disclosure.view(
-          {
-            id: "library-indexing-details",
-            isOpen: model.detailsOpen,
-            onToggle: (open) => Message.ToggledDetails({ open }),
-            toView: (details) =>
-              h.div(
-                [],
-                [
-                  h.button([...details.button, h.Class("text-sm text-muted-foreground underline underline-offset-4")], ["How local indexing works"]),
-                  model.detailsOpen
-                    ? h.div(
-                        [...details.panel],
+        h.div(
+          [h.Class("flex flex-wrap items-center justify-between gap-x-4 gap-y-1")],
+          [
+            h.p([h.Class("text-sm text-muted-foreground")], ["Originals stay on this device. Local edits affect future shares."]),
+            Disclosure.view(
+              {
+                id: "library-indexing-details",
+                isOpen: model.detailsOpen,
+                onToggle: (open) => Message.ToggledDetails({ open }),
+                toView: (details) =>
+                  h.div(
+                    [],
+                    [
+                      h.button(
                         [
-                          h.p(
-                            [],
-                            ["Your Library indexes original file references and metadata on this device. Adding files does not upload or copy their contents."],
-                          ),
-                          h.p(
-                            [],
-                            [
-                              "Standard file choosing captures a File for this page only. Reselect after editing or reopening this page. Durable references require browser support and permission.",
-                            ],
-                          ),
-                          button(h, "Reload Library", Message.RequestedReload(), model.operation !== "idle"),
+                          ...details.button,
+                          h.Class("min-h-8 border-0 bg-transparent p-0 font-normal text-sm text-muted-foreground underline underline-offset-4"),
+                          h.AriaLabel("How local indexing works"),
                         ],
-                      )
-                    : null,
-                ],
-              ),
-          },
-          h,
+                        ["How it works"],
+                      ),
+                      model.detailsOpen
+                        ? h.div(
+                            [...details.panel],
+                            [
+                              h.p(
+                                [],
+                                [
+                                  "Your Library indexes original file references and metadata on this device. Adding files does not upload or copy their contents.",
+                                ],
+                              ),
+                              h.p(
+                                [],
+                                [
+                                  "Standard file choosing captures a File for this page only. Reselect after editing or reopening this page. Durable references require browser support and permission.",
+                                ],
+                              ),
+                              button(h, "Reload Library", Message.RequestedReload(), model.operation !== "idle"),
+                            ],
+                          )
+                        : null,
+                    ],
+                  ),
+              },
+              h,
+            ),
+          ],
         ),
         inputs.sharingDisabled ? h.p([], ["Finish or clear Quick Share before sharing from your Library."]) : null,
         h.div(
@@ -799,7 +815,16 @@ export const view = defineView<Model, Message, { readonly sharingDisabled: boole
                               {
                                 onClick: Message.RequestedPreview({ identifier: entry.identifier }),
                                 isDisabled: disabled,
-                                toView: (attributes) => h.button([...attributes.button, h.Class("button"), h.AriaLabel(`Preview ${entry.name}`)], ["Preview"]),
+                                toView: (attributes) =>
+                                  h.button(
+                                    [
+                                      ...attributes.button,
+                                      h.Id(`library-preview-${entry.identifier}`),
+                                      h.Class("button"),
+                                      h.AriaLabel(`Preview ${entry.name}`),
+                                    ],
+                                    ["Preview"],
+                                  ),
                               },
                               h,
                             ),
@@ -929,11 +954,20 @@ export const view = defineView<Model, Message, { readonly sharingDisabled: boole
       h.div(
         [h.Class("library-header")],
         [
+          h.div([h.Class("heading")], [h.span([h.Class("section-icon lilac")], [icon(h, "folder")]), h.h2([], ["Local Library"])]),
           h.div(
-            [h.Class("heading")],
-            [h.span([h.Class("section-icon lilac")], [icon(h, "folder")]), h.h2([], ["Local Library"]), h.span([h.Class("badge")], ["This device"])],
+            [h.Class("library-actions"), h.Hidden(model.storageLocation !== "device")],
+            [
+              Button.view(
+                {
+                  onClick: Message.RequestedAddDialog(),
+                  isDisabled: disabled,
+                  toView: (attributes) => h.button([...attributes.button, h.Class("button primary")], [icon(h, "plus"), "Add files"]),
+                },
+                h,
+              ),
+            ],
           ),
-          h.div([h.Class("library-actions")], [button(h, "Add files", Message.RequestedAddDialog(), disabled)]),
         ],
       ),
       model.status === "" ? null : h.p([h.Role("status")], [model.status]),
@@ -953,8 +987,14 @@ export const view = defineView<Model, Message, { readonly sharingDisabled: boole
               [],
               [
                 h.div(
-                  [...render.tablist],
-                  render.tabs.map((tab) => h.button([...tab.tab], [tab.value === "device" ? "On this device" : "Cloud"])),
+                  [h.Class("flex flex-wrap items-center justify-between gap-x-4 gap-y-3 mb-3")],
+                  [
+                    h.div(
+                      [...render.tablist],
+                      render.tabs.map((tab) => h.button([...tab.tab], [tab.value === "device" ? "On this device" : "Cloud"])),
+                    ),
+                    model.storageLocation === "device" ? consent() : null,
+                  ],
                 ),
                 ...render.tabs
                   .filter((tab) => tab.isActive)

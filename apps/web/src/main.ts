@@ -96,11 +96,7 @@ export const init: Runtime.ApplicationInit<Model, Message, typeof Flags.Type, ne
       section: initialSection,
       handoffBlocked: false,
     },
-    commands: [
-      ...(pageBoot.commands ?? []),
-      ...Command.mapMessages(settingsBoot.commands, (message) => Message.GotSettingsMessage({ message })),
-      ...(route._tag !== "Recipient" && initialSection === "library" ? [ShowLibrary()] : []),
-    ],
+    commands: [...(pageBoot.commands ?? []), ...Command.mapMessages(settingsBoot.commands, (message) => Message.GotSettingsMessage({ message }))],
   }
 }
 
@@ -210,7 +206,14 @@ export const update = (model: Model, incoming: Message) =>
   Message.match<UpdateReturn>(incoming, {
     GotSenderMessage: ({ message }) => foldSender(model, message),
     GotRecipientMessage: ({ message }) => foldRecipient(model, message),
-    GotLibraryMessage: ({ message }) => foldLibrary(model, message),
+    GotLibraryMessage: ({ message }) => {
+      const initialLoad = model.page._tag === "Workspace" && model.page.library.loadState === "loading"
+      const next = foldLibrary(model, message)
+
+      return initialLoad && next.model.section === "library" && next.model.page._tag === "Workspace" && next.model.page.library.loadState !== "loading"
+        ? { ...next, commands: [...(next.commands ?? []), ShowLibrary()] }
+        : next
+    },
     GotSettingsMessage: ({ message }) => foldSettings(model, message),
     GotSummaryMessage: ({ message }) => foldSummary(model, message),
     CompletedShowQuickShare: () => ({ model }),

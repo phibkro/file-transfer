@@ -179,7 +179,7 @@
         "files": ["apps/web/src/previewFrame.ts"],
         "role": "composition-root",
         "platform": "browser",
-        "adapterDependencies": ["foldkit", "pdfjs-dist"]
+        "adapterDependencies": ["foldkit", "@foldkit/ui", "pdfjs-dist"]
       },
       {
         "files": ["apps/web/src/entry.ts", "apps/web/src/admin/entry.ts"],

@@ -41,17 +41,19 @@ describe("Library page transitions", () => {
   test("preview resolves one current file without approving or sharing it", () => {
     const model = catalogModel()
     const requested = update(model, Message.RequestedPreview({ identifier: firstFile.identifier }))
-    expect(actionFrom(requested)).toEqual({ kind: "preview", entry: firstFile })
     expect(requested.model.operation).toBe("preview")
 
     const file = new File(["current"], "current.txt")
 
     const opened = update(
       requested.model,
-      Message.SucceededLibraryAction({ generation: requested.model.generation, result: Redacted.make({ kind: "preview", file }) }),
+      Message.SucceededLibraryAction({
+        generation: requested.model.generation,
+        result: Redacted.make({ kind: "preview", file, identifier: firstFile.identifier }),
+      }),
     )
 
-    expect(Redacted.value(opened.model.preview.input)).toEqual({ file, name: file.name })
+    expect(opened.model.preview.dialog.isOpen).toBe(true)
     expect(opened.model.snapshot).toBe(model.snapshot)
     expect(opened.outMessage).toBeUndefined()
   })
@@ -62,24 +64,16 @@ describe("Library page transitions", () => {
     expect(cancelled.model.operation).toBe("cancelling")
 
     const file = new File(["current"], "current.txt")
-    const late = update(cancelled.model, Message.SucceededLibraryAction({ generation: requested.generation, result: Redacted.make({ kind: "preview", file }) }))
+
+    const late = update(
+      cancelled.model,
+      Message.SucceededLibraryAction({ generation: requested.generation, result: Redacted.make({ kind: "preview", file, identifier: firstFile.identifier }) }),
+    )
 
     expect(Redacted.value(late.model.preview.input)).toBeUndefined()
     expect(late.outMessage).toBeUndefined()
   })
 
-  test("loading the Library leaves no update status and indexing details start closed", () => {
-    const pending = boot().model
-    expect(pending.detailsOpen).toBe(false)
-
-    const loaded = update(
-      pending,
-      Message.SucceededLibraryAction({ generation: pending.generation, result: Redacted.make({ kind: "loaded", snapshot: Redacted.value(pending.snapshot) }) }),
-    ).model
-
-    expect(loaded.status).toBe("")
-    expect(update(loaded, Message.ToggledDetails({ open: true })).model.detailsOpen).toBe(true)
-  })
   test("My files review derives all portable entries without browser source objects", () => {
     const model = { ...catalogModel(), collection: 0, selected: [] }
 

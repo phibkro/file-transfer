@@ -1,6 +1,6 @@
 import * as Nav from "@foldkit/ui/nav"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import { howItWorksRouter, libraryRouter, privacyRouter, quickShareRouter, runYourOwnRouter, securityRouter } from "../routes.ts"
+import { howItWorksRouter, libraryRouter, privacyRouter, quickShareRouter, runYourOwnRouter, securityRouter, thirdPartyNoticesRouter } from "../routes.ts"
 import { icon } from "../ui/icon.ts"
 
 /** Operators of modified versions should point this at their own source. */
@@ -24,7 +24,7 @@ export const siteHeader = <Message>(
               h.AriaLabel("Pocketdrop home"),
               ...(workspaceNavigation ? [h.OnClick(workspaceNavigation.quick)] : []),
             ],
-            [h.span([h.Class("brand-icon")], [icon(h, "mark")]), "Pocketdrop", h.span([h.Class("brand-dot")], ["."])],
+            [h.span([h.Class("brand-icon")], [icon(h, "package")]), "Pocketdrop", h.span([h.Class("brand-dot")], ["."])],
           ),
           Nav.view<"quick" | "library">({
             items: ["quick", "library"],
@@ -73,7 +73,10 @@ export const workspaceHero = <Message>(h: HtmlBuilder<Message>): Html =>
           h.p([], ["Quickly share files from your browser. Keep the ones you share often in a catalog on this device."]),
         ],
       ),
-      h.div([h.Class("hero-art"), h.Attribute("aria-hidden", "true")], [h.img([h.Attribute("src", "/pocketdrop-transfer.svg"), h.Attribute("alt", "")])]),
+      h.div(
+        [h.Class("hero-art"), h.Attribute("aria-hidden", "true")],
+        [h.img([h.Attribute("src", "/pocketdrop-transfer.svg"), h.Attribute("alt", ""), h.Attribute("width", "438"), h.Attribute("height", "228")])],
+      ),
     ],
   )
 
@@ -87,7 +90,7 @@ export const siteFooter = <Message>(h: HtmlBuilder<Message>, options?: { support
       h.div(
         [h.Class("footer-content")],
         [
-          h.div([h.Class("foot-brand")], [icon(h, "mark"), "Pocketdrop"]),
+          h.div([h.Class("foot-brand")], [icon(h, "package"), "Pocketdrop"]),
           h.p([], ["Files are encrypted in your browser. ", h.a([h.Href(`${sourceUrl}/blob/main/LICENSE`)], ["AGPL-3.0"]), "."]),
           h.nav(
             [h.Attribute("aria-label", "Information")],
@@ -96,6 +99,7 @@ export const siteFooter = <Message>(h: HtmlBuilder<Message>, options?: { support
               h.a([h.Href(securityRouter())], ["Security"]),
               h.a([h.Href(privacyRouter())], ["Privacy"]),
               h.a([h.Href(runYourOwnRouter())], ["Run your own"]),
+              h.a([h.Href(thirdPartyNoticesRouter())], ["Third-party notices"]),
             ],
           ),
         ],

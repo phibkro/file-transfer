@@ -276,7 +276,8 @@ export const update = (model: Model, incoming: Message): Update.Return<Model, Me
       }
 
       const openPreview = Update.foldChildStep({
-        update: (child: Preview.Model) => Preview.open(child, Redacted.make({ file: entry.file, name: entry.name })),
+        update: (child: Preview.Model) =>
+          Preview.open(child, Redacted.make({ file: entry.file, name: entry.name, returnFocusId: `sender-preview-${entry.key}` })),
         read: (parent: Model) => Option.some(parent.preview),
         write: (parent: Model, preview: Preview.Model): Model => ({ ...parent, preview }),
         toParentMessage: (childMessage: Preview.Message) => Message.ReceivedPrivatePreviewMessage({ message: Redacted.make(childMessage) }),
@@ -451,7 +452,8 @@ export const view = defineView<Model, Message>((model, h) => {
                 Button.view(
                   {
                     onClick: Message.RequestedPreview({ key: entry.key }),
-                    toView: (attributes) => h.button([...attributes.button, h.AriaLabel(`Preview ${entry.name}`)], ["Preview"]),
+                    toView: (attributes) =>
+                      h.button([...attributes.button, h.Id(`sender-preview-${entry.key}`), h.AriaLabel(`Preview ${entry.name}`)], ["Preview"]),
                   },
                   h,
                 ),

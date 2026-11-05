@@ -15,7 +15,7 @@ The local Library indexes file metadata after opt-in. Collections group referenc
 ## How to get to it (user POV)
 
 - Open `Library` and turn on `Remember files on this device`.
-- Choose `New collection` to create an empty collection. Use `Add to catalog` to choose files, then select and add members.
+- Choose `New collection` to create an empty collection. Use `Add files` to index originals, then select and add members. `Preview <filename>` reads the current original locally without approving or sharing it; PDF previews support page navigation.
 - Review the collection and approve the current versions. Quick Share seals the approved files.
 - Reopen the Library, choose `Manage <filename>`, then `Reconnect <filename>` before the next review.
 - Turn remembering off and confirm forgetting to clear the catalog.

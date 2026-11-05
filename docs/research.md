@@ -46,6 +46,14 @@ The export supplies the layout, palette, icons, mark and transfer illustration. 
 
 The [shadcn theming convention](https://ui.shadcn.com/docs/theming) supplies the semantic variable naming pattern. Global CSS maps those tokens through Tailwind's `@theme inline`. No React or shadcn component runtime is introduced.
 
+The operator-supplied package mark is the [Lucide Package icon](https://lucide.dev/icons/package), used under the [ISC license](https://lucide.dev/license). Its copyright and permission notice accompany the icon source and favicon.
+
+## PDF previews
+
+[PDF.js](https://github.com/mozilla/pdf.js), supplied by the pinned `pdfjs-dist` dependency, supplies PDF parsing and canvas rendering. It runs only in the opaque preview frame. The packaged main-thread worker, standard fonts and CMaps avoid document or auxiliary-resource fetches and active PDF content. A generated static resource manifest works with the repository's closed module graph; `bun run check:pdf-resources` checks it against the installed package. Browser-native PDF embedding was not used because it does not supply the application's cross-browser opaque-sandbox rendering contract.
+
+The generated [third-party notices](../apps/web/public/pdfjs-notices.txt) retain the PDF.js, Adobe CMap, Foxit, codec and Lucide notices. Liberation Sans is distributed under its upstream GPLv2 font agreement, with the corresponding 1.07.4 FontForge source archive supplied as a public asset. The generator verifies that archive and requires a provenance review on PDF.js upgrades. The [pinned upstream font notes](https://github.com/mozilla/pdf.js/blob/4315a4be3168373e6c674fbf6723a20c50994f80/external/standard_fonts/README.md) identify the font release and explain why substituting newer fonts without updating glyph-indexed tables is unsafe.
+
 ## Platform numbers
 
 - Durable Objects: outgoing WebSocket messages free, incoming billed 20:1 ($0.15 per million requests), duration $12.50 per million GB-s on a fixed 128 MB; 32 MiB max received message; 1,000 requests/s soft limit per object. Relay estimate $0.3 to $2 per TB (arithmetic, not load-tested).

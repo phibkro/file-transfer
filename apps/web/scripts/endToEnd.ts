@@ -1006,7 +1006,7 @@ const checkStorageClearing = async (page: Page, base: string) => {
       })
     })
   })
-  await page.getByRole("button", { name: "Browser settings" }).click()
+  await page.getByRole("button", { name: "Settings", exact: true }).click()
   await page.getByRole("tab", { name: "Storage in this browser" }).click()
   const storageStatus = page.getByRole("status").filter({ hasText: "Received files stored here:" })
   await storageStatus.waitFor({ state: "visible" })
@@ -1035,7 +1035,7 @@ const checkStorageClearing = async (page: Page, base: string) => {
     await writable.close()
   })
   await page.goto(base)
-  await page.getByRole("button", { name: "Browser settings" }).waitFor({ state: "visible" })
+  await page.getByRole("button", { name: "Settings", exact: true }).waitFor({ state: "visible" })
   const afterVisit = await storedTransfers(page)
   check(afterVisit.length === 0, "storage: a transfer left by a closed tab is deleted on the next visit", afterVisit)
 }

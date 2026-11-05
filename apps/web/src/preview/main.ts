@@ -1,17 +1,21 @@
 import { Dialog } from "@foldkit/ui"
 import { Effect, Option, Queue, Redacted, Schema, Stream } from "effect"
-import { Mount, Update } from "foldkit"
+import { Command, Mount, Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
 import { defineView } from "foldkit/submodel"
 import * as v from "valibot"
+import { focus } from "foldkit/dom"
+import { afterPaint } from "foldkit/render"
 import { privateValue } from "../privateValue.ts"
 import { sniff, sniffLength } from "../sniff.ts"
 import type { ClearMessage, ShowMessage } from "../previewFrame.ts"
 import { FrameReply } from "./protocol.ts"
+import { isAppearance } from "../appearance.ts"
 
 export interface Input {
   readonly file: Blob
   readonly name: string
+  readonly returnFocusId: string
 }
 
 const PreviewPhase = Schema.Literals(["idle", "loading", "shown", "unavailable"])
@@ -30,16 +34,34 @@ export const Message = defineMessageUnion({
   RequestedOpen: { input: privateValue<Input>() },
   GotDialogMessage: { message: Dialog.Message },
   ChangedStatus: { generation: Schema.Int, status: Schema.String, phase: PreviewPhase },
+  CompletedReturnFocus: {},
 })
 
 export type Message = typeof Message.Type
+
+const ReturnPreviewFocus = Command.define("ReturnPreviewFocus", {
+  args: { returnFocusId: Schema.String },
+  messages: [Message.CompletedReturnFocus],
+  execute: ({ returnFocusId }) =>
+    afterPaint.pipe(Effect.andThen(focus(`#${returnFocusId}`, { preventScroll: true })), Effect.ignore, Effect.as(Message.CompletedReturnFocus())),
+})
 
 const liftDialog = (message: Dialog.Message): Message => Message.GotDialogMessage({ message })
 
 const foldOut =
   (out: Dialog.OutMessage) =>
-  (model: Model): Update.Return<Model, Message> =>
-    out._tag === "Closed" ? { model: { ...model, input: Redacted.make(undefined), generation: model.generation + 1, phase: "idle" } } : { model }
+  (model: Model): Update.Return<Model, Message> => {
+    if (out._tag !== "Closed") {
+      return { model }
+    }
+
+    const input = Redacted.value(model.input)
+
+    return {
+      model: { ...model, input: Redacted.make(undefined), generation: model.generation + 1, phase: "idle" },
+      commands: input === undefined ? [] : [ReturnPreviewFocus({ returnFocusId: input.returnFocusId })],
+    }
+  }
 
 const dialog = Update.foldChild({
   update: Dialog.update,
@@ -69,6 +91,7 @@ export const update = (model: Model, message: Message): Update.Return<Model, Mes
     RequestedOpen: ({ input }) => open(model, input),
     GotDialogMessage: ({ message: child }) => dialog(model, child),
     ChangedStatus: ({ generation, status, phase }) => (generation === model.generation ? { model: { ...model, status, phase } } : { model }),
+    CompletedReturnFocus: () => ({ model }),
   })
 
 // The mount owns only the message channel and its lifetime. Rendering remains Foldkit's.
@@ -143,7 +166,13 @@ const PreviewChannel = Mount.defineStream("PreviewChannel", {
                   return null
                 }
 
-                show = { type: "show", kind: result.kind, blob: new Blob([file], { type: result.mediaType }) }
+                const appearance = document.documentElement.dataset.appearance ?? null
+                show = {
+                  type: "show",
+                  kind: result.kind,
+                  blob: new Blob([file], { type: result.mediaType }),
+                  appearance: isAppearance(appearance) ? appearance : "system",
+                }
                 send()
 
                 return null

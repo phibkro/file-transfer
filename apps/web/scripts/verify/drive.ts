@@ -294,7 +294,7 @@ const chooseLibraryFile = async (page: Page, file: ReturnType<typeof makeFiles>[
   const input = page.locator("dialog.library-dialog label.drop-zone input[type=file]")
 
   if ((await input.count()) === 0) {
-    await page.getByRole("button", { name: "Add to catalog", exact: true }).click()
+    await page.getByRole("button", { name: "Add files", exact: true }).click()
   }
 
   await page.waitForFunction(() => {
@@ -344,7 +344,7 @@ try {
     modified.buffer[0] = (modified.buffer[0] ?? 0) ^ 255
     const links = privateLinks
     await sender.goto(`${origin}/library`)
-    await sender.getByText("Remembering is off by default", { exact: false }).waitFor()
+    await sender.getByRole("checkbox", { name: "Remember files on this device", checked: false, disabled: false }).waitFor()
     const initially = await catalog(sender)
     step(
       "default Library before opt-in",
@@ -352,11 +352,11 @@ try {
       !initially.enabled &&
         initially.files.length === 0 &&
         initially.collections.length === 0 &&
-        (await sender.getByRole("heading", { name: "My files" }).isVisible()),
+        (await sender.getByRole("button", { name: "My files (0)", pressed: true, exact: true }).isVisible()),
     )
     await capture(sender, "01-library-default")
-    await sender.getByRole("switch", { name: "Remember files on this device" }).click()
-    await sender.getByText("Remembering is enabled", { exact: false }).waitFor()
+    await sender.getByRole("checkbox", { name: "Remember files on this device" }).click()
+    await sender.getByRole("checkbox", { name: "Remember files on this device", checked: true, disabled: false }).waitFor()
     await sender.getByRole("button", { name: "New collection", exact: true }).click()
     await sender.getByLabel("New collection name").fill("Verification collection")
     await sender.getByRole("button", { name: "Create empty collection" }).click()
@@ -383,7 +383,7 @@ try {
     await sender.getByRole("button", { name: "Add selected to Verification collection" }).click()
     await sender.getByRole("button", { name: "Verification collection (1)" }).waitFor({ state: "attached" })
     await sender.getByRole("button", { name: "Verification collection (1)", exact: true }).click()
-    await sender.getByRole("heading", { name: "Verification collection" }).waitFor()
+    await sender.getByRole("button", { name: "Verification collection (1)", pressed: true, exact: true }).waitFor()
     const withMember = await catalog(sender)
     step("add a collection member", "collection has the indexed file", withMember.collections[0]?.fileIdentifiers.length === 1)
     await capture(sender, "03-library-member")
@@ -430,7 +430,7 @@ try {
     step(
       "block missing original",
       "review failed before creating a room",
-      roomRequestsAfter === roomRequests && (await sender.getByRole("heading", { name: "Library" }).isVisible()),
+      roomRequestsAfter === roomRequests && (await sender.getByRole("heading", { name: "Local Library", exact: true }).isVisible()),
     )
     await sender.getByRole("button", { name: `Manage ${original.name}`, exact: true }).click()
     await sender.getByRole("button", { name: `Reconnect ${original.name}`, exact: true }).click()
@@ -439,7 +439,7 @@ try {
     await sender.getByRole("button", { name: "Confirm replacement reference" }).click()
     await sender.getByText("Library updated on this device only.").waitFor()
     await sender.getByRole("button", { name: "Verification collection (1)", exact: true }).click()
-    await sender.getByRole("heading", { name: "Verification collection" }).waitFor()
+    await sender.getByRole("button", { name: "Verification collection (1)", pressed: true, exact: true }).waitFor()
     await sender.getByRole("button", { name: "Review collection before sharing" }).click()
     await sender.getByText("Changed since indexing or last approval").waitFor()
     const beforeApproval = await catalog(sender)
@@ -466,10 +466,10 @@ try {
     const approved = await catalog(sender)
     step("approve changed version", "the approved fingerprint changed", approved.files[0]?.fingerprint !== baseline.files[0]?.fingerprint)
     await sender.goto(`${origin}/library`)
-    await sender.getByText("Remembering is enabled", { exact: false }).waitFor()
-    await sender.getByRole("switch", { name: "Remember files on this device" }).click()
+    await sender.getByRole("checkbox", { name: "Remember files on this device", checked: true, disabled: false }).waitFor()
+    await sender.getByRole("checkbox", { name: "Remember files on this device" }).click()
     await sender.getByRole("button", { name: "Forget", exact: true }).click()
-    await sender.getByText("Remembering is off by default", { exact: false }).waitFor()
+    await sender.getByRole("checkbox", { name: "Remember files on this device", checked: false, disabled: false }).waitFor()
     const forgotten = await catalog(sender)
     step(
       "opt out",
@@ -478,7 +478,7 @@ try {
         forgotten.files.length === 0 &&
         forgotten.collections.length === 0 &&
         forgotten.blobs === 0 &&
-        (await sender.getByRole("heading", { name: "My files" }).isVisible()),
+        (await sender.getByRole("button", { name: "My files (0)", pressed: true, exact: true }).isVisible()),
     )
     await capture(sender, "06-library-opted-out")
     await checkNothingLeaks(links, [original, modified, control])

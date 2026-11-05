@@ -143,9 +143,9 @@ const foldPreview = Update.foldChild({
   toParentMessage: liftPreview,
 })
 
-const openPreview = (model: Model, file: File, name: string): Return =>
+const openPreview = (model: Model, file: File, name: string, index: number): Return =>
   Update.foldChildStep({
-    update: (preview: Preview.Model) => Preview.open(preview, Redacted.make({ file, name })),
+    update: (preview: Preview.Model) => Preview.open(preview, Redacted.make({ file, name, returnFocusId: `recipient-preview-${index}` })),
     read: (parent: Model) => Option.some(parent.preview),
     write: (parent: Model, preview: Preview.Model): Model => ({ ...parent, preview }),
     toParentMessage: liftPreview,
@@ -192,7 +192,7 @@ export const update = (model: Model, message: Message): Return =>
     RequestedPreview: ({ index }) => {
       const file = Option.isSome(model.snapshot) ? Redacted.value(model.snapshot.value).files[index] : undefined
 
-      return file?.file === undefined ? { model } : openPreview(model, file.file, file.name)
+      return file?.file === undefined ? { model } : openPreview(model, file.file, file.name, index)
     },
     RequestedAccept: () => {
       const snapshot = Option.isSome(model.snapshot) ? Redacted.value(model.snapshot.value) : undefined
@@ -362,7 +362,17 @@ export const view = Submodel.defineView<Model, Message>((model, h) => {
                       ],
                       ["Save"],
                     ),
-                    button(`Preview ${file.name}`, Message.RequestedPreview({ index })),
+                    Button.view(
+                      {
+                        onClick: Message.RequestedPreview({ index }),
+                        toView: (attributes) =>
+                          h.button(
+                            [...attributes.button, h.Id(`recipient-preview-${index}`), h.Class("button"), h.AriaLabel(`Preview ${file.name}`)],
+                            ["Preview"],
+                          ),
+                      },
+                      h,
+                    ),
                   ]),
             ],
           )

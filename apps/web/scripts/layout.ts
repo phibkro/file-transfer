@@ -1,19 +1,24 @@
 /** Build-time shared site layout. Content pages remain useful without JavaScript. */
 import nodePath from "node:path"
+import { createHash } from "node:crypto"
 import { Effect } from "effect"
 import { renderToString } from "foldkit/experimental/server"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import type { Plugin } from "vite-plus"
 import { contentPages } from "../src/site/content.ts"
 import { siteFooter, siteHeader } from "../src/site/layout.ts"
+import { appearanceStorageKey, appearanceValues } from "../src/appearance.ts"
 
-const contentSecurityPolicy =
-  "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'"
+// Run before styles paint, including static pages, with a CSP hash rather than unsafe-inline.
+const appearanceStartup = `try{const value=localStorage.getItem(${JSON.stringify(appearanceStorageKey)});if(${JSON.stringify(appearanceValues.filter((value) => value !== "system"))}.includes(value))document.documentElement.dataset.appearance=value}catch{}`
+const appearanceHash = createHash("sha256").update(appearanceStartup).digest("base64")
+const contentSecurityPolicy = `default-src 'self'; script-src 'self' 'sha256-${appearanceHash}'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'`
 
 const head = `<meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta http-equiv="Content-Security-Policy" content="${contentSecurityPolicy}" />
     <meta name="referrer" content="no-referrer" />
+    <script>${appearanceStartup}</script>
     <link rel="icon" href="/mark.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/src/style.css" />`
 
