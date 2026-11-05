@@ -32,6 +32,7 @@ export type Model = typeof Model.Type
 
 export const Message = defineMessageUnion({
   RequestedOpen: { input: privateValue<Input>() },
+  RequestedClose: {},
   GotDialogMessage: { message: Dialog.Message },
   ChangedStatus: { generation: Schema.Int, status: Schema.String, phase: PreviewPhase },
   CompletedReturnFocus: {},
@@ -79,6 +80,14 @@ const openDialog = Update.foldChildStep({
   foldOutMessage: foldOut,
 })
 
+const closeDialog = Update.foldChildStep({
+  update: Dialog.close,
+  read: (model: Model) => Option.some(model.dialog),
+  write: (model: Model, child: Dialog.Model): Model => ({ ...model, dialog: child }),
+  toParentMessage: liftDialog,
+  foldOutMessage: foldOut,
+})
+
 export const init = (): Update.Return<Model, Message> => ({
   model: { dialog: Dialog.init({ id: "file-preview" }), input: Redacted.make(undefined), generation: 0, status: "", phase: "idle" },
 })
@@ -89,6 +98,7 @@ export const open = (model: Model, input: Redacted.Redacted<Input>): Update.Retu
 export const update = (model: Model, message: Message): Update.Return<Model, Message> =>
   Message.match(message, {
     RequestedOpen: ({ input }) => open(model, input),
+    RequestedClose: () => closeDialog(model),
     GotDialogMessage: ({ message: child }) => dialog(model, child),
     ChangedStatus: ({ generation, status, phase }) => (generation === model.generation ? { model: { ...model, status, phase } } : { model }),
     CompletedReturnFocus: () => ({ model }),
@@ -97,9 +107,9 @@ export const update = (model: Model, message: Message): Update.Return<Model, Mes
 // The mount owns only the message channel and its lifetime. Rendering remains Foldkit's.
 const PreviewChannel = Mount.defineStream("PreviewChannel", {
   args: { input: privateValue<Input>(), generation: Schema.Int },
-  messages: [Message.ChangedStatus],
+  messages: [Message.ChangedStatus, Message.RequestedClose],
   execute: ({ element, input, generation }) =>
-    Stream.callback<typeof Message.ChangedStatus.Type>((queue) =>
+    Stream.callback<typeof Message.ChangedStatus.Type | typeof Message.RequestedClose.Type>((queue) =>
       Effect.gen(function* () {
         yield* Effect.acquireRelease(
           Effect.sync(() => {
@@ -135,6 +145,10 @@ const PreviewChannel = Mount.defineStream("PreviewChannel", {
                 ready = true
                 clearTimeout(timeout)
                 send()
+              } else if (reply.output.type === "close") {
+                if (active) {
+                  Queue.offerUnsafe(queue, Message.RequestedClose())
+                }
               } else if (reply.output.type === "shown") {
                 status("", "shown")
               } else if (show !== undefined) {

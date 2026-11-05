@@ -1099,7 +1099,15 @@ const previewsAndNames = async (browser: Browser, base: string) => {
     const shownAsText = (await previewFrame(sender.page).locator("pre").textContent()) ?? ""
     const hostileElements = await previewFrame(sender.page).locator("#hostile").count()
     check(shownAsText.includes("<script>") && hostileElements === 0, "preview: an HTML file previews as text, never as a page", shownAsText)
-    await closePreview(sender.page)
+    await sender.page.locator("iframe.preview-frame").focus()
+    await sender.page.waitForFunction(() => document.activeElement === document.querySelector("iframe.preview-frame"))
+    await sender.page.keyboard.press("Escape")
+    await sender.page.locator("iframe.preview-frame").waitFor({ state: "detached" })
+    await sender.page.waitForFunction(() => document.activeElement?.getAttribute("aria-label") === "Preview page.html")
+    check(
+      await sender.page.getByRole("button", { name: "Preview page.html" }).evaluate((button) => document.activeElement === button),
+      "preview: Escape inside the sandbox closes the dialog and restores its trigger",
+    )
 
     await sender.page.getByRole("button", { name: "Rename notes.txt" }).click()
     await sender.page.getByRole("textbox", { name: "New name for notes.txt" }).fill("con.txt")

@@ -1,7 +1,8 @@
 import * as v from "valibot"
 import { appearanceValues } from "../appearance.ts"
 
-export const FrameReply = v.object({ type: v.picklist(["ready", "shown", "failed"]) })
+export const frameReplyKinds = ["ready", "shown", "failed", "close"] as const
+export const FrameReply = v.object({ type: v.picklist(frameReplyKinds) })
 
 export const ParentMessage = v.variant("type", [
   v.object({ type: v.literal("clear") }),

@@ -10,4 +10,4 @@ Local verification fingerprints include untracked source contents. The launcher 
 
 Simplify the Library with one remembering checkbox, contextual selection actions and collapsed indexing details. Rename browser controls to Settings, add persistent light/dark/system appearance and use the Lucide package mark. Reserve illustration geometry and coordinate initial catalog navigation to prevent reload layout shifts.
 
-Add local PDF previews to Library, sender and recipient flows with sandboxed PDF.js canvas rendering, page navigation, bounded resource use, inline standard fonts/CMaps and deterministic focus return. Previews do not upload files or approve changed versions.
+Add local PDF previews to Library, sender and recipient flows with sandboxed PDF.js canvas rendering, page navigation, bounded resource use, inline standard fonts/CMaps and deterministic focus return. Escape also closes previews when focus is inside the opaque frame. Previews do not upload files or approve changed versions.

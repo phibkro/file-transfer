@@ -1,17 +1,19 @@
 import { Button } from "@foldkit/ui"
 import type { Appearance } from "./appearance.ts"
 import type { Cause } from "effect"
-import { Effect, Queue, Redacted, Schema, Stream } from "effect"
+import { Effect, Option, Queue, Redacted, Schema, Stream } from "effect"
 import type { Update } from "foldkit"
 import { Command, Mount, Runtime, Subscription } from "foldkit"
 import type { HtmlBuilder } from "foldkit/html"
 import { defineMessageUnion } from "foldkit/message"
+import { streamFromEventFilterMap } from "foldkit/dom"
 import * as v from "valibot"
 import { AnnotationMode, getDocument, VerbosityLevel } from "pdfjs-dist"
 import type { PDFDocumentLoadingTask, PDFDocumentProxy, RenderTask } from "pdfjs-dist"
 import * as pdfWorker from "pdfjs-dist/build/pdf.worker.mjs"
 import { privateValue } from "./privateValue.ts"
-import { ParentMessage } from "./preview/protocol.ts"
+import { ParentMessage, frameReplyKinds } from "./preview/protocol.ts"
+import type { FrameReply } from "./preview/protocol.ts"
 import { pdfResource } from "./preview/pdfResources.ts"
 import type { PreviewKind } from "./sniff.ts"
 import { textPreviewLength } from "./sniff.ts"
@@ -27,9 +29,7 @@ export interface ClearMessage {
   readonly type: "clear"
 }
 
-export interface FrameMessage {
-  readonly type: "ready" | "shown" | "failed"
-}
+export type FrameMessage = v.InferOutput<typeof FrameReply>
 
 type Content =
   | { readonly kind: "empty" }
@@ -48,13 +48,14 @@ const Message = defineMessageUnion({
   RequestedPage: { page: Schema.Int },
   FailedPdf: { page: Schema.Int, generation: Schema.Int },
   Failed: {},
+  PressedEscape: {},
   CompletedPreviewReply: {},
 })
 
 type Message = typeof Message.Type
 
 const PreviewReply = Command.define("PreviewReply", {
-  args: { type: Schema.Literals(["shown", "failed"]) },
+  args: { type: Schema.Literals(frameReplyKinds) },
   messages: [Message.CompletedPreviewReply],
   execute: ({ type }) =>
     Effect.sync(() => {
@@ -93,9 +94,25 @@ const update = (model: Model, message: Message): Update.Return<Model, Message> =
     Loaded: () => ({ model, commands: [PreviewReply({ type: "shown" })] }),
     Failed: () => ({ model, commands: [PreviewReply({ type: "failed" })] }),
     CompletedPreviewReply: () => ({ model }),
+    PressedEscape: () => ({ model, commands: [PreviewReply({ type: "close" })] }),
   })
 
 const subscriptions = Subscription.make<Model, Message>()((entry) => ({
+  escapeKey: Subscription.persistentEntry(
+    streamFromEventFilterMap({
+      target: () => window,
+      type: "keydown",
+      filterMapEvent: (event) => {
+        if (event instanceof KeyboardEvent && event.key === "Escape") {
+          event.preventDefault()
+
+          return Option.some(Message.PressedEscape())
+        }
+
+        return Option.none()
+      },
+    }),
+  ),
   previewMessages: entry(
     {},
     {
