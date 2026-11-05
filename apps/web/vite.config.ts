@@ -26,6 +26,7 @@ const inventory = await Effect.runPromise(readRouteInventoryEffect(import.meta.d
 const staticRoutes = inventory.filter((route) => route.staticPage)
 
 export default defineConfig({
+  root: import.meta.dirname,
   plugins: [fileRoutes(), layout(), tailwindcss(), foldkit(), previewBundle()],
   server: {
     proxy: {

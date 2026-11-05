@@ -48,7 +48,7 @@ import { tmpdir } from "node:os"
 import nodePath from "node:path"
 import { decodeLinkSecret, deriveRoomToken, hashRoomToken } from "@file-transfer/parcel"
 import { chromium, firefox, webkit } from "playwright"
-import type { Browser, BrowserContext, LaunchOptions, Page, WebSocketRoute } from "playwright"
+import type { Browser, BrowserContext, LaunchOptions, Page, Route, WebSocketRoute } from "playwright"
 import { describePlan, faultPlan } from "./faultPlan.ts"
 import { blackhole, browserInHome, build as buildLab, hasNetem, impair, moveRouter, serverAddress, setNat, tearDown as tearDownLab } from "./networkLab.ts"
 import type { Impairment, LabSide, NatBehaviour } from "./networkLab.ts"
@@ -1055,48 +1055,112 @@ const closePreview = async (page: Page) => {
 
 // Two pages with distinct filled rectangles and valid cross-reference offsets.
 const previewPdf = () => {
- const streams = ["0 0 0 rg 20 20 80 80 re f\n", "0 0 0 rg 120 120 100 100 re f\n"]
- const objects = [
-  "<< /Type /Catalog /Pages 2 0 R >>",
-  "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>",
-  "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 300] /Contents 5 0 R >>",
-  "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 300] /Contents 6 0 R >>",
-  ...streams.map((stream) => `<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}endstream`),
- ]
- let pdf = "%PDF-1.4\n"
- const offsets = objects.map((object, index) => {
-  const offset = Buffer.byteLength(pdf)
-  pdf += `${index + 1} 0 obj\n${object}\nendobj\n`
-  return offset
- })
- const xref = Buffer.byteLength(pdf)
- pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.map((offset) => `${String(offset).padStart(10, "0")} 00000 n \n`).join("")}trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`
- return Buffer.from(pdf)
+  const streams = ["0 0 0 rg 20 20 80 80 re f\n", "0 0 0 rg 120 120 100 100 re f\n"]
+
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 300] /Contents 5 0 R >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 300] /Contents 6 0 R >>",
+    ...streams.map((stream) => `<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}endstream`),
+  ]
+
+  return assemblePdf(objects)
 }
 
-const checkPdfPreview = async (page: Page, who: string) => {
- await page.getByRole("button", { name: "Preview report.pdf" }).click()
- const frame = previewFrame(page)
- for (const number of [1, 2]) {
-  await frame.locator(`canvas[aria-label="PDF page ${number}"]`).waitFor({ timeout: 10_000 })
-  const target = page.frames().find((candidate) => candidate.url().includes("/preview.html"))
-  if (target === undefined) throw new Error("The PDF preview frame is missing")
-  // Canvas mounting precedes painting, so wait for painted pixels.
-  await target.waitForFunction((pageNumber) => {
-   const canvas = document.querySelector<HTMLCanvasElement>(`canvas[aria-label="PDF page ${pageNumber}"]`)
-   if (canvas === null || canvas.width === 0 || canvas.height === 0) return false
-   const context = canvas.getContext("2d")
-   if (context === null) return false
-   const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data
-   for (let index = 0; index < pixels.length; index += 4) {
-    if (pixels[index + 3] === 255 && (pixels[index] ?? 255) < 100 && (pixels[index + 1] ?? 255) < 100 && (pixels[index + 2] ?? 255) < 100) return true
-   }
-   return false
-  }, number, { timeout: 10_000 })
-  check(true, `preview: ${who} renders PDF page ${number}`)
-  if (number === 1) await frame.getByRole("button", { name: "Next" }).click()
- }
- await closePreview(page)
+const assemblePdf = (objects: string[]) => {
+  let pdf = "%PDF-1.4\n"
+
+  const offsets = objects.map((object, index) => {
+    const offset = Buffer.byteLength(pdf)
+    pdf += `${index + 1} 0 obj\n${object}\nendobj\n`
+
+    return offset
+  })
+
+  const xref = Buffer.byteLength(pdf)
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.map((offset) => `${String(offset).padStart(10, "0")} 00000 n \n`).join("")}trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`
+
+  return Buffer.from(pdf)
+}
+
+// The predefined Japanese CMap exercises packaged PDF.js font resources.
+const previewCmapPdf = () => {
+  const stream = "BT /F1 24 Tf 30 150 Td <65e5672c> Tj ET\n"
+
+  return assemblePdf([
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 300] /Resources << /Font << /F1 4 0 R >> >> /Contents 6 0 R >>",
+    "<< /Type /Font /Subtype /Type0 /BaseFont /HeiseiKakuGo-W5 /Encoding /UniJIS-UCS2-H /DescendantFonts [5 0 R] >>",
+    "<< /Type /Font /Subtype /CIDFontType0 /BaseFont /HeiseiKakuGo-W5 /CIDSystemInfo << /Registry (Adobe) /Ordering (Japan1) /Supplement 5 >> /FontDescriptor 7 0 R >>",
+    `<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}endstream`,
+    "<< /Type /FontDescriptor /FontName /HeiseiKakuGo-W5 /Flags 4 /FontBBox [-123 -257 1001 910] /ItalicAngle 0 /Ascent 880 /Descent -120 /CapHeight 700 /StemV 80 >>",
+  ])
+}
+
+const checkPdfPreview = async (page: Page, who: string, name = "report.pdf", pages = 2) => {
+  const requests: string[] = []
+
+  const blockFrameAssets = async (route: Route) => {
+    if (route.request().frame() === page.mainFrame()) {
+      await route.continue()
+    } else {
+      requests.push(route.request().url())
+      await route.fulfill({ status: 302, headers: { location: "/login" } })
+    }
+  }
+
+  await page.route("**/assets/**", blockFrameAssets)
+  await page.getByRole("button", { name: `Preview ${name}` }).click()
+  const frame = previewFrame(page)
+
+  for (let number = 1; number <= pages; number++) {
+    await frame.locator(`canvas[aria-label="PDF page ${number}"]`).waitFor({ timeout: 10_000 })
+    const target = page.frames().find((candidate) => candidate.url().includes("/preview.html"))
+
+    if (target === undefined) {
+      throw new Error("The PDF preview frame is missing")
+    }
+
+    // Canvas mounting precedes painting, so wait for painted pixels.
+    await target.waitForFunction(
+      (pageNumber) => {
+        const canvas = document.querySelector<HTMLCanvasElement>(`canvas[aria-label="PDF page ${pageNumber}"]`)
+
+        if (canvas === null || canvas.width === 0 || canvas.height === 0) {
+          return false
+        }
+
+        const context = canvas.getContext("2d")
+
+        if (context === null) {
+          return false
+        }
+
+        const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data
+
+        for (let index = 0; index < pixels.length; index += 4) {
+          if (pixels[index + 3] === 255 && (pixels[index] ?? 255) < 100 && (pixels[index + 1] ?? 255) < 100 && (pixels[index + 2] ?? 255) < 100) {
+            return true
+          }
+        }
+
+        return false
+      },
+      number,
+      { timeout: 10_000 },
+    )
+    check(true, `preview: ${who} renders PDF page ${number}`)
+
+    if (number < pages) {
+      await frame.getByRole("button", { name: "Next" }).click()
+    }
+  }
+
+  check(requests.length === 0, `preview: ${who} needs no frame asset requests`, requests)
+  await page.unroute("**/assets/**", blockFrameAssets)
+  await closePreview(page)
 }
 
 /**
@@ -1114,6 +1178,7 @@ const previewsAndNames = async (browser: Browser, base: string) => {
       { name: "photo.png", mimeType: "image/png", buffer: orangePng },
       { name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("Packing list: tent, stove, map\n") },
       { name: "report.pdf", mimeType: "application/pdf", buffer: previewPdf() },
+      { name: "cmap.pdf", mimeType: "application/pdf", buffer: previewCmapPdf() },
       {
         name: "page.html",
         mimeType: "text/html",
@@ -1126,6 +1191,7 @@ const previewsAndNames = async (browser: Browser, base: string) => {
     await sender.page.setInputFiles("#files", files)
     await waitForFiles(sender.page, files.length)
     await checkPdfPreview(sender.page, "sender")
+    await checkPdfPreview(sender.page, "sender", "cmap.pdf", 1)
 
     await sender.page.getByRole("button", { name: "Preview photo.png" }).click()
     await previewFrame(sender.page).locator("img").waitFor({ timeout: 10_000 })
@@ -1185,7 +1251,7 @@ const previewsAndNames = async (browser: Browser, base: string) => {
     await waitForFiles(recipient.page, files.length)
     const offered = await recipient.page.locator(".file-list .name").allTextContents()
     check(
-      JSON.stringify(offered) === JSON.stringify(["photo.png", "packing list.txt", "report.pdf", "page.html"]),
+      JSON.stringify(offered) === JSON.stringify(["photo.png", "packing list.txt", "report.pdf", "cmap.pdf", "page.html"]),
       "rename: the recipient is offered the sender's new name",
       offered,
     )
@@ -1211,6 +1277,7 @@ const previewsAndNames = async (browser: Browser, base: string) => {
     check(receivedWidth === 64, "preview: the recipient previews a received image", String(receivedWidth))
     await closePreview(recipient.page)
     await checkPdfPreview(recipient.page, "recipient")
+    await checkPdfPreview(recipient.page, "recipient", "cmap.pdf", 1)
 
     // Opened on its own, the preview page must still have an opaque origin (the `sandbox` header in public/_headers).
     await recipient.page.goto(`${base}/preview.html`)
