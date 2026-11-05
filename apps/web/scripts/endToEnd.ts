@@ -1053,6 +1053,52 @@ const closePreview = async (page: Page) => {
   await page.locator(".preview-dialog").getByRole("button", { name: "Close" }).click()
 }
 
+// Two pages with distinct filled rectangles and valid cross-reference offsets.
+const previewPdf = () => {
+ const streams = ["0 0 0 rg 20 20 80 80 re f\n", "0 0 0 rg 120 120 100 100 re f\n"]
+ const objects = [
+  "<< /Type /Catalog /Pages 2 0 R >>",
+  "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>",
+  "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 300] /Contents 5 0 R >>",
+  "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 300] /Contents 6 0 R >>",
+  ...streams.map((stream) => `<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}endstream`),
+ ]
+ let pdf = "%PDF-1.4\n"
+ const offsets = objects.map((object, index) => {
+  const offset = Buffer.byteLength(pdf)
+  pdf += `${index + 1} 0 obj\n${object}\nendobj\n`
+  return offset
+ })
+ const xref = Buffer.byteLength(pdf)
+ pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.map((offset) => `${String(offset).padStart(10, "0")} 00000 n \n`).join("")}trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`
+ return Buffer.from(pdf)
+}
+
+const checkPdfPreview = async (page: Page, who: string) => {
+ await page.getByRole("button", { name: "Preview report.pdf" }).click()
+ const frame = previewFrame(page)
+ for (const number of [1, 2]) {
+  await frame.locator(`canvas[aria-label="PDF page ${number}"]`).waitFor({ timeout: 10_000 })
+  const target = page.frames().find((candidate) => candidate.url().includes("/preview.html"))
+  if (target === undefined) throw new Error("The PDF preview frame is missing")
+  // Canvas mounting precedes painting, so wait for painted pixels.
+  await target.waitForFunction((pageNumber) => {
+   const canvas = document.querySelector<HTMLCanvasElement>(`canvas[aria-label="PDF page ${pageNumber}"]`)
+   if (canvas === null || canvas.width === 0 || canvas.height === 0) return false
+   const context = canvas.getContext("2d")
+   if (context === null) return false
+   const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data
+   for (let index = 0; index < pixels.length; index += 4) {
+    if (pixels[index + 3] === 255 && (pixels[index] ?? 255) < 100 && (pixels[index + 1] ?? 255) < 100 && (pixels[index + 2] ?? 255) < 100) return true
+   }
+   return false
+  }, number, { timeout: 10_000 })
+  check(true, `preview: ${who} renders PDF page ${number}`)
+  if (number === 1) await frame.getByRole("button", { name: "Next" }).click()
+ }
+ await closePreview(page)
+}
+
 /**
  * Renaming and previews (docs/decisions/0018-previews-and-renaming.md): the sender renames a file before sealing and
  * the recipient sees the new name; the recipient renames a file it saves; both preview an image in a frame whose
@@ -1067,6 +1113,7 @@ const previewsAndNames = async (browser: Browser, base: string) => {
     const files: PayloadFile[] = [
       { name: "photo.png", mimeType: "image/png", buffer: orangePng },
       { name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("Packing list: tent, stove, map\n") },
+      { name: "report.pdf", mimeType: "application/pdf", buffer: previewPdf() },
       {
         name: "page.html",
         mimeType: "text/html",
@@ -1078,6 +1125,7 @@ const previewsAndNames = async (browser: Browser, base: string) => {
     await waitForFileInput(sender.page)
     await sender.page.setInputFiles("#files", files)
     await waitForFiles(sender.page, files.length)
+    await checkPdfPreview(sender.page, "sender")
 
     await sender.page.getByRole("button", { name: "Preview photo.png" }).click()
     await previewFrame(sender.page).locator("img").waitFor({ timeout: 10_000 })
@@ -1137,7 +1185,7 @@ const previewsAndNames = async (browser: Browser, base: string) => {
     await waitForFiles(recipient.page, files.length)
     const offered = await recipient.page.locator(".file-list .name").allTextContents()
     check(
-      JSON.stringify(offered) === JSON.stringify(["photo.png", "packing list.txt", "page.html"]),
+      JSON.stringify(offered) === JSON.stringify(["photo.png", "packing list.txt", "report.pdf", "page.html"]),
       "rename: the recipient is offered the sender's new name",
       offered,
     )
@@ -1162,6 +1210,7 @@ const previewsAndNames = async (browser: Browser, base: string) => {
 
     check(receivedWidth === 64, "preview: the recipient previews a received image", String(receivedWidth))
     await closePreview(recipient.page)
+    await checkPdfPreview(recipient.page, "recipient")
 
     // Opened on its own, the preview page must still have an opaque origin (the `sandbox` header in public/_headers).
     await recipient.page.goto(`${base}/preview.html`)

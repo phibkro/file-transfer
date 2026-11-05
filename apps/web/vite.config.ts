@@ -12,6 +12,7 @@ import { NodeServices } from "@effect/platform-node"
 import { Effect } from "effect"
 import { defineConfig } from "vite-plus"
 import { fileRoutes } from "./scripts/fileRoutesPlugin.ts"
+import { previewBundle } from "./scripts/previewBundle.ts"
 import { generateFileRoutesEffect, readRouteInventoryEffect } from "./scripts/fileRoutes.ts"
 import type * as LayoutModule from "./scripts/layout.ts"
 
@@ -25,7 +26,7 @@ const inventory = await Effect.runPromise(readRouteInventoryEffect(import.meta.d
 const staticRoutes = inventory.filter((route) => route.staticPage)
 
 export default defineConfig({
-  plugins: [fileRoutes(), layout(), tailwindcss(), foldkit()],
+  plugins: [fileRoutes(), layout(), tailwindcss(), foldkit(), previewBundle()],
   server: {
     proxy: {
       "/api": { target: "http://127.0.0.1:8787", ws: true },
@@ -39,7 +40,6 @@ export default defineConfig({
       // The app (including Library), the sandboxed preview frame, and the content pages.
       input: {
         main: "index.html",
-        preview: "preview.html",
         ...Object.fromEntries(staticRoutes.map((route) => [route.path.slice(1), `${route.path.slice(1)}.html`])),
         admin: "admin.html",
       },
