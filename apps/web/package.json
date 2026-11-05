@@ -22,6 +22,7 @@
     "@foldkit/ui": "0.170.0",
     "effect": "4.1.0",
     "foldkit": "0.170.0",
+    "pdfjs-dist": "6.5.438",
     "uplot": "1.6.32",
     "uqr": "0.1.3",
     "valibot": "1.5.0"

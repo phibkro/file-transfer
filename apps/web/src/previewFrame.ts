@@ -5,6 +5,9 @@ import { Command, Mount, Runtime, Subscription } from "foldkit"
 import type { HtmlBuilder } from "foldkit/html"
 import { defineMessageUnion } from "foldkit/message"
 import * as v from "valibot"
+import { AnnotationMode, getDocument, VerbosityLevel } from "pdfjs-dist"
+import type { PDFDocumentLoadingTask, PDFDocumentProxy, PDFPageProxy, RenderTask } from "pdfjs-dist"
+import * as pdfWorker from "pdfjs-dist/build/pdf.worker.mjs"
 import { privateValue } from "./privateValue.ts"
 import { ParentMessage } from "./preview/protocol.ts"
 import type { PreviewKind } from "./sniff.ts"
@@ -26,6 +29,7 @@ export interface FrameMessage {
 
 type Content =
   | { readonly kind: "empty" }
+  | { readonly kind: "pdf"; readonly blob: Blob; readonly page: number; readonly pages: number; readonly generation: number }
   | { readonly kind: "text"; readonly text: string; readonly truncated: boolean }
   | { readonly kind: "image" | "audio" | "video"; readonly url: string }
 
@@ -36,6 +40,8 @@ type Model = typeof Model.Type
 const Message = defineMessageUnion({
   ChangedContent: { content: privateValue<Content>() },
   Loaded: {},
+  LoadedPdf: { page: Schema.Int, pages: Schema.Int, generation: Schema.Int },
+  RequestedPage: { page: Schema.Int },
   Failed: {},
   CompletedPreviewReply: {},
 })
@@ -58,6 +64,20 @@ const init = () => ({ model: { content: Redacted.make<Content>({ kind: "empty" }
 const update = (model: Model, message: Message): Update.Return<Model, Message> =>
   Message.match(message, {
     ChangedContent: ({ content }) => ({ model: { ...model, content } }),
+    LoadedPdf: ({ page, pages, generation }) => {
+      const content = Redacted.value(model.content)
+
+      if (content.kind !== "pdf" || content.generation !== generation || content.page !== page) {
+        return { model }
+      }
+
+      return { model: { ...model, content: Redacted.make({ ...content, pages }) }, commands: [PreviewReply({ type: "shown" })] }
+    },
+    RequestedPage: ({ page }) => {
+      const content = Redacted.value(model.content)
+
+      return content.kind === "pdf" && page >= 1 && page <= content.pages ? { model: { ...model, content: Redacted.make({ ...content, page }) } } : { model }
+    },
     Loaded: () => ({ model, commands: [PreviewReply({ type: "shown" })] }),
     Failed: () => ({ model, commands: [PreviewReply({ type: "failed" })] }),
     CompletedPreviewReply: () => ({ model }),
@@ -108,6 +128,16 @@ const subscriptions = Subscription.make<Model, Message>()((entry) => ({
                   const { kind, blob } = parsed.output
                   clear()
                   const current = generation
+
+                  if (kind === "pdf") {
+                    if (blob.size > 25 * 1024 * 1024) {
+                      Queue.offerUnsafe(queue, Message.Failed())
+                    } else {
+                      Queue.offerUnsafe(queue, Message.ChangedContent({ content: Redacted.make({ kind, blob, page: 1, pages: 0, generation: current }) }))
+                    }
+
+                    return
+                  }
 
                   if (kind === "text") {
                     void blob
@@ -194,6 +224,98 @@ const MediaEvents = Mount.defineStream("PreviewMediaEvents", {
     ),
 })
 
+// PDF.js uses its bundled main-thread worker rather than fetching a worker from the opaque origin.
+Object.assign(globalThis, { pdfjsWorker: pdfWorker })
+
+const PdfPage = Mount.defineStream("PreviewPdfPage", {
+  args: { blob: privateValue<Blob>(), page: Schema.Int, generation: Schema.Int },
+  messages: [Message.LoadedPdf, Message.Failed],
+  execute: ({ element, blob, page, generation }) =>
+    Stream.callback<typeof Message.LoadedPdf.Type | typeof Message.Failed.Type>((queue) =>
+      Effect.gen(function* () {
+        yield* Effect.acquireRelease(
+          Effect.sync(() => {
+            let active = true
+            let loading: PDFDocumentLoadingTask | undefined
+            let rendering: RenderTask | undefined
+            const canvas = element instanceof HTMLCanvasElement ? element : undefined
+            let pages = 0
+
+            void Redacted.value(blob)
+              .arrayBuffer()
+              .then((buffer): Promise<PDFDocumentProxy> | null => {
+                if (!active || canvas === undefined) {
+                  return null
+                }
+
+                loading = getDocument({
+                  data: new Uint8Array(buffer),
+                  disableFontFace: true,
+                  useWorkerFetch: false,
+                  useWasm: false,
+                  enableXfa: false,
+                  verbosity: VerbosityLevel.ERRORS,
+                  maxImageSize: 16_000_000,
+                })
+
+                return loading.promise
+              })
+              .then((document): Promise<PDFPageProxy> | null => {
+                if (!active || document === null) {
+                  return null
+                }
+
+                pages = document.numPages
+
+                return document.getPage(page)
+              })
+              .then((pdfPage): Promise<void> | null => {
+                if (!active || pdfPage === null || canvas === undefined) {
+                  return null
+                }
+
+                const base = pdfPage.getViewport({ scale: 1 })
+                const scale = Math.min(1.5, 2048 / base.width, 2048 / base.height, Math.sqrt(4_000_000 / (base.width * base.height)))
+                const viewport = pdfPage.getViewport({ scale })
+
+                canvas.width = Math.max(1, Math.floor(viewport.width))
+                canvas.height = Math.max(1, Math.floor(viewport.height))
+                rendering = pdfPage.render({ canvas, viewport, annotationMode: AnnotationMode.DISABLE })
+
+                return rendering.promise
+              })
+              .then(() => {
+                if (active) {
+                  Queue.offerUnsafe(queue, Message.LoadedPdf({ page, pages, generation }))
+                }
+
+                return null
+              })
+              .catch(() => {
+                if (active) {
+                  Queue.offerUnsafe(queue, Message.Failed())
+                }
+              })
+
+            return () => {
+              active = false
+              rendering?.cancel()
+              void loading?.destroy()
+
+              if (canvas !== undefined) {
+                canvas.width = 0
+                canvas.height = 0
+              }
+            }
+          }),
+          (release) => Effect.sync(release),
+        )
+
+        return yield* Effect.never
+      }),
+    ),
+})
+
 const view = (model: Model, h: HtmlBuilder<Message>) => {
   const content = Redacted.value(model.content)
 
@@ -204,6 +326,28 @@ const view = (model: Model, h: HtmlBuilder<Message>) => {
         ? h.div(
             [h.Class("preview-text")],
             [h.pre([], [content.text]), content.truncated ? h.p([h.Class("note")], ["Only the beginning of the file is shown."]) : null],
+          )
+        : null,
+      content.kind === "pdf"
+        ? h.div(
+            [h.Class("preview-pdf")],
+            [
+              h.div(
+                [h.Class("preview-pdf-controls")],
+                [
+                  h.button([h.Type("button"), h.Disabled(content.page <= 1), h.OnClick(Message.RequestedPage({ page: content.page - 1 }))], ["Previous"]),
+                  h.span([h.Role("status")], [content.pages > 0 ? `Page ${content.page} of ${content.pages}` : "Loading PDF"]),
+                  h.button(
+                    [h.Type("button"), h.Disabled(content.page >= content.pages), h.OnClick(Message.RequestedPage({ page: content.page + 1 }))],
+                    ["Next"],
+                  ),
+                ],
+              ),
+              h.keyed("canvas")(`${content.generation}:${content.page}`, [
+                h.AriaLabel(`PDF page ${content.page}`),
+                h.OnMount(PdfPage({ blob: Redacted.make(content.blob), page: content.page, generation: content.generation })),
+              ]),
+            ],
           )
         : null,
       content.kind === "image" ? h.img([h.Src(content.url), h.Alt(""), h.OnMount(MediaEvents())]) : null,

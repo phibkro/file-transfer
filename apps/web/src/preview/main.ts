@@ -138,7 +138,7 @@ const PreviewChannel = Mount.defineStream("PreviewChannel", {
 
                 if (result === undefined) {
                   clearTimeout(timeout)
-                  status("There is no preview for this kind of file. Images, audio, video and text can be previewed.", "unavailable")
+                  status("There is no preview for this kind of file. Images, audio, video, PDF and text can be previewed.", "unavailable")
 
                   return null
                 }

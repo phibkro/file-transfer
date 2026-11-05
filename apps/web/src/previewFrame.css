@@ -59,3 +59,24 @@ pre {
   opacity: 0.7;
   font-size: 0.85rem;
 }
+
+.preview-pdf {
+  align-self: start;
+  width: 100%;
+  display: grid;
+  justify-items: center;
+  gap: 0.75rem;
+}
+
+.preview-pdf-controls {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.5rem;
+}
+
+.preview-pdf canvas {
+  max-width: 100%;
+  height: auto;
+  background: white;
+}

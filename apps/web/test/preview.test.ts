@@ -44,6 +44,7 @@ describe("preview dialog", () => {
 
   test("the frame channel accepts only supported messages and Blob content", () => {
     expect(v.safeParse(ParentMessage, { type: "show", kind: "text", blob: new Blob(["text"]) }).success).toBe(true)
+    expect(v.safeParse(ParentMessage, { type: "show", kind: "pdf", blob: new Blob(["%PDF-"]) }).success).toBe(true)
     expect(v.safeParse(ParentMessage, { type: "show", kind: "html", blob: new Blob(["text"]) }).success).toBe(false)
     expect(v.safeParse(ParentMessage, { type: "show", kind: "text", blob: "text" }).success).toBe(false)
     expect(v.safeParse(FrameReply, { type: "unexpected" }).success).toBe(false)

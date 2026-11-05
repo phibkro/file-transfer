@@ -6,7 +6,7 @@
  * what reaches the browser's decoders there, not what could reach the app.
  */
 
-export type PreviewKind = "image" | "video" | "audio" | "text"
+export type PreviewKind = "image" | "video" | "audio" | "text" | "pdf"
 
 export interface Sniffed {
   readonly kind: PreviewKind
@@ -34,6 +34,7 @@ const imageBrands = new Set(["avif", "avis"])
 const audioBrands = new Set(["M4A ", "M4B "])
 
 const signatures: readonly { readonly matches: (bytes: Uint8Array) => boolean; readonly sniffed: Sniffed }[] = [
+  { matches: (bytes) => startsWith(bytes, ascii("%PDF-")), sniffed: { kind: "pdf", mediaType: "application/pdf" } },
   { matches: (bytes) => startsWith(bytes, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), sniffed: { kind: "image", mediaType: "image/png" } },
   { matches: (bytes) => startsWith(bytes, [0xff, 0xd8, 0xff]), sniffed: { kind: "image", mediaType: "image/jpeg" } },
   {
