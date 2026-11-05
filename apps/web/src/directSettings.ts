@@ -7,8 +7,34 @@
  * the setting says so, and turning it off keeps every transfer on the relay.
  */
 import * as v from "valibot"
+import { appearanceStorageKey, isAppearance } from "./appearance.ts"
+import type { Appearance } from "./appearance.ts"
 
 const preferenceKey = "file-transfer:direct-connections"
+
+export const storedAppearance = (): Appearance => {
+  try {
+    const value = localStorage.getItem(appearanceStorageKey)
+
+    return isAppearance(value) ? value : "system"
+  } catch {
+    return "system"
+  }
+}
+
+export const setAppearance = (appearance: Appearance): void => {
+  document.documentElement.dataset.appearance = appearance
+
+  try {
+    if (appearance === "system") {
+      localStorage.removeItem(appearanceStorageKey)
+    } else {
+      localStorage.setItem(appearanceStorageKey, appearance)
+    }
+  } catch {
+    // Storage unavailable: the choice lasts for this page only.
+  }
+}
 
 const DirectSettings = v.object({
   enabled: v.boolean(),

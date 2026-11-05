@@ -3,7 +3,8 @@ import { Effect, Option, Schema } from "effect"
 import { Command, Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
 import { defineView } from "foldkit/submodel"
-import { directAllowed, setDirectAllowed } from "../directSettings.ts"
+import { appearanceValues } from "../appearance.ts"
+import { directAllowed, setAppearance, setDirectAllowed, storedAppearance } from "../directSettings.ts"
 import { hasOfferedRemoval, removeOfferedFiles } from "../storagePanel.ts"
 import { storageUse, sweepStaleTransfers } from "../storage.ts"
 import { formatSize } from "../view.ts"
@@ -21,6 +22,9 @@ export const Model = Schema.Struct({
   tabs: Tabs.Model,
   selected: Schema.Literals(["direct", "storage"]),
   direct: Schema.Boolean,
+  appearance: Schema.Literals(appearanceValues),
+  appearanceLoaded: Schema.Boolean,
+  appearanceSaving: Schema.Boolean,
   directLoaded: Schema.Boolean,
   directDirty: Schema.Boolean,
   directSaving: Schema.Boolean,
@@ -37,6 +41,9 @@ export const Message = defineMessageUnion({
   GotTabsMessage: { message: Tabs.Message },
   ToggledOpen: { open: Schema.Boolean },
   ToggledDirect: { allowed: Schema.Boolean },
+  SelectedAppearance: { appearance: Schema.Literals(appearanceValues) },
+  LoadedAppearance: { appearance: Schema.Literals(appearanceValues) },
+  SavedAppearance: {},
   SavedDirect: {},
   RequestedClear: {},
   CancelledClear: {},
@@ -49,6 +56,22 @@ export const Message = defineMessageUnion({
 export type Message = typeof Message.Type
 
 const SettingsTabs = Tabs.create<"direct" | "storage">()
+
+const LoadAppearance = Command.define("LoadAppearance", {
+  messages: [Message.LoadedAppearance],
+  execute: Effect.sync(() => Message.LoadedAppearance({ appearance: storedAppearance() })),
+})
+
+const SetAppearance = Command.define("SetAppearance", {
+  args: { appearance: Schema.Literals(appearanceValues) },
+  messages: [Message.SavedAppearance],
+  execute: ({ appearance }) =>
+    Effect.sync(() => {
+      setAppearance(appearance)
+
+      return Message.SavedAppearance()
+    }),
+})
 
 const LoadBrowserSettings = Command.define("LoadBrowserSettings", {
   messages: [Message.Loaded, Message.Failed],
@@ -90,6 +113,9 @@ export const init = (): Update.Return<Model, Message> => ({
     tabs: Tabs.init({ id: "settings-tabs" }),
     selected: "direct",
     direct: true,
+    appearance: "system",
+    appearanceLoaded: false,
+    appearanceSaving: false,
     directLoaded: false,
     directDirty: false,
     directSaving: false,
@@ -101,7 +127,7 @@ export const init = (): Update.Return<Model, Message> => ({
   },
 })
 
-export const boot = (): Update.Return<Model, Message> => ({ ...init(), commands: [LoadBrowserSettings()] })
+export const boot = (): Update.Return<Model, Message> => ({ ...init(), commands: [LoadBrowserSettings(), LoadAppearance()] })
 
 const foldTabs = Update.foldChild({
   update: SettingsTabs.update,
@@ -120,6 +146,12 @@ export const update = (model: Model, message: Message): Update.Return<Model, Mes
         ? { model }
         : { model: { ...model, direct: allowed, directDirty: true, directSaving: true }, commands: [SetDirectPreference({ allowed })] },
     SavedDirect: () => ({ model: { ...model, directSaving: false } }),
+    LoadedAppearance: ({ appearance }) => ({ model: { ...model, appearance, appearanceLoaded: true } }),
+    SelectedAppearance: ({ appearance }) =>
+      model.appearanceSaving || !model.appearanceLoaded
+        ? { model }
+        : { model: { ...model, appearance, appearanceSaving: true }, commands: [SetAppearance({ appearance })] },
+    SavedAppearance: () => ({ model: { ...model, appearanceSaving: false } }),
     RequestedClear: () => ({ model: { ...model, confirm: true }, commands: [LoadBrowserSettings()] }),
     CancelledClear: () => ({ model: { ...model, confirm: false } }),
     ConfirmedClear: () => (model.busy ? { model } : { model: { ...model, busy: true, status: "Removing received files." }, commands: [ClearReceivedFiles()] }),
@@ -131,19 +163,42 @@ export const update = (model: Model, message: Message): Update.Return<Model, Mes
 export const view = defineView<Model, Message>((model, h) =>
   Disclosure.view(
     {
-      id: "browser-settings",
+      id: "settings",
       isOpen: model.open,
       onToggle: (open) => Message.ToggledOpen({ open }),
       toView: (disclosure) =>
         h.section(
           [h.Class("browser-settings")],
           [
-            h.button([...disclosure.button, h.Class("button")], ["Browser settings"]),
+            h.button([...disclosure.button, h.Class("button")], ["Settings"]),
             ...(model.open
               ? [
                   h.div(
                     [...disclosure.panel, h.Class("settings-panel")],
                     [
+                      h.div(
+                        [h.Class("appearance-settings")],
+                        [
+                          h.p([], ["Appearance"]),
+                          h.div(
+                            [h.Class("filters"), h.Role("group"), h.AriaLabel("Appearance")],
+                            appearanceValues.map((appearance) =>
+                              Button.view(
+                                {
+                                  onClick: Message.SelectedAppearance({ appearance }),
+                                  isDisabled: !model.appearanceLoaded || model.appearanceSaving,
+                                  toView: (attributes) =>
+                                    h.button(
+                                      [...attributes.button, h.AriaPressed(String(model.appearance === appearance))],
+                                      [appearance.charAt(0).toUpperCase() + appearance.slice(1)],
+                                    ),
+                                },
+                                h,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                       h.submodel({
                         slotId: "tabs",
                         model: model.tabs,
@@ -152,7 +207,7 @@ export const view = defineView<Model, Message>((model, h) =>
                         viewInputs: {
                           tabs: ["direct", "storage"],
                           selectedValue: model.selected,
-                          ariaLabel: "Browser settings",
+                          ariaLabel: "Settings",
                           toView: ({ tablist, tabs }) =>
                             h.div(
                               [],

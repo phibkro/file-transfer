@@ -44,4 +44,17 @@ describe("private transfer widgets", () => {
     expect(stale.direct).toBe(false)
     expect(Settings.update(stale, Settings.Message.ToggledDirect({ allowed: true })).commands).toBeUndefined()
   })
+
+  it("loads appearance independently and serializes preference changes", () => {
+    const initial = Settings.init().model
+    expect(initial.appearance).toBe("system")
+    expect(Settings.update(initial, Settings.Message.SelectedAppearance({ appearance: "dark" })).commands).toBeUndefined()
+    const loaded = Settings.update(initial, Settings.Message.LoadedAppearance({ appearance: "light" })).model
+    const changed = Settings.update(loaded, Settings.Message.SelectedAppearance({ appearance: "dark" }))
+    expect(changed.model.appearance).toBe("dark")
+    expect(changed.commands).toHaveLength(1)
+    expect(Settings.update(changed.model, Settings.Message.SelectedAppearance({ appearance: "system" })).commands).toBeUndefined()
+    const saved = Settings.update(changed.model, Settings.Message.SavedAppearance()).model
+    expect(Settings.update(saved, Settings.Message.SelectedAppearance({ appearance: "system" })).commands).toHaveLength(1)
+  })
 })

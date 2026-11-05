@@ -2,42 +2,57 @@
 @import "tailwindcss";
 
 :root {
-  --background: #f5f7fc;
-  --foreground: #18244a;
-  --card: #fff;
-  --card-foreground: #18244a;
-  --popover: #fff;
-  --popover-foreground: #18244a;
-  --primary: #2854dc;
-  --primary-foreground: #fff;
-  --secondary: #edf2ff;
-  --secondary-foreground: #2854dc;
-  --muted: #eef2f9;
-  --muted-foreground: #52617e;
-  --accent: #edf2ff;
-  --accent-foreground: #2854dc;
-  --destructive: #b42335;
-  --destructive-foreground: #fff;
-  --border: #dfe6f3;
-  --input: #d9e2f2;
-  --ring: #2854dc;
-  --library: #f0eaff;
-  --library-foreground: #6948b8;
-  --success: #e6f5f0;
-  --success-foreground: #197063;
-  --warning: #fff4db;
-  --warning-foreground: #785100;
-  --chart-1: #2854dc;
-  --chart-2: #6948b8;
-  --chart-3: #197063;
+  color-scheme: light dark;
+  --background: light-dark(#f5f7fc, #101521);
+  --foreground: light-dark(#18244a, #e4eafb);
+  --card: light-dark(#fff, #1a2232);
+  --card-foreground: light-dark(#18244a, #e4eafb);
+  --popover: light-dark(#fff, #202a3c);
+  --popover-foreground: light-dark(#18244a, #e4eafb);
+  --primary: light-dark(#2854dc, #9bb5ff);
+  --primary-foreground: light-dark(#fff, #101e49);
+  --secondary: light-dark(#edf2ff, #293752);
+  --secondary-foreground: light-dark(#2854dc, #b5c8ff);
+  --muted: light-dark(#eef2f9, #273142);
+  --muted-foreground: light-dark(#52617e, #b2bfd3);
+  --accent: light-dark(#edf2ff, #293752);
+  --accent-foreground: light-dark(#2854dc, #b5c8ff);
+  --destructive: light-dark(#b42335, #ff9fac);
+  --destructive-foreground: light-dark(#fff, #4d0c18);
+  --border: light-dark(#dfe6f3, #3a4960);
+  --input: light-dark(#d9e2f2, #495a74);
+  --ring: light-dark(#2854dc, #9bb5ff);
+  --library: light-dark(#f0eaff, #372d51);
+  --library-foreground: light-dark(#6948b8, #d1bbff);
+  --success: light-dark(#e6f5f0, #1b3b37);
+  --success-foreground: light-dark(#197063, #9adccc);
+  --warning: light-dark(#fff4db, #493a1d);
+  --warning-foreground: light-dark(#785100, #f4d18b);
+  --chart-1: light-dark(#2854dc, #9bb5ff);
+  --chart-2: light-dark(#6948b8, #d1bbff);
+  --chart-3: light-dark(#197063, #9adccc);
   --radius: 9px;
   --panel-radius: 17px;
   --shell-width: 1060px;
-  --panel-shadow: 0 4px 12px rgb(35 56 105 / 3%);
-  --overlay: rgb(24 36 74 / 40%);
-  --dialog-shadow: 0 16px 48px rgb(24 36 74 / 18%);
+  --panel-shadow: 0 4px 12px light-dark(rgb(35 56 105 / 3%), rgb(0 0 0 / 20%));
+  --overlay: light-dark(rgb(24 36 74 / 40%), rgb(0 0 0 / 65%));
+  --dialog-shadow: 0 16px 48px light-dark(rgb(24 36 74 / 18%), rgb(0 0 0 / 50%));
   --font-sans: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+:root[data-appearance="light"] {
+  color-scheme: light;
+}
+
+:root[data-appearance="dark"] {
+  color-scheme: dark;
+}
+
+.appearance-settings {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 20px;
 }
 
 @theme inline {
@@ -74,7 +89,7 @@
     box-sizing: border-box;
   }
   html {
-    scroll-behavior: smooth;
+    scroll-behavior: auto;
   }
   body {
     @apply bg-background text-foreground;
