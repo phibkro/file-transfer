@@ -37,7 +37,7 @@ Quick Share, received files and indexed local files share the same preview Submo
 
 The bundled main-thread PDF worker avoids a worker or network exception in CSP. Standard fonts and CMaps are inlined from the pinned PDF.js package. Regenerate their manifest with `bun apps/web/scripts/generatePdfResources.ts`; `bun run check:pdf-resources` detects drift and is part of `bun run check`. Large or complex PDFs can still take time on the main thread. Unsupported or malformed files show an unavailable-preview message instead of executing active content.
 
-The production build puts the preview script and stylesheet in `preview.html`. Its CSP hash is derived from the script and written to the page and response headers. The sandbox needs no asset requests, which avoids missing SameSite cookies on opaque-origin requests. Local tests simulate an access gate but do not prove the policy of a deployed gate.
+The production build puts the preview script and stylesheet in `preview.html`. The build derives CSP hashes from both assets and writes them to the page and response headers. The sandbox needs no asset requests, which avoids missing SameSite cookies on opaque-origin requests. Local tests simulate an access gate but do not prove the policy of a deployed gate.
 
 ## Implementation boundaries
 

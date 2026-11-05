@@ -42,8 +42,9 @@ export const previewBundle = (): Plugin => ({
     if (/<\/script/iu.test(script.code) || /<\/style/iu.test(css.source)) {
       throw new Error("Preview assets cannot be embedded safely in HTML")
     }
-    const hash = createHash("sha256").update(script.code).digest("base64")
-    const policy = `default-src 'none'; script-src 'sha256-${hash}'; style-src 'unsafe-inline'; img-src blob:; media-src blob:; base-uri 'none'; form-action 'none'`
+    const scriptHash = createHash("sha256").update(script.code).digest("base64")
+    const styleHash = createHash("sha256").update(css.source).digest("base64")
+    const policy = `default-src 'none'; script-src 'sha256-${scriptHash}'; style-src 'sha256-${styleHash}'; style-src-attr 'unsafe-inline'; img-src blob:; media-src blob:; base-uri 'none'; form-action 'none'`
     const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${policy}"><meta name="referrer" content="no-referrer"><title>Preview · Pocketdrop</title><style>${css.source}</style></head><body><div id="preview-app"></div><script>${script.code}</script></body></html>`
     const directory = options.dir ?? path.resolve(root, "dist")
     const headersPath = path.join(directory, "_headers")
