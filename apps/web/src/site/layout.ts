@@ -1,6 +1,7 @@
 import * as Nav from "@foldkit/ui/nav"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import { howItWorksRouter, libraryRouter, privacyRouter, quickShareRouter, runYourOwnRouter, securityRouter, thirdPartyNoticesRouter } from "../app/routes.ts"
+import { howItWorksRouter, libraryRouter, privacyRouter, quickShareRouter, runYourOwnRouter, securityRouter } from "../app/routes.ts"
+import { assetPath } from "../app/assets.ts"
 import { icon } from "../ui/icon.ts"
 
 /** Operators of modified versions should point this at their own source. */
@@ -99,7 +100,7 @@ export const siteFooter = <Message>(h: HtmlBuilder<Message>, options?: { support
               h.a([h.Href(securityRouter())], ["Security"]),
               h.a([h.Href(privacyRouter())], ["Privacy"]),
               h.a([h.Href(runYourOwnRouter())], ["Run your own"]),
-              h.a([h.Href(thirdPartyNoticesRouter())], ["Third-party notices"]),
+              h.a([h.Href(assetPath("thirdPartyNotices"))], ["Third-party notices"]),
             ],
           ),
         ],

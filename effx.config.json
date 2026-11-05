@@ -79,6 +79,9 @@
       },
       {
         "files": [
+          "effx.config.json",
+          "apps/web/scripts/formatOptions.ts",
+          "apps/web/scripts/renderFileRoutes.ts",
           "libraries/parcel/src/**",
           "tools/quality/src/changesets.ts",
           "tools/quality/src/releaseNotes.ts",
@@ -114,6 +117,7 @@
       },
       {
         "files": [
+          "apps/web/src/app/assets.ts",
           "apps/web/src/capabilities/appearance/preference.ts",
           "apps/web/src/features/receive/files.ts",
           "apps/web/src/capabilities/connection/ranges.ts",
@@ -167,6 +171,8 @@
           "apps/web/src/ui/share.ts",
           "apps/web/src/ui/summary.ts",
           "apps/web/src/ui/name.ts",
+          "apps/web/src/routing/**",
+          "apps/web/src/routes/**",
           "apps/web/src/site/**",
           "apps/web/src/ui/privateValue.ts",
           "apps/web/src/app/routes.ts",
@@ -195,16 +201,40 @@
         "adapterDependencies": ["foldkit"]
       },
       {
+        "files": ["apps/web/scripts/fileRoutes.ts"],
+        "role": "runtime-adapter",
+        "platform": "node",
+        "adapterDependencies": ["node:fs", "node:path", "oxc-parser", "vite-plus"]
+      },
+      {
+        "files": ["apps/web/scripts/fileRoutesCheck.ts", "apps/web/scripts/fileRoutesPlugin.ts"],
+        "role": "composition-root",
+        "platform": "node",
+        "adapterDependencies": ["node:path", "vite-plus"]
+      },
+      {
+        "files": ["checkWebRoles.ts"],
+        "role": "runtime-adapter",
+        "platform": "bun",
+        "adapterDependencies": ["bun"]
+      },
+      {
         "files": ["apps/web/scripts/verify/snapshot.ts"],
         "role": "runtime-adapter",
         "platform": "node",
         "adapterDependencies": ["node:child_process", "node:crypto", "node:fs", "node:path"]
       },
       {
+        "files": ["apps/web/generator-test/**"],
+        "role": "composition-root",
+        "platform": "node",
+        "adapterDependencies": ["@effect/platform-node", "node:fs", "node:path"]
+      },
+      {
         "files": ["apps/*/test/**"],
         "role": "test",
         "platform": "node",
-        "adapterDependencies": ["foldkit", "@foldkit/ui", "node:child_process", "node:fs", "node:os", "node:path"]
+        "adapterDependencies": ["foldkit", "@foldkit/ui", "vite-plus", "node:child_process", "node:fs", "node:os", "node:path"]
       },
       {
         "files": [

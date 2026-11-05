@@ -19,6 +19,7 @@ describe("receive link", () => {
     expect(submit(link.replace("https:", "http:")).commands).toBeUndefined()
     expect(submit(link.replace("example.test", "other.test")).commands).toBeUndefined()
     expect(submit(link.replace("#", "/#")).commands).toHaveLength(1)
+    expect(submit(link.replace("abcdefghijklmnopqrstuv", "%61bcdefghijklmnopqrstuv")).commands).toHaveLength(1)
 
     for (const invalid of [
       "",
@@ -26,6 +27,7 @@ describe("receive link", () => {
       link.replace("https:", ["java", "script:"].join("")),
       link.replace("/r/", "/other/"),
       link.replace("abcdefghijklmnopqrstuv", "short"),
+      link.replace("abcdefghijklmnopqrstuv", "%2Fbcdefghijklmnopqrstuv"),
       link.replace("#", "?query=1#"),
       link.replace("example.test", "user@example.test"),
       link.slice(0, link.indexOf("#")),

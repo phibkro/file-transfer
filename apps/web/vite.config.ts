@@ -4,13 +4,28 @@
  * `/r/*` answered by `index.html`. `public/_headers` sets the headers Cloudflare's static assets serve (the preview
  * page's sandbox, CORS for the preview frame's scripts).
  */
+import path from "node:path"
+import { pathToFileURL } from "node:url"
 import { foldkit } from "@foldkit/vite-plugin"
 import tailwindcss from "@tailwindcss/vite"
+import { NodeServices } from "@effect/platform-node"
+import { Effect } from "effect"
 import { defineConfig } from "vite-plus"
-import { layout } from "./scripts/layout.ts"
+import { fileRoutes } from "./scripts/fileRoutesPlugin.ts"
+import { generateFileRoutesEffect, readRouteInventoryEffect } from "./scripts/fileRoutes.ts"
+import type * as LayoutModule from "./scripts/layout.ts"
+
+await Effect.runPromise(generateFileRoutesEffect(import.meta.dirname).pipe(Effect.provide(NodeServices.layer)))
+
+const layoutUrl = pathToFileURL(path.resolve(import.meta.dirname, "scripts/layout.ts")).href
+
+// SAFETY: This URL names the local layout module, loaded after route generation.
+const { layout } = (await import(layoutUrl)) as typeof LayoutModule
+const inventory = await Effect.runPromise(readRouteInventoryEffect(import.meta.dirname).pipe(Effect.provide(NodeServices.layer)))
+const staticRoutes = inventory.filter((route) => route.staticPage)
 
 export default defineConfig({
-  plugins: [layout(), tailwindcss(), foldkit()],
+  plugins: [fileRoutes(), layout(), tailwindcss(), foldkit()],
   server: {
     proxy: {
       "/api": { target: "http://127.0.0.1:8787", ws: true },
@@ -25,10 +40,7 @@ export default defineConfig({
       input: {
         main: "index.html",
         preview: "preview.html",
-        howItWorks: "how-it-works.html",
-        security: "security.html",
-        privacy: "privacy.html",
-        runYourOwn: "run-your-own.html",
+        ...Object.fromEntries(staticRoutes.map((route) => [route.path.slice(1), `${route.path.slice(1)}.html`])),
         admin: "admin.html",
       },
     },

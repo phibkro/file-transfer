@@ -6,6 +6,7 @@ import { Command } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
 import { load } from "foldkit/navigation"
 import { defineView } from "foldkit/submodel"
+import { parsePath } from "../app/routes.ts"
 import { privateValue } from "./privateValue.ts"
 import { icon } from "./icon.ts"
 
@@ -47,7 +48,7 @@ const validLink = (value: string, origin: string): boolean => {
       url.username !== "" ||
       url.password !== "" ||
       url.search !== "" ||
-      !/^\/r\/[A-Za-z0-9_-]{22}\/?$/u.test(url.pathname) ||
+      parsePath(url.pathname)?._tag !== "Recipient" ||
       url.hash === ""
     ) {
       return false

@@ -2,12 +2,12 @@ import { readdir, readFile, writeFile } from "node:fs/promises"
 import { createHash } from "node:crypto"
 import path from "node:path"
 import { createRequire } from "node:module"
-import { thirdPartyNoticesRouter } from "../src/app/routes.ts"
+import { assetPath } from "../src/app/assets.ts"
 
 const require = createRequire(import.meta.url)
 const packageDirectory = path.dirname(require.resolve("pdfjs-dist/package.json"))
 const outputPath = path.resolve(import.meta.dir, "../src/capabilities/preview/pdf/pdfResourceManifest.ts")
-const noticesPath = path.resolve(import.meta.dir, `../public${thirdPartyNoticesRouter()}`)
+const noticesPath = path.resolve(import.meta.dir, `../public${assetPath("thirdPartyNotices")}`)
 
 const directories = [
   { directory: "cmaps", extensions: [".bcmap"], name: "cMaps" },

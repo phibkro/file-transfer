@@ -4,7 +4,7 @@ import { Command, ManagedResource, Subscription, Update } from "foldkit"
 import type { Document, HtmlBuilder } from "foldkit/html"
 import { defineMessageUnion } from "foldkit/message"
 import { focus, scrollIntoViewAfterPaint, streamFromEventFilterMap } from "foldkit/dom"
-import { MainRoute, libraryRouter, quickShareRouter } from "./routes.ts"
+import { MainRoute, parsePath, workspacePathForSection, workspaceSectionForRoute } from "./routes.ts"
 import { defineTaggedUnion } from "foldkit/schema"
 import * as Library from "../features/library/main.ts"
 import * as Recipient from "../features/receive/main.ts"
@@ -266,13 +266,14 @@ const globalSubscriptions = Subscription.make<Model, Message>()((entry) => ({
               target: () => window,
               type: "hashchange",
               filterMapEvent: () => {
-                const path = pagePath()
+                const route = parsePath(pagePath())
+                const routeSection = route === undefined ? undefined : workspaceSectionForRoute(route._tag)
 
-                if (path !== quickShareRouter() && path !== libraryRouter() && path !== `${libraryRouter()}/`) {
+                if (routeSection === undefined) {
                   return Option.none()
                 }
 
-                const section = workspaceAnchor() ?? (path === quickShareRouter() ? "quick" : "library")
+                const section = workspaceAnchor() ?? routeSection
 
                 return Option.some(Message.NavigatedWorkspace({ section }))
               },
@@ -298,7 +299,7 @@ const workspacePath = (model: Model): string | undefined => {
     return undefined
   }
 
-  return model.section === "quick" ? quickShareRouter() : libraryRouter()
+  return workspacePathForSection(model.section)
 }
 
 export const view = (model: Model, h: HtmlBuilder<Message>): Document => ({

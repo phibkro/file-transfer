@@ -25,6 +25,7 @@ import {
 import type { Contract, ManifestFile, ParcelSealer, RecordReader } from "@file-transfer/parcel"
 import type { ControlMessage } from "@file-transfer/transport/protocol"
 import { pageOrigin } from "../../app/address.ts"
+import { buildPath } from "../../app/routes.ts"
 import { receiveCredit, spendCredit } from "../../capabilities/connection/credits.ts"
 import type { CreditBalance } from "../../capabilities/connection/credits.ts"
 import { openConnection } from "../../capabilities/connection/connection.ts"
@@ -191,7 +192,7 @@ const createRoom = async (roomTokenHash: string, signal: AbortSignal): Promise<s
 
   const body: unknown = await response.json()
 
-  if (!isCreatedRoom(body) || !/^[A-Za-z0-9_-]{22}$/u.test(body.roomIdentifier)) {
+  if (!isCreatedRoom(body)) {
     throw new TransferError("room-not-created")
   }
 
@@ -559,7 +560,13 @@ export const startTransfer = (entries: readonly SenderEntry[], onEvent: (event: 
       abort.signal.throwIfAborted()
       const roomIdentifier = await createRoom(tokenHash, abort.signal)
       abort.signal.throwIfAborted()
-      const link = `${pageOrigin()}/r/${roomIdentifier}#${encodeLinkSecret(prepared.linkSecret)}`
+      const pathname = buildPath("/r/$roomIdentifier", { roomIdentifier })
+
+      if (pathname === undefined) {
+        throw new TransferError("room-not-created")
+      }
+
+      const link = `${pageOrigin()}${pathname}#${encodeLinkSecret(prepared.linkSecret)}`
       publish({ type: "link", link })
       abort.signal.throwIfAborted()
       const direct = await directOption()

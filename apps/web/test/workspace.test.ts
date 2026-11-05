@@ -3,11 +3,33 @@ import { describe, expect, it } from "vite-plus/test"
 import * as Main from "../src/app/main.ts"
 import * as Library from "../src/features/library/main.ts"
 import * as Sender from "../src/features/quick-share/main.ts"
-import { AppRoute } from "../src/app/routes.ts"
+import { AppRoute, applicationRoute, parsePath, workspacePathForSection, workspaceSectionForRoute } from "../src/app/routes.ts"
 
 const boot = () => Main.init({ route: AppRoute.QuickShare(), fragment: Redacted.make(""), initialSection: "quick", origin: "https://example.test" }).model
 
 describe("workspace", () => {
+  it("falls back to Quick Share for invalid recipient and extra path segments", () => {
+    expect(applicationRoute("/r/short")._tag).toBe("QuickShare")
+    expect(applicationRoute("/r/abcdefghijklmnopqrstuv/extra")._tag).toBe("QuickShare")
+    expect(applicationRoute("/library/extra")._tag).toBe("QuickShare")
+    expect(applicationRoute("/r/abcdefghijklmnopqrstuv")._tag).toBe("Recipient")
+  })
+
+  it("selects workspace children from generated route metadata", () => {
+    for (const [pathname, section] of [
+      ["/", "quick"],
+      ["/library/", "library"],
+    ] as const) {
+      const route = parsePath(pathname)
+      expect(workspaceSectionForRoute(route?._tag ?? "")).toBe(section)
+    }
+
+    expect(workspacePathForSection("quick")).toBe("/")
+    expect(workspacePathForSection("library")).toBe("/library")
+    expect(workspaceSectionForRoute("Recipient")).toBeUndefined()
+    expect(parsePath("/not-a-page")).toBeUndefined()
+  })
+
   it("retains both children through navigation and child updates", () => {
     const initial = boot()
 

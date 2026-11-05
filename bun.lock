@@ -37,6 +37,7 @@
         "valibot": "1.5.0",
       },
       "devDependencies": {
+        "@effect/platform-node": "4.1.0",
         "@foldkit/devtools": "0.170.0",
         "@foldkit/devtools-mcp": "0.26.0",
         "@foldkit/vite-plugin": "0.29.0",

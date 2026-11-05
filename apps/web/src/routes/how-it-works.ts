@@ -1,3 +1,9 @@
+import { Effect } from "effect"
 import { createFileRoute } from "../routing/fileRoute.ts"
 
-export const Route = createFileRoute("/how-it-works")({ tag: "HowItWorks" })
+export const Route = createFileRoute("/how-it-works")({
+  tag: "HowItWorks",
+  staticPage: {
+    view: () => Effect.promise(() => import("../site/content.ts")).pipe(Effect.map((module) => module.howItWorks)),
+  },
+})
