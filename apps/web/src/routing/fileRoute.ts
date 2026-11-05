@@ -8,14 +8,17 @@ type ParametersInPath<Path extends string> = Path extends `${string}$${infer Res
     : Rest
   : never
 
+type LastSegment<Path extends string> = Path extends `${string}/${infer Rest}` ? LastSegment<Rest> : Path
+
 interface StaticPage {
   readonly view: () => Effect.Effect<(h: HtmlBuilder<never>) => Html>
 }
 
-type RouteOptions<Path extends string> = { readonly tag: string } & (
-  | { readonly main?: false; readonly staticPage?: StaticPage; readonly workspaceSection?: never }
-  | { readonly main: true; readonly staticPage?: never; readonly workspaceSection?: Path extends `/_workspace/${string}` ? "quick" | "library" : never }
-) &
+type RouteOptions<Path extends string> = { readonly tag: string } & (LastSegment<Path> extends `_${string}`
+  ? { readonly main?: never; readonly staticPage?: never; readonly workspaceSection?: never }
+  :
+      | { readonly main?: false; readonly staticPage: StaticPage; readonly workspaceSection?: never }
+      | { readonly main: true; readonly staticPage?: never; readonly workspaceSection?: Path extends `/_workspace/${string}` ? "quick" | "library" : never }) &
   ([ParametersInPath<Path>] extends [never]
     ? { readonly params?: never }
     : { readonly params: { readonly [Key in ParametersInPath<Path>]: Schema.Codec<string, string> }; readonly staticPage?: never })

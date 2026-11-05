@@ -41,6 +41,9 @@ describe("pathname routing", () => {
     const rootMetadata = { tag: "Root" }
     // @ts-expect-error root metadata is not supported, even through a variable
     expect(createRootRoute(rootMetadata).id).toBe("__root")
+    // @ts-expect-error non-layout leaves need a main or static owner
+    expect(createFileRoute("/privacy")({ tag: "Privacy" }).id).toBe("/privacy")
+    expect(createFileRoute("/_workspace")({ tag: "Workspace" }).id).toBe("/_workspace")
     // @ts-expect-error a static page cannot also be a main page
     expect(createFileRoute("/privacy")({ tag: "Privacy", main: true, staticPage: privacyRoute.options.staticPage }).id).toBe("/privacy")
     // @ts-expect-error workspace sections require a main route

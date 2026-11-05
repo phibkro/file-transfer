@@ -6,7 +6,11 @@ import { describe, expect, it } from "vite-plus/test"
 import { generateFileRoutesEffect, inventory, renderFileRoutes } from "../scripts/fileRoutes.ts"
 
 const root = { file: "__root.ts", source: "export const Route = createRootRoute({})" }
-const file = (name: string, id: string, tag: string) => ({ file: `${name}.ts`, source: `export const Route = createFileRoute("${id}")({ tag: "${tag}" })` })
+
+const file = (name: string, id: string, tag: string) => ({
+  file: `${name}.ts`,
+  source: `export const Route = createFileRoute("${id}")({ tag: "${tag}"${name.split(".").pop()?.startsWith("_") === true ? "" : ", main: true"} })`,
+})
 
 const generateFileRoutes = async (directory: string, check = false): Promise<void> => {
   await Effect.runPromise(generateFileRoutesEffect(directory, check).pipe(Effect.provide(NodeServices.layer)))
@@ -23,6 +27,9 @@ describe("file route generation", () => {
     expect(() => inventory([root, file("r.$id.$id", "/r/$id/$id", "Repeated")])).toThrow("Duplicate route parameter")
     expect(() => inventory([root, file("renamed", "/old", "Old")])).toThrow('expected createFileRoute("/renamed")')
     expect(() => inventory([root, root])).toThrow("Duplicate route file")
+    expect(() => inventory([root, { file: "_layout.ts", source: 'export const Route = createFileRoute("/_layout")({ tag: "Layout", main: true })' }])).toThrow(
+      "Layout cannot declare main",
+    )
   })
 
   it("validates root and rejects ambiguous options rather than guessing", () => {
@@ -46,6 +53,8 @@ describe("file route generation", () => {
       '{ tag: "Home", main: true, workspaceSection: "quick" }',
       '{ tag: "Home", params: { id: schema, ...other } }',
       '{ tag: "Home", params: { id: schema, "id": schema } }',
+      '{ tag: "Home" }',
+      '{ tag: "Home", main: false }',
     ]) {
       expect(() => inventory([root, { file: "index.ts", source: `export const Route = createFileRoute("/")(${options})` }])).toThrow()
     }

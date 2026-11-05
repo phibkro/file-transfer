@@ -230,6 +230,14 @@ export const inventory = (files: readonly { readonly file: string; readonly sour
       throw new Error(`Static page requires a literal page path in ${file}`)
     }
 
+    if (layout && main) {
+      throw new Error(`Layout cannot declare main page ownership in ${file}`)
+    }
+
+    if (!layout && !main && !staticPage) {
+      throw new Error(`Route requires main or static page ownership in ${file}`)
+    }
+
     const parentParts = parts.slice(0, -1)
 
     while (parentParts.length > 0 && !names.has(`${parentParts.join(".")}.ts`)) {
