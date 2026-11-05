@@ -1,16 +1,12 @@
-import { Predicate, Schema } from "effect"
+import { Effect, Option, Predicate, Schema } from "effect"
+import type * as Route from "foldkit/route"
 
 export type PathSegment = string | { readonly name: string; readonly schema: Schema.Codec<string, string> }
 
-export interface PathRoute<A> {
-  readonly segments: readonly PathSegment[]
-  readonly make: (params: Readonly<Record<string, string>>) => A
-}
-
-// This boundary accepts a pathname, never a URL containing a query or fragment.
-export const matchPath = <A>(pathname: string, routes: readonly PathRoute<A>[]): A | undefined => {
+// Only a pathname crosses this boundary, never a query or fragment.
+export const parsePathname = <A>(pathname: string, router: Route.Parser<A>): Effect.Effect<Option.Option<A>> => {
   if (!pathname.startsWith("/") || pathname.includes("?") || pathname.includes("#") || pathname.includes("//")) {
-    return undefined
+    return Effect.succeedNone
   }
 
   const raw = pathname === "/" ? [] : (pathname.endsWith("/") ? pathname.slice(0, -1) : pathname).slice(1).split("/")
@@ -19,95 +15,51 @@ export const matchPath = <A>(pathname: string, routes: readonly PathRoute<A>[]):
   try {
     segments = raw.map(decodeURIComponent)
   } catch {
-    return undefined
+    return Effect.succeedNone
   }
 
   if (segments.some((segment) => segment === "" || segment.includes("/"))) {
+    return Effect.succeedNone
+  }
+
+  return router.parse(segments).pipe(Effect.option, Effect.map(Option.map(([value]) => value)))
+}
+
+// Foldkit's callable printer returns raw joined segments and throws on invalid input.
+// Validate its segment boundary before calling it, then encode the printed segments.
+export const buildRoutePath = (
+  segments: readonly PathSegment[],
+  params: Readonly<Record<string, string>> | undefined,
+  print: (params: Readonly<Record<string, string>>) => string | undefined,
+): string | undefined => {
+  const values = params ?? {}
+  const names = segments.flatMap((segment) => (Predicate.isString(segment) ? [] : [segment.name]))
+
+  if (Object.keys(values).length !== names.length || names.some((name) => !Object.hasOwn(values, name))) {
     return undefined
   }
 
-  for (const route of routes) {
-    if (route.segments.length !== segments.length) {
+  for (const segment of segments) {
+    if (Predicate.isString(segment)) {
       continue
     }
 
-    const params: Record<string, string> = {}
-    let matches = true
+    const input = values[segment.name]
 
-    for (let index = 0; index < segments.length; index++) {
-      const expected = route.segments[index]
-      const actual = segments[index]
-
-      if (expected === undefined || actual === undefined) {
-        matches = false
-        break
-      }
-
-      if (Predicate.isString(expected)) {
-        if (expected !== actual) {
-          matches = false
-          break
-        }
-      } else {
-        const decoded = Schema.decodeOption(expected.schema)(actual)
-
-        if (decoded._tag === "None") {
-          matches = false
-          break
-        }
-
-        params[expected.name] = decoded.value
-      }
+    if (!Predicate.isString(input)) {
+      return undefined
     }
 
-    if (matches) {
-      return route.make(params)
+    const result = Schema.encodeOption(segment.schema)(input)
+
+    if (result._tag === "None" || result.value === "" || result.value.includes("/")) {
+      return undefined
     }
   }
 
-  return undefined
-}
-
-export const buildRoutePath = (segments: readonly PathSegment[], params: Readonly<Record<string, string>> = {}): string | undefined => {
-  const names = segments.flatMap((segment) => (Predicate.isString(segment) ? [] : [segment.name]))
-
-  if (Object.keys(params).length !== names.length || names.some((name) => !Object.hasOwn(params, name))) {
+  try {
+    return print(values)?.split("/").map(encodeURIComponent).join("/")
+  } catch {
     return undefined
   }
-
-  const encoded: string[] = []
-
-  for (const segment of segments) {
-    let value: string
-
-    if (Predicate.isString(segment)) {
-      value = segment
-    } else {
-      const input = params[segment.name]
-
-      if (!Predicate.isString(input)) {
-        return undefined
-      }
-
-      const result = Schema.encodeOption(segment.schema)(input)
-
-      if (result._tag === "None") {
-        return undefined
-      }
-
-      value = result.value
-    }
-
-    if (value === "" || value.includes("/")) {
-      return undefined
-    }
-
-    try {
-      encoded.push(encodeURIComponent(value))
-    } catch {
-      return undefined
-    }
-  }
-
-  return `/${encoded.join("/")}`
 }

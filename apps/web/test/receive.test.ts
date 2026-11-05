@@ -1,5 +1,5 @@
 import { encodeLinkSecret } from "@file-transfer/parcel"
-import { Option, Redacted } from "effect"
+import { Effect, Option, Redacted } from "effect"
 import { describe, expect, it } from "vite-plus/test"
 import * as Receive from "../src/ui/receive.ts"
 
@@ -10,7 +10,14 @@ const submit = (value: string, canNavigate = true) => {
   const context = { canNavigate, origin: "https://example.test" }
   const changed = Receive.update(Receive.init(), Receive.Message.Changed({ link: Redacted.make(value) }), context)
 
-  return Receive.update(changed.model, Receive.Message.Submitted(), context)
+  const submitted = Receive.update(changed.model, Receive.Message.Submitted(), context)
+  const command = submitted.commands?.[0]
+
+  if (command === undefined) {
+    return submitted
+  }
+
+  return Receive.update(submitted.model, Effect.runSync(command.effect), context)
 }
 
 describe("receive link", () => {
@@ -48,6 +55,24 @@ describe("receive link", () => {
     const edited = Receive.update(blocked.model, Receive.Message.Changed({ link: Redacted.make(link) }), { canNavigate: true, origin: "https://example.test" })
     expect(Option.isNone(edited.model.problem)).toBe(true)
     expect(Receive.update(edited.model, Receive.Message.Submitted(), { canNavigate: true, origin: "https://example.test" }).commands).toHaveLength(1)
+  })
+
+  it("ignores a validation result after the link changes or the transfer guard closes", () => {
+    const context = { canNavigate: true, origin: "https://example.test" }
+    const changed = Receive.update(Receive.init(), Receive.Message.Changed({ link: Redacted.make(link) }), context)
+    const submitted = Receive.update(changed.model, Receive.Message.Submitted(), context)
+    const command = submitted.commands?.[0]
+
+    expect(command).toBeDefined()
+
+    if (command === undefined) {
+      throw new Error("Expected validation command")
+    }
+
+    const validated = Effect.runSync(command.effect)
+    const edited = Receive.update(submitted.model, Receive.Message.Changed({ link: Redacted.make("") }), context)
+    expect(Receive.update(edited.model, validated, context).commands).toBeUndefined()
+    expect(Receive.update(submitted.model, validated, { ...context, canNavigate: false }).commands).toBeUndefined()
   })
 
   it("keeps the link redacted in model, messages, and navigation arguments", () => {

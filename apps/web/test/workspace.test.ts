@@ -1,4 +1,4 @@
-import { Option, Redacted } from "effect"
+import { Effect, Option, Redacted } from "effect"
 import { describe, expect, it } from "vite-plus/test"
 import * as Main from "../src/app/main.ts"
 import * as Library from "../src/features/library/main.ts"
@@ -9,10 +9,10 @@ const boot = () => Main.init({ route: AppRoute.QuickShare(), fragment: Redacted.
 
 describe("workspace", () => {
   it("falls back to Quick Share for invalid recipient and extra path segments", () => {
-    expect(applicationRoute("/r/short")._tag).toBe("QuickShare")
-    expect(applicationRoute("/r/abcdefghijklmnopqrstuv/extra")._tag).toBe("QuickShare")
-    expect(applicationRoute("/library/extra")._tag).toBe("QuickShare")
-    expect(applicationRoute("/r/abcdefghijklmnopqrstuv")._tag).toBe("Recipient")
+    expect(Effect.runSync(applicationRoute("/r/short"))._tag).toBe("QuickShare")
+    expect(Effect.runSync(applicationRoute("/r/abcdefghijklmnopqrstuv/extra"))._tag).toBe("QuickShare")
+    expect(Effect.runSync(applicationRoute("/library/extra"))._tag).toBe("QuickShare")
+    expect(Effect.runSync(applicationRoute("/r/abcdefghijklmnopqrstuv"))._tag).toBe("Recipient")
   })
 
   it("selects workspace children from generated route metadata", () => {
@@ -20,14 +20,14 @@ describe("workspace", () => {
       ["/", "quick"],
       ["/library/", "library"],
     ] as const) {
-      const route = parsePath(pathname)
-      expect(workspaceSectionForRoute(route?._tag ?? "")).toBe(section)
+      const route = Effect.runSync(parsePath(pathname))
+      expect(workspaceSectionForRoute(Option.isSome(route) ? route.value._tag : "")).toBe(section)
     }
 
     expect(workspacePathForSection("quick")).toBe("/")
     expect(workspacePathForSection("library")).toBe("/library")
     expect(workspaceSectionForRoute("Recipient")).toBeUndefined()
-    expect(parsePath("/not-a-page")).toBeUndefined()
+    expect(Option.isNone(Effect.runSync(parsePath("/not-a-page")))).toBe(true)
   })
 
   it("retains both children through navigation and child updates", () => {

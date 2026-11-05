@@ -265,19 +265,19 @@ const globalSubscriptions = Subscription.make<Model, Message>()((entry) => ({
           ? streamFromEventFilterMap({
               target: () => window,
               type: "hashchange",
-              filterMapEvent: () => {
-                const route = parsePath(pagePath())
-                const routeSection = route === undefined ? undefined : workspaceSectionForRoute(route._tag)
+              filterMapEvent: () => Option.some({ path: pagePath(), anchor: workspaceAnchor() }),
+            }).pipe(
+              Stream.mapEffect(({ path, anchor }) =>
+                parsePath(path).pipe(
+                  Effect.map((matched) => {
+                    const routeSection = Option.isSome(matched) ? workspaceSectionForRoute(matched.value._tag) : undefined
 
-                if (routeSection === undefined) {
-                  return Option.none()
-                }
-
-                const section = workspaceAnchor() ?? routeSection
-
-                return Option.some(Message.NavigatedWorkspace({ section }))
-              },
-            })
+                    return routeSection === undefined ? Option.none() : Option.some(Message.NavigatedWorkspace({ section: anchor ?? routeSection }))
+                  }),
+                ),
+              ),
+              Stream.flatMap((message) => (Option.isSome(message) ? Stream.succeed(message.value) : Stream.empty)),
+            )
           : Stream.empty,
     },
   ),

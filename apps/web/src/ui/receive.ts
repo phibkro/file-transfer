@@ -19,6 +19,7 @@ export type Model = typeof Model.Type
 export const Message = defineMessageUnion({
   Changed: { link: PrivateLink },
   Submitted: {},
+  Validated: { link: PrivateLink, valid: Schema.Boolean },
   Navigated: {},
 })
 
@@ -35,10 +36,17 @@ const NavigateToRecipient = Command.define("NavigateToRecipient", {
   execute: ({ link }) => load(Redacted.value(link)).pipe(Effect.as(Message.Navigated())),
 })
 
+const ValidateRecipient = Command.define("ValidateRecipient", {
+  args: { link: PrivateLink, pathname: Schema.String },
+  messages: [Message.Validated],
+  execute: ({ link, pathname }) =>
+    parsePath(pathname).pipe(Effect.map((route) => Message.Validated({ link, valid: Option.isSome(route) && route.value._tag === "Recipient" }))),
+})
+
 export const init = (): Model => ({ link: Redacted.make(""), problem: Option.none() })
 export const boot = (): Update.Return<Model, Message> => ({ model: init() })
 
-const validLink = (value: string, origin: string): boolean => {
+const linkPath = (value: string, origin: string): string | undefined => {
   try {
     const url = new URL(value)
 
@@ -48,17 +56,16 @@ const validLink = (value: string, origin: string): boolean => {
       url.username !== "" ||
       url.password !== "" ||
       url.search !== "" ||
-      parsePath(url.pathname)?._tag !== "Recipient" ||
       url.hash === ""
     ) {
-      return false
+      return undefined
     }
 
     decodeLinkSecret(url.hash)
 
-    return true
+    return url.pathname
   } catch {
-    return false
+    return undefined
   }
 }
 
@@ -68,7 +75,9 @@ export const update = (model: Model, message: Message, context: Context): Update
     Submitted: () => {
       const link = Redacted.value(model.link).trim()
 
-      if (!validLink(link, context.origin)) {
+      const pathname = linkPath(link, context.origin)
+
+      if (pathname === undefined) {
         return { model: { ...model, problem: Option.some("Enter a valid recipient link, including its key.") } }
       }
 
@@ -76,7 +85,22 @@ export const update = (model: Model, message: Message, context: Context): Update
         return { model: { ...model, problem: Option.some("Finish or cancel the current transfer before opening a link.") } }
       }
 
-      return { model: { ...model, problem: Option.none() }, commands: [NavigateToRecipient({ link: Redacted.make(link) })] }
+      return { model: { ...model, problem: Option.none() }, commands: [ValidateRecipient({ link: Redacted.make(link), pathname })] }
+    },
+    Validated: ({ link, valid }) => {
+      if (Redacted.value(model.link).trim() !== Redacted.value(link)) {
+        return { model }
+      }
+
+      if (!valid) {
+        return { model: { ...model, problem: Option.some("Enter a valid recipient link, including its key.") } }
+      }
+
+      if (!context.canNavigate) {
+        return { model: { ...model, problem: Option.some("Finish or cancel the current transfer before opening a link.") } }
+      }
+
+      return { model, commands: [NavigateToRecipient({ link })] }
     },
     Navigated: () => ({ model }),
   })

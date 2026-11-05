@@ -6,7 +6,7 @@ import { sweepStaleTransfers } from "../capabilities/transfer/storage.ts"
 import { applicationRoute, workspaceSectionForRoute } from "./routes.ts"
 
 const flags = Effect.gen(function* () {
-  const route = applicationRoute(yield* Effect.sync(pagePath))
+  const route = yield* applicationRoute(yield* Effect.sync(pagePath))
 
   const origin = yield* Effect.sync(pageOrigin)
   const fragment = route._tag === "Recipient" ? yield* Effect.sync(() => Redacted.make(linkFragment())) : Redacted.make("")

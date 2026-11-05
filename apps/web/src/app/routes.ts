@@ -1,3 +1,4 @@
+import { Effect, Option } from "effect"
 import { AppRoute, parsePath, routeTree } from "../routing/routeTree.gen.ts"
 
 export {
@@ -14,15 +15,20 @@ export {
   securityRouter,
 } from "../routing/routeTree.gen.ts"
 
-export const applicationRoute = (pathname: string) => {
-  const route = parsePath(pathname)
+export const applicationRoute = (pathname: string) =>
+  parsePath(pathname).pipe(
+    Effect.map((matched) => {
+      if (Option.isSome(matched)) {
+        const route = matched.value
 
-  if (route?._tag === "QuickShare" || route?._tag === "Library" || route?._tag === "Recipient") {
-    return route
-  }
+        if (route._tag === "QuickShare" || route._tag === "Library" || route._tag === "Recipient") {
+          return route
+        }
+      }
 
-  return AppRoute.QuickShare()
-}
+      return AppRoute.QuickShare()
+    }),
+  )
 
 const workspace = routeTree.routes.find((entry) => entry.layout && entry.route.options.tag === "Workspace")
 

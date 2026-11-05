@@ -1,30 +1,52 @@
-import { Schema } from "effect"
+import { Effect, Schema, pipe } from "effect"
+import * as Route from "foldkit/route"
 import { describe, expect, it } from "vite-plus/test"
 import { createFileRoute, createRootRoute } from "../src/routing/fileRoute.ts"
 import { Route as privacyRoute } from "../src/routes/privacy.ts"
-import { buildRoutePath, matchPath } from "../src/routing/pathname.ts"
+import { buildRoutePath, parsePathname } from "../src/routing/pathname.ts"
 import { buildPath, parsePath } from "../src/routing/routeTree.gen.ts"
 
 const word = Schema.String.check(Schema.isPattern(/^[a-z ]+$/u))
 
-const routes = [
-  { segments: ["item", "new"], make: () => ({ tag: "new" }) },
-  {
-    segments: ["item", { name: "first", schema: word }, { name: "second", schema: word }],
-    make: (params: Readonly<Record<string, string>>) => ({ tag: "item", ...params }),
-  },
-  { segments: ["item", { name: "name", schema: word }], make: (params: Readonly<Record<string, string>>) => ({ tag: "named", ...params }) },
-] as const
+const ItemRoute = Route.defineRouteUnion({
+  New: {},
+  Named: { name: word },
+  Item: { first: word, second: word },
+})
+
+const newRouter = pipe(Route.literal("item"), Route.slash(Route.literal("new")), Route.mapTo(ItemRoute.New))
+
+const namedRouter = pipe(Route.literal("item"), Route.slash(Route.schemaSegment("name", word)), Route.mapTo(ItemRoute.Named))
+
+const itemRouter = pipe(
+  Route.literal("item"),
+  Route.slash(Route.schemaSegment("first", word)),
+  Route.slash(Route.schemaSegment("second", word)),
+  Route.mapTo(ItemRoute.Item),
+)
+
+const router = Route.oneOf(newRouter, itemRouter, namedRouter)
+
+const segments = ["item", { name: "first", schema: word }, { name: "second", schema: word }] as const
+
+const printItem = (params: Readonly<Record<string, string>>) => {
+  if (params.first === undefined || params.second === undefined) {
+    return undefined
+  }
+
+  return itemRouter({ first: params.first, second: params.second })
+}
 
 describe("pathname routing", () => {
   it("rejects invalid generated paths without fallback or exception", () => {
-    expect(parsePath("/library/extra")).toBeUndefined()
-    expect(parsePath("/r/short")).toBeUndefined()
+    expect(Effect.runSync(parsePath("/library/extra"))._tag).toBe("None")
+    expect(Effect.runSync(parsePath("/r/short"))._tag).toBe("None")
     expect(buildPath("/r/$roomIdentifier", { roomIdentifier: "short" })).toBeUndefined()
+
     const roomIdentifier = "abcdefghijklmnopqrstuv"
     const path = buildPath("/r/$roomIdentifier", { roomIdentifier })
     expect(path).toBe(`/r/${roomIdentifier}`)
-    expect(parsePath(path ?? "")).toMatchObject({ _tag: "Recipient", roomIdentifier })
+    expect(Effect.runSync(parsePath(path ?? ""))).toMatchObject({ _tag: "Some", value: { _tag: "Recipient", roomIdentifier } })
   })
 
   it("requires exact generated path parameters", () => {
@@ -50,15 +72,19 @@ describe("pathname routing", () => {
     expect(createFileRoute("/_workspace/library")({ tag: "Library", workspaceSection: "library" }).id).toBe("/_workspace/library")
     // @ts-expect-error workspace sections cannot be attached to a non-workspace route
     expect(createFileRoute("/privacy")({ tag: "Privacy", main: true, workspaceSection: "library" }).id).toBe("/privacy")
+
     const parameters = { roomIdentifier: Schema.String, extra: Schema.String }
     // @ts-expect-error path parameter schemas cannot contain extra keys
     expect(createFileRoute("/r/$roomIdentifier")({ tag: "Recipient", params: parameters }).id).toBe("/r/$roomIdentifier")
   })
 
   it("matches only complete paths and decodes each segment", () => {
-    expect(matchPath("/item/new", routes)).toEqual({ tag: "new" })
-    expect(matchPath("/item/a", routes)).toEqual({ tag: "named", name: "a" })
-    expect(matchPath("/item/hello%20there/world/", routes)).toEqual({ tag: "item", first: "hello there", second: "world" })
+    expect(Effect.runSync(parsePathname("/item/new", router))).toMatchObject({ _tag: "Some", value: { _tag: "New" } })
+    expect(Effect.runSync(parsePathname("/item/a", router))).toMatchObject({ _tag: "Some", value: { _tag: "Named", name: "a" } })
+    expect(Effect.runSync(parsePathname("/item/hello%20there/world/", router))).toMatchObject({
+      _tag: "Some",
+      value: { _tag: "Item", first: "hello there", second: "world" },
+    })
 
     for (const path of [
       "/item/new/extra/more",
@@ -71,16 +97,15 @@ describe("pathname routing", () => {
       "item/a/b",
       "/item/a/123",
     ]) {
-      expect(matchPath(path, routes)).toBeUndefined()
+      expect(Effect.runSync(parsePathname(path, router))._tag).toBe("None")
     }
   })
 
   it("validates and encodes each parameter when building", () => {
-    const { segments } = routes[1]
-    expect(buildRoutePath(segments, { first: "hello there", second: "world" })).toBe("/item/hello%20there/world")
-    expect(buildRoutePath(segments, { first: "hello", second: "123" })).toBeUndefined()
-    expect(buildRoutePath(segments, { first: "hello/world", second: "world" })).toBeUndefined()
-    expect(buildRoutePath(segments, { first: "hello", second: "world", extra: "x" })).toBeUndefined()
-    expect(buildRoutePath(segments, { first: "hello" })).toBeUndefined()
+    expect(buildRoutePath(segments, { first: "hello there", second: "world" }, printItem)).toBe("/item/hello%20there/world")
+    expect(buildRoutePath(segments, { first: "hello", second: "123" }, printItem)).toBeUndefined()
+    expect(buildRoutePath(segments, { first: "hello/world", second: "world" }, printItem)).toBeUndefined()
+    expect(buildRoutePath(segments, { first: "hello", second: "world", extra: "x" }, printItem)).toBeUndefined()
+    expect(buildRoutePath(segments, { first: "hello" }, printItem)).toBeUndefined()
   })
 })
