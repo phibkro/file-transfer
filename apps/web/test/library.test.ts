@@ -43,8 +43,14 @@ describe("Library page transitions", () => {
     const requested = update(model, Message.RequestedPreview({ identifier: firstFile.identifier }))
     expect(actionFrom(requested)).toEqual({ kind: "preview", entry: firstFile })
     expect(requested.model.operation).toBe("preview")
+
     const file = new File(["current"], "current.txt")
-    const opened = update(requested.model, Message.SucceededLibraryAction({ generation: requested.model.generation, result: Redacted.make({ kind: "preview", file }) }))
+
+    const opened = update(
+      requested.model,
+      Message.SucceededLibraryAction({ generation: requested.model.generation, result: Redacted.make({ kind: "preview", file }) }),
+    )
+
     expect(Redacted.value(opened.model.preview.input)).toEqual({ file, name: file.name })
     expect(opened.model.snapshot).toBe(model.snapshot)
     expect(opened.outMessage).toBeUndefined()
@@ -54,8 +60,10 @@ describe("Library page transitions", () => {
     const requested = update(catalogModel(), Message.RequestedPreview({ identifier: firstFile.identifier })).model
     const cancelled = update(requested, Message.CancelledPreview())
     expect(cancelled.model.operation).toBe("cancelling")
+
     const file = new File(["current"], "current.txt")
     const late = update(cancelled.model, Message.SucceededLibraryAction({ generation: requested.generation, result: Redacted.make({ kind: "preview", file }) }))
+
     expect(Redacted.value(late.model.preview.input)).toBeUndefined()
     expect(late.outMessage).toBeUndefined()
   })
