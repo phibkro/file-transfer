@@ -114,6 +114,7 @@
       },
       {
         "files": [
+          "apps/web/src/appearance.ts",
           "apps/web/src/files.ts",
           "apps/web/src/ranges.ts",
           "apps/web/src/credits.ts",
@@ -127,6 +128,7 @@
       },
       {
         "files": [
+          "apps/web/src/appearanceBrowser.ts",
           "apps/web/src/address.ts",
           "apps/web/src/connection.ts",
           "apps/web/src/storage.ts",

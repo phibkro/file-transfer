@@ -186,6 +186,9 @@
     stroke-linejoin: round;
     flex: none;
   }
+  .icon.lucide-package {
+    stroke-width: 2;
+  }
   .brand-icon .icon {
     width: 21px;
     height: 21px;
