@@ -2,7 +2,7 @@ name: checks
 
 # Checks every pull request and every push to main; deploys after the checks pass:
 # - a pull request from a branch of this repository gets a Worker Preview (`pr-<number>`), commented on the pull request
-#   and verified end to end, updated on every push and destroyed when the pull request closes;
+#   checked where accessible, updated on every push and destroyed when the pull request closes;
 # - a push to main deploys production (https://send.phibkro.org) and verifies it end to end.
 # Pull requests from forks and from Dependabot never receive the deploy secrets (GitHub withholds them) and are only
 # checked.
@@ -32,6 +32,7 @@ jobs:
           node-version: 22
       - run: bun install --frozen-lockfile
       # Vite+ check (format, lint, types), module graph, dependency hygiene (knip), Effect profile (effx), tests (Vitest).
+      - run: node --test .github/scripts/preview-readiness.test.mjs
       - run: bun run check
       # Independent re-implementation of parcel v1 (Python, OpenSSL) must reproduce every test vector byte.
       - uses: actions/setup-python@v6
@@ -226,28 +227,30 @@ jobs:
           # The zone answers GitHub's runners with 403 (see the production job), so checks use the workers.dev address.
           check_url="$(grep -oE 'https://[a-z0-9.-]+\.workers\.dev' "$RUNNER_TEMP/deploy.log" | tail -n 1)"
           echo "check_url=${check_url:-$url}" >> "$GITHUB_OUTPUT"
+      - name: Check preview reachability
+        id: readiness
+        env:
+          PREVIEW_URL: ${{ steps.deploy.outputs.check_url }}
+        run: node .github/scripts/preview-readiness.mjs
       - name: Comment the preview URL
         env:
           GH_TOKEN: ${{ github.token }}
           PREVIEW_URL: ${{ steps.deploy.outputs.url }}
           COMMIT: ${{ github.event.pull_request.head.sha }}
+          READINESS: ${{ steps.readiness.outputs.result }}
         run: |
+          if [ "$READINESS" = protected ]; then
+            detail="Cloudflare Access is reachable; application readiness and deployed end-to-end behavior were not verified."
+          else
+            detail="The application answered; the deployed end-to-end check runs next."
+          fi
           gh pr comment "${{ github.event.pull_request.number }}" --edit-last --create-if-none \
-            --body "Preview: $PREVIEW_URL (commit $COMMIT). The end-to-end check runs against it next."
-      - name: Wait until the Preview answers
-        env:
-          PREVIEW_URL: ${{ steps.deploy.outputs.check_url }}
-        run: |
-          for attempt in $(seq 1 24); do
-            status="$(curl -s -o /dev/null -w '%{http_code}' "$PREVIEW_URL/r/aaaaaaaaaaaaaaaaaaaaaa")"
-            echo "attempt $attempt: $status"
-            if [ "$status" = 200 ]; then exit 0; fi
-            sleep 5
-          done
-          exit 1
+            --body "Preview: $PREVIEW_URL (commit $COMMIT). $detail"
       - run: bunx playwright install --with-deps chromium
+        if: steps.readiness.outputs.result == 'app'
         working-directory: apps/web
       - run: bun run e2e
+        if: steps.readiness.outputs.result == 'app'
         working-directory: apps/web
         env:
           BASE_URL: ${{ steps.deploy.outputs.check_url }}
