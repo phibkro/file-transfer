@@ -74,7 +74,7 @@ export const previewBundle = (): Plugin => {
           const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${policy}"><meta name="referrer" content="no-referrer"><title>Preview · Pocketdrop</title><style>${stylesheet}</style></head><body><div id="preview-app"></div><script>${script.code}</script></body></html>`
           const directory = options.dir ?? path.resolve(root, "dist")
           const headersPath = path.join(directory, "_headers")
-          const headers = yield* filesystem.readFileString(headersPath)
+          const headers = (yield* filesystem.readFileString(headersPath)).replaceAll("\r\n", "\n")
 
           const updated = headers.replace(
             /(?<header>\/preview\*\n\s+Content-Security-Policy:) [^\n]*/u,
