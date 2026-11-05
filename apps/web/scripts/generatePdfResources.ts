@@ -39,7 +39,23 @@ if (!pdfScript.includes("pdfjsVersion = 6.5.438")) {
   process.exitCode = 1
 }
 
+const mark = await readFile(path.resolve(import.meta.dir, "../public/mark.svg"), "utf-8")
+const markNotice = /^<!--[\s\S]*?-->/u.exec(mark)?.[0]
+
+if (markNotice === undefined) {
+  throw new Error("The Lucide icon notice is missing from mark.svg.")
+}
+
+const wasmFiles = await readdir(path.resolve(packageDirectory, "wasm"))
+const wasmLicenses = wasmFiles.filter((file) => file.startsWith("LICENSE_")).toSorted()
+
+const wasmNotices = await Promise.all(
+  wasmLicenses.map(async (file) => `PDF.js bundled codec: ${file}\n\n${await readFile(path.resolve(packageDirectory, "wasm", file), "utf-8")}`),
+)
+
 const notices = [
+  "Lucide package icon",
+  markNotice,
   "PDF.js 6.5.438: upstream JavaScript notice",
   pdfScript.split("\n").slice(0, 20).join("\n"),
   "PDF.js Apache License 2.0",
@@ -48,6 +64,7 @@ const notices = [
   await readFile(path.resolve(packageDirectory, "cmaps/LICENSE"), "utf-8"),
   "Foxit standard fonts (PDF.js upstream additionally identifies: Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com)",
   await readFile(path.resolve(packageDirectory, "standard_fonts/LICENSE_FOXIT"), "utf-8"),
+  ...wasmNotices,
   "Liberation Sans 1.07.4 standard fonts (corresponding source: liberation-fonts-1.07.4-source.tar.gz, SHA256 ad98b7498dc2992f7f0868f79b65ce4a720a3acdb63ab3f1f1cb6881117a5406; source archive: https://archive.debian.org/debian/pool/main/f/fonts-liberation/fonts-liberation_1.07.4.orig.tar.gz)",
   await readFile(path.resolve(packageDirectory, "standard_fonts/LICENSE_LIBERATION"), "utf-8"),
 ].join("\n\n")
