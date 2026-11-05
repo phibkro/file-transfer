@@ -11,8 +11,9 @@
   // which effect-tsgo provides.
   "ignoreDependencies": ["@effect/tsgo", "@effect/language-service"],
   "workspaces": {
+    // The layout plugin injects this global CSS entry; Tailwind's native compiler tracks its imports.
     // The Vite plugin injects the DevTools overlay; the repository MCP configuration launches its server.
-    "apps/web": { "entry": ["scripts/**/*.ts"], "ignoreDependencies": ["@foldkit/devtools", "@foldkit/devtools-mcp"] },
+    "apps/web": { "entry": ["scripts/**/*.ts", "src/style.css"], "ignoreDependencies": ["@foldkit/devtools", "@foldkit/devtools-mcp"] },
     // knip reads the Workers runtime module `cloudflare:workers` as a package named `cloudflare`.
     "platforms/cloudflare": { "entry": ["alchemy.run.ts", "scripts/**/*.ts"], "ignoreDependencies": ["cloudflare"] },
     "platforms/self-hosted": { "entry": ["src/*.ts", "scripts/**/*.ts"] },

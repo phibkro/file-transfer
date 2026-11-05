@@ -1,0 +1,13 @@
+{
+  "name": "@file-transfer/catalog",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "effect": "4.1.0"
+  }
+}

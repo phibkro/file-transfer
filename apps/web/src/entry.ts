@@ -1,12 +1,13 @@
 import { Effect, Redacted } from "effect"
 import { Runtime } from "foldkit"
-import { linkFragment, pagePath } from "./address.ts"
+import { linkFragment, pageOrigin, pagePath, workspaceAnchor } from "./address.ts"
 import { Flags, Message, Model, init, managedResources, subscriptions, update, view } from "./main.ts"
 import { sweepStaleTransfers } from "./storage.ts"
 import { AppRoute, libraryRouter } from "./routes.ts"
 
 const flags = Effect.gen(function* () {
   const path = yield* Effect.sync(pagePath)
+  const origin = yield* Effect.sync(pageOrigin)
   const recipient = /^\/r\/(?<roomIdentifier>[A-Za-z0-9_-]{22})\/?$/u.exec(path)
   const roomIdentifier = recipient?.groups?.roomIdentifier
   const fragment = roomIdentifier === undefined ? Redacted.make("") : yield* Effect.sync(() => Redacted.make(linkFragment()))
@@ -14,10 +15,17 @@ const flags = Effect.gen(function* () {
   yield* Effect.promise(sweepStaleTransfers)
 
   if (roomIdentifier !== undefined) {
-    return Flags.make({ route: AppRoute.Recipient({ roomIdentifier }), fragment })
+    return Flags.make({ route: AppRoute.Recipient({ roomIdentifier }), fragment, initialSection: "quick", origin })
   }
 
-  return Flags.make({ route: path === libraryRouter() || path === `${libraryRouter()}/` ? AppRoute.Library() : AppRoute.QuickShare(), fragment })
+  const initialSection = (yield* Effect.sync(workspaceAnchor)) ?? (path === libraryRouter() || path === `${libraryRouter()}/` ? "library" : "quick")
+
+  return Flags.make({
+    route: path === libraryRouter() || path === `${libraryRouter()}/` ? AppRoute.Library() : AppRoute.QuickShare(),
+    fragment,
+    initialSection,
+    origin,
+  })
 })
 
 const application = Runtime.makeApplication({

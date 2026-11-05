@@ -187,11 +187,14 @@ export const view = defineView<Model, Message>((model, h) => {
                   [...render.dialog, h.Class("preview-dialog")],
                   [
                     h.div(
-                      [...render.panel],
+                      [...render.panel, h.Class("dialog-panel preview-panel")],
                       [
                         h.div(
-                          [h.Class("preview-bar")],
-                          [h.h2([...render.title, h.Class("preview-heading")], [input?.name ?? "Preview"]), h.button([...render.closeButton], ["Close"])],
+                          [h.Class("preview-bar dialog-head")],
+                          [
+                            h.h2([...render.title, h.Class("preview-heading")], [input?.name ?? "Preview"]),
+                            h.button([...render.closeButton, h.Class("button")], ["Close"]),
+                          ],
                         ),
                         h.p([h.Class("preview-message"), h.Role("status")], [model.status]),
                         input === undefined

@@ -6,6 +6,7 @@ import { Command } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
 import { defineView } from "foldkit/submodel"
 import { privateValue } from "../privateValue.ts"
+import { icon } from "./icon.ts"
 
 interface Qr {
   readonly size: number
@@ -149,16 +150,19 @@ export const view = defineView<Model, Message>((model, h) => {
         [h.Class("share-actions")],
         [
           Button.view(
-            { onClick: Message.ClickedCopy(), toView: (a) => h.button([...a.button, h.Class("primary")], [model.copied ? "Copied" : "Copy link"]) },
+            {
+              onClick: Message.ClickedCopy(),
+              toView: (a) => h.button([...a.button, h.Class("button primary")], [icon(h, "copy"), model.copied ? "Copied" : "Copy link"]),
+            },
             h,
           ),
-          model.canShare ? Button.view({ onClick: Message.ClickedShare(), toView: (a) => h.button(a.button, ["Share"]) }, h) : null,
+          model.canShare ? Button.view({ onClick: Message.ClickedShare(), toView: (a) => h.button([...a.button, h.Class("button")], ["Share"]) }, h) : null,
           Disclosure.view(
             {
               id: "share-link",
               isOpen: model.revealed,
               onToggle: (open) => Message.ToggledLink({ open }),
-              toView: (a) => h.button(a.button, [model.revealed ? "Hide link" : "Show link"]),
+              toView: (a) => h.button([...a.button, h.Class("button")], [model.revealed ? "Hide link" : "Show link"]),
             },
             h,
           ),
@@ -171,7 +175,7 @@ export const view = defineView<Model, Message>((model, h) => {
                 h.div(
                   [],
                   [
-                    h.button(a.button, [model.qrOpen ? "Hide QR code" : "Show QR code"]),
+                    h.button([...a.button, h.Class("button")], [model.qrOpen ? "Hide QR code" : "Show QR code"]),
                     ...(model.qrOpen && qr !== undefined
                       ? [
                           h.figure(

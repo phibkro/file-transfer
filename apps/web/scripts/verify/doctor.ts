@@ -7,11 +7,10 @@
  *
  *   bun apps/web/scripts/verify/doctor.ts <run directory | https://...>
  */
-import { spawnSync } from "node:child_process"
-import { createHash } from "node:crypto"
 import { readFileSync } from "node:fs"
 import nodePath from "node:path"
 import * as v from "valibot"
+import { snapshot } from "./snapshot.ts"
 
 const ServerDescription = v.object({
   run: v.string(),
@@ -37,7 +36,8 @@ let origin = target
 if (!/^https?:\/\//u.test(target)) {
   const description = v.parse(ServerDescription, JSON.parse(readFileSync(nodePath.join(target, "server.json"), "utf-8")))
 
-  ;({ origin } = description)
+  origin = description.origin
+
   let alive = true
 
   try {
@@ -49,13 +49,7 @@ if (!/^https?:\/\//u.test(target)) {
   record("launch.ts reported the server ready", description.ready, description.ready ? "ready" : "launch did not finish; stop it and launch again")
   record("server process started by this run is alive", alive, `process group ${description.processIdentifier}`)
   const repository = nodePath.resolve(import.meta.dirname, "../../../..")
-  const git = (...arguments_: string[]) => spawnSync("git", arguments_, { cwd: repository, encoding: "utf-8" }).stdout
-  const checkedOut = git("rev-parse", "HEAD").trim()
-
-  const workingTree = createHash("sha256")
-    .update(git("diff", "HEAD"))
-    .update(git("status", "--porcelain", "--untracked-files=all"))
-    .digest("hex")
+  const { revision: checkedOut, workingTree } = snapshot(repository)
 
   record(
     "instance was built from the revision checked out now",
@@ -72,7 +66,7 @@ if (!/^https?:\/\//u.test(target)) {
 try {
   const page = await fetch(`${origin}/`)
   const body = await page.text()
-  record("the origin serves the app", page.ok && body.includes("<title>File transfer</title>"), `${origin}/ answered ${page.status}`)
+  record("the origin serves the app", page.ok && body.includes('id="app"'), `${origin}/ answered ${page.status}`)
 } catch (error) {
   record("the origin serves the app", false, String(error))
 }

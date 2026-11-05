@@ -1,15 +1,26 @@
+import { deriveMyFiles } from "@file-transfer/catalog"
+import type { LibraryCollection, LibrarySnapshot } from "@file-transfer/catalog"
 import { Predicate, Redacted } from "effect"
 import { describe, expect, test } from "vite-plus/test"
-import { FileDrop, Tabs } from "@foldkit/ui"
+import { Dialog, FileDrop, Tabs } from "@foldkit/ui"
 import { boot, cancel, init, Message, update } from "../src/library/main.ts"
 
-const firstFile = { identifier: 7, revision: 3, name: "first-private.txt", size: 4, lastModified: 10, fingerprint: "first" }
-const secondFile = { identifier: 8, revision: 9, name: "second-private.txt", size: 5, lastModified: 20, fingerprint: "second" }
-const collection = { identifier: 3, revision: 6, name: "Private collection", fileIdentifiers: [7, 8] }
+const firstFile: LibrarySnapshot["files"][number] = { identifier: 7, revision: 3, name: "first-private.txt", size: 4, lastModified: 10, fingerprint: "first" }
+
+const secondFile: LibrarySnapshot["files"][number] = {
+  identifier: 8,
+  revision: 9,
+  name: "second-private.txt",
+  size: 5,
+  lastModified: 20,
+  fingerprint: "second",
+}
+
+const collection: LibraryCollection = { identifier: 3, revision: 6, name: "Private collection", fileIdentifiers: [7, 8] }
 
 const catalogModel = () => ({
   ...init().model,
-  snapshot: Redacted.make({ enabled: true, epoch: 12, files: [firstFile, secondFile], collections: [collection] }),
+  snapshot: Redacted.make<LibrarySnapshot>({ enabled: true, epoch: 12, files: [firstFile, secondFile], collections: [collection] }),
   collection: collection.identifier,
   selected: [firstFile.identifier, secondFile.identifier],
 })
@@ -27,6 +38,125 @@ const actionFrom = (result: ReturnType<typeof update>) => {
 }
 
 describe("Library page transitions", () => {
+  test("loading the Library leaves no update status and indexing details start closed", () => {
+    const pending = boot().model
+    expect(pending.detailsOpen).toBe(false)
+
+    const loaded = update(
+      pending,
+      Message.SucceededLibraryAction({ generation: pending.generation, result: Redacted.make({ kind: "loaded", snapshot: Redacted.value(pending.snapshot) }) }),
+    ).model
+
+    expect(loaded.status).toBe("")
+    expect(update(loaded, Message.ToggledDetails({ open: true })).model.detailsOpen).toBe(true)
+  })
+  test("My files review derives all portable entries without browser source objects", () => {
+    const model = { ...catalogModel(), collection: 0, selected: [] }
+
+    expect(actionFrom(update(model, Message.RequestedReviewCollection()))).toEqual({
+      kind: "review",
+      entries: [firstFile, secondFile],
+      collection: deriveMyFiles(Redacted.value(model.snapshot)),
+      epoch: 12,
+    })
+    expect(Redacted.value(model.snapshot).files).toEqual([firstFile, secondFile])
+  })
+
+  test("named collection review retains portable membership and revision", () => {
+    const model = catalogModel()
+
+    expect(actionFrom(update(model, Message.RequestedReviewCollection()))).toEqual({
+      kind: "review",
+      entries: [firstFile, secondFile],
+      collection,
+      epoch: 12,
+    })
+  })
+  test("private search preserves selection and the complete collection review", () => {
+    const model = catalogModel()
+    const message = Message.ChangedSearch({ search: Redacted.make("first-private") })
+    const searched = update(model, message).model
+    expect(JSON.stringify(message)).not.toContain("first-private")
+    expect(searched.selected).toEqual(model.selected)
+    expect(actionFrom(update(searched, Message.RequestedReviewCollection()))).toEqual({
+      kind: "review",
+      entries: [firstFile, secondFile],
+      collection,
+      epoch: 12,
+    })
+  })
+  test("selected subset of a named collection does not claim full membership", () => {
+    const model = { ...catalogModel(), selected: [firstFile.identifier] }
+    expect(actionFrom(update(model, Message.RequestedReview()))).toEqual({ kind: "review", entries: [firstFile], collection: undefined, epoch: 12 })
+  })
+
+  test("row sharing reviews exactly that file without changing selection", () => {
+    const model = catalogModel()
+    const result = update(model, Message.RequestedReviewFile({ identifier: firstFile.identifier }))
+    expect(result.model.selected).toEqual(model.selected)
+    expect(result.outMessage).toBeUndefined()
+    expect(actionFrom(result)).toEqual({ kind: "review", entries: [firstFile], collection: undefined, epoch: 12 })
+    expect(update(model, Message.RequestedReviewFile({ identifier: 99 })).commands).toBeUndefined()
+  })
+
+  test("closing the add dialog interrupts a picker and rejects stale results after reopening", () => {
+    const opened = update(catalogModel(), Message.RequestedAddDialog()).model
+    const pending = update(opened, Message.RequestedDurablePicker()).model
+    const closed = update(pending, Message.GotDialogMessage({ message: Dialog.Message.RequestedClose() }))
+    expect(closed.model.operation).toBe("cancelling")
+    expect(closed.commands?.map((command) => command.name)).toContain("RunLibraryAction.Interrupt")
+    expect(update(closed.model, Message.RequestedReload()).commands).toBeUndefined()
+    const acknowledged = update(closed.model, Message.CompletedCancelRunLibraryAction()).model
+    const reopened = update(acknowledged, Message.RequestedAddDialog()).model
+
+    const stale = update(
+      reopened,
+      Message.SucceededLibraryAction({
+        generation: pending.generation,
+        result: Redacted.make({ kind: "snapshot", snapshot: { enabled: true, epoch: 13, files: [], collections: [] } }),
+      }),
+    )
+
+    expect(stale.model).toBe(reopened)
+
+    const lateDrop = Message.GotFileDropMessage({
+      generationId: opened.dropGeneration,
+      message: Redacted.make(FileDrop.Message.DroppedFiles({ files: [new File(["private"], "late-private.txt")] })),
+    })
+
+    expect(JSON.stringify(lateDrop)).not.toContain("late-private.txt")
+    expect(update(reopened, lateDrop).commands).toBeUndefined()
+    expect(update(reopened, Message.RequestedDurablePicker()).model.operation).toBe("source")
+  })
+  test("closing during file indexing blocks admission until interrupt acknowledgement", () => {
+    const opened = update(catalogModel(), Message.RequestedAddDialog()).model
+
+    const dropped = Message.GotFileDropMessage({
+      generationId: opened.dropGeneration,
+      message: Redacted.make(FileDrop.Message.DroppedFiles({ files: [new File(["data"], "original.txt")] })),
+    })
+
+    const pending = update(opened, dropped).model
+    expect(pending.operation).toBe("source")
+    const closed = update(pending, Message.GotDialogMessage({ message: Dialog.Message.RequestedClose() }))
+    expect(closed.model.operation).toBe("cancelling")
+    expect(closed.commands?.map((command) => command.name)).toContain("RunLibraryAction.Interrupt")
+    expect(update(closed.model, Message.RequestedReload()).commands).toBeUndefined()
+
+    const stale = update(
+      closed.model,
+      Message.SucceededLibraryAction({
+        generation: pending.generation,
+        result: Redacted.make({ kind: "snapshot", snapshot: Redacted.value(pending.snapshot) }),
+      }),
+    )
+
+    expect(stale.model).toBe(closed.model)
+    const acknowledged = update(closed.model, Message.CompletedCancelRunLibraryAction()).model
+    expect(acknowledged.operation).toBe("idle")
+    expect(update(acknowledged, Message.RequestedReload()).commands).toHaveLength(1)
+  })
+
   test("membership commands carry the collection and every selected file revision privately", () => {
     const model = catalogModel()
     expect(actionFrom(update(model, Message.RequestedAddMembers({ identifier: collection.identifier })))).toEqual({
@@ -82,7 +212,7 @@ describe("Library page transitions", () => {
 
     for (const result of rejected) {
       expect(result.commands ?? []).toEqual([])
-      expect(result.model.busy).toBe(false)
+      expect(result.model.operation).toBe("idle")
       expect(result.model.status).not.toBe(model.status)
     }
   })
@@ -104,11 +234,14 @@ describe("Library page transitions", () => {
   })
 
   test("file selection cannot begin indexing before explicit consent", () => {
+    const opened = update(init().model, Message.RequestedAddDialog()).model
+
     const message = Message.GotFileDropMessage({
+      generationId: opened.dropGeneration,
       message: Redacted.make(FileDrop.Message.DroppedFiles({ files: [new File(["private"], "private-fixture.txt")] })),
     })
 
-    const next = update(init().model, message)
+    const next = update(opened, message)
     expect(next.commands ?? []).toEqual([])
     expect(Redacted.value(next.model.snapshot).files).toEqual([])
     expect(JSON.stringify(message)).not.toContain("private-fixture.txt")
@@ -144,7 +277,7 @@ describe("Library page transitions", () => {
     const pending = boot().model
     const next = update(pending, Message.GotTabsMessage({ message: Tabs.Message.SelectedTab({ index: 1, value: "cloud" }) }))
     expect(next.model.storageLocation).toBe("device")
-    expect(next.model.busy).toBe(true)
+    expect(next.model.operation).toBe("catalog")
     expect(next.model.generation).toBe(pending.generation)
   })
 
@@ -169,7 +302,7 @@ describe("Library page transitions", () => {
   test("expected failure leaves operation admission usable", () => {
     const pending = boot().model
     const failed = update(pending, Message.FailedLibraryAction({ generation: pending.generation }))
-    expect(failed.model.busy).toBe(false)
+    expect(failed.model.operation).toBe("idle")
     expect(update(failed.model, Message.RequestedReload()).commands).toHaveLength(1)
   })
 })

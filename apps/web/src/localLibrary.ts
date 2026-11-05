@@ -1,35 +1,28 @@
-import { Data, Effect, Predicate, Schema } from "effect"
+import { Data, Effect, Layer, Predicate, Result, Schema } from "effect"
+import type { CatalogCommand, CatalogError, CatalogPlan, IndexedVersion as PortableVersion, LibrarySnapshot } from "@file-transfer/catalog"
+import { Catalog, CatalogConsent, CatalogStorageError, LibraryCollection, LibraryEntry, decide } from "@file-transfer/catalog"
 import { leafHash, toHex, treeHash } from "@file-transfer/parcel"
 
-/** Browser boundary: IndexedDB stores metadata and file handles, never file bytes.
- * DOM callbacks keep the multi-store transaction and consent fence atomic.
- * Transactions serialize consent and catalog edits across tabs; interruption aborts pending writes.
+/** Browser ABI adapter. IndexedDB has no native Effect transaction interpreter.
+ * Replace this bridge when the browser platform provides multi-store atomicity.
+ * Each operation owns its connection and transaction. Interruption aborts pending
+ * writes; only oncomplete publishes native Files. Version 1/2 row names and handle
+ * sidecars are retained. Neither core metadata nor IndexedDB receives File bytes.
  */
 const FileHandle = Schema.declare<FileSystemFileHandle>(
   (value): value is FileSystemFileHandle => typeof FileSystemFileHandle !== "undefined" && value instanceof FileSystemFileHandle,
 )
 
-const FileVersion = Schema.Struct({
-  name: Schema.String,
-  size: Schema.Finite,
-  lastModified: Schema.Finite,
-  fingerprint: Schema.String,
-  handle: Schema.optional(FileHandle),
-})
+const StoredFile = Schema.Struct({ ...LibraryEntry.fields, handle: Schema.optional(FileHandle) })
+const decodeFiles = Schema.decodeUnknownSync(Schema.Array(StoredFile))
+const decodeCollections = Schema.decodeUnknownSync(Schema.Array(LibraryCollection))
+const decodeConsent = Schema.decodeUnknownSync(CatalogConsent)
+const decodeIdentifier = Schema.decodeUnknownSync(Schema.Int)
 
-const StoredFile = Schema.Struct({ identifier: Schema.Int, revision: Schema.Int, ...FileVersion.fields })
-const Collection = Schema.Struct({ identifier: Schema.Int, revision: Schema.Int, name: Schema.NonEmptyString, fileIdentifiers: Schema.Array(Schema.Int) })
-const Consent = Schema.Struct({ enabled: Schema.Boolean, epoch: Schema.Int })
-const Snapshot = Schema.Struct({ ...Consent.fields, files: Schema.Array(StoredFile), collections: Schema.Array(Collection) })
-
-export type LibrarySnapshot = Omit<typeof Snapshot.Type, "files"> & { readonly files: readonly (typeof StoredFile.Type & { readonly file?: File })[] }
-
-export type IndexedVersion = typeof FileVersion.Type & { readonly file?: File }
-
-export type LibraryCollection = typeof Collection.Type
+export type IndexedVersion = PortableVersion & { readonly handle?: FileSystemFileHandle; readonly file?: File }
 
 export interface ReviewedFile {
-  readonly previous: LibrarySnapshot["files"][number]
+  readonly previous: LibraryEntry
   readonly current: IndexedVersion
   readonly file: File
   readonly changed: boolean
@@ -42,52 +35,61 @@ interface InspectedFile {
 
 export class LibraryStorageError extends Data.TaggedError("LibraryStorageError")<{ readonly cause: unknown }> {}
 
-const decodeSnapshot = Schema.decodeUnknownSync(Snapshot)
-const decodeConsent = Schema.decodeUnknownSync(Consent)
-const conflict = () => new DOMException("The catalog changed in another tab. Reload the Library and review again.", "InvalidStateError")
-
-type Edit = (snapshot: LibrarySnapshot, files: IDBObjectStore, collections: IDBObjectStore, settings: IDBObjectStore, committed: (() => void)[]) => void
-
-// Page-owned snapshots are published only after commit and fenced by consent/revision.
-const transientFiles = new Map<number, { readonly epoch: number; readonly revision: number; readonly file: File }>()
-
-const persistedVersion = ({ name, size, lastModified, fingerprint, handle }: IndexedVersion): typeof FileVersion.Type => {
-  const version = { name, size, lastModified, fingerprint }
-
-  return handle === undefined ? version : { ...version, handle }
+interface NativeSource {
+  readonly epoch: number
+  readonly revision: number
+  readonly source: string
+  handle?: FileSystemFileHandle
+  file?: File
 }
 
-const retainFile = (identifier: number, revision: number, epoch: number, entry: IndexedVersion) => {
-  if (entry.file === undefined) {
-    transientFiles.delete(identifier)
-  } else {
-    transientFiles.set(identifier, { epoch, revision, file: entry.file })
+// Page-owned capabilities never enter portable snapshots or publish before commit.
+const sources = new Map<number, NativeSource>()
+
+/** Pure descriptor for rendering, refreshed by every committed read. */
+export const sourceAvailability = (entry: LibraryEntry): "durable" | "transient" | "missing" => {
+  if (entry.source?.startsWith("durable:") === true) {
+    return "durable"
   }
+
+  if (entry.source?.startsWith("transient:") === true) {
+    return "transient"
+  }
+
+  return "missing"
 }
 
-/** Derived membership is never persisted or edited. Identifier zero is reserved. */
-export const deriveMyFiles = (snapshot: LibrarySnapshot): LibraryCollection => ({
-  identifier: 0,
-  revision: 0,
-  name: "My files",
-  fileIdentifiers: snapshot.files.map((entry) => entry.identifier),
-})
+const portableVersion = ({ name, size, lastModified, fingerprint, source }: PortableVersion): PortableVersion =>
+  source === undefined ? { name, size, lastModified, fingerprint } : { name, size, lastModified, fingerprint, source }
 
-type Operation =
-  | { readonly mode: "read" }
-  | { readonly mode: "configure"; readonly epoch: number; readonly edit: Edit }
-  | { readonly mode: "edit"; readonly epoch: number; readonly edit: Edit }
+type NativeCommand = (retain: (candidate: IndexedVersion) => PortableVersion) => CatalogCommand
 
-const transaction = (operation: Operation) =>
-  Effect.callback<LibrarySnapshot, LibraryStorageError>((resume) => {
+const transaction = (operation?: CatalogCommand | NativeCommand) =>
+  Effect.callback<LibrarySnapshot, CatalogError>((resume) => {
     let database: IDBDatabase | undefined
     let active: IDBTransaction | undefined
     let cancelled = false
-    let failure: unknown
-    const committed: (() => void)[] = []
+    let failure: CatalogError | undefined
+    let snapshot: LibrarySnapshot | undefined
+    let published = new Map<number, NativeSource>()
+    const candidates = new Map<string, IndexedVersion>()
+    const pending = new Map<number, NativeSource>()
+
+    const command = Predicate.isFunction(operation)
+      ? operation((candidate) => {
+          if (candidate.handle === undefined && candidate.file === undefined) {
+            return portableVersion(candidate)
+          }
+
+          const source = `candidate:${candidates.size}`
+          candidates.set(source, candidate)
+
+          return { ...portableVersion(candidate), source }
+        })
+      : operation
 
     const fail = (cause: unknown) => {
-      resume(Effect.fail(new LibraryStorageError({ cause })))
+      resume(Effect.fail(new CatalogStorageError({ cause })))
     }
 
     let request: IDBOpenDBRequest
@@ -101,7 +103,6 @@ const transaction = (operation: Operation) =>
     }
 
     request.onupgradeneeded = (event) => {
-      // Version 2 accepts absent handles without rewriting or dropping version 1 data.
       if (event.oldVersion === 0) {
         request.result.createObjectStore("files", { keyPath: "identifier", autoIncrement: true })
         request.result.createObjectStore("collections", { keyPath: "identifier", autoIncrement: true })
@@ -112,7 +113,6 @@ const transaction = (operation: Operation) =>
     request.addEventListener("error", () => {
       fail(request.error)
     })
-
     request.onblocked = () => {
       cancelled = true
       fail(new DOMException("Close other Library tabs and try again.", "BlockedError"))
@@ -130,81 +130,238 @@ const transaction = (operation: Operation) =>
       database.onversionchange = () => database?.close()
 
       try {
-        const current = database.transaction(["files", "collections", "settings"], operation.mode === "read" ? "readonly" : "readwrite")
+        const current = database.transaction(["files", "collections", "settings"], command === undefined ? "readonly" : "readwrite")
         active = current
         const files = current.objectStore("files")
         const collections = current.objectStore("collections")
         const settings = current.objectStore("settings")
-        const consentRequest = settings.get("consent")
-        const fileRequest = files.getAll()
-        const collectionRequest = collections.getAll()
-        let completed = 0
-        let snapshot: LibrarySnapshot | undefined
+        let rows: readonly (typeof StoredFile.Type)[] = []
 
-        const loaded = () => {
-          if (++completed !== 3) {
-            return
-          }
-
+        const guard = (action: () => void) => {
           try {
-            const consent = decodeConsent(consentRequest.result ?? { enabled: false, epoch: 0 })
-            const stored = decodeSnapshot({ ...consent, files: fileRequest.result, collections: collectionRequest.result })
-            snapshot = {
-              ...stored,
-              files: stored.files.map((entry) => {
-                const transient = transientFiles.get(entry.identifier)
-
-                return stored.enabled && transient !== undefined && transient.epoch === stored.epoch && transient.revision === entry.revision
-                  ? { ...entry, file: transient.file }
-                  : entry
-              }),
-            }
-
-            if (operation.mode !== "read" && (snapshot.epoch !== operation.epoch || (operation.mode === "edit" && !snapshot.enabled))) {
-              throw conflict()
-            }
-
-            if (operation.mode !== "read") {
-              operation.edit(snapshot, files, collections, settings, committed)
-            }
+            action()
           } catch (error) {
-            failure = error
+            failure = new CatalogStorageError({ cause: error })
             current.abort()
           }
         }
 
-        fileRequest.onsuccess = loaded
-        collectionRequest.onsuccess = loaded
-        consentRequest.onsuccess = loaded
+        const load = (loaded: (value: LibrarySnapshot) => void) => {
+          const consentRequest = settings.get("consent")
+          const fileRequest = files.getAll()
+          const collectionRequest = collections.getAll()
+          let remaining = 3
+
+          const complete = () => {
+            guard(() => {
+              if (--remaining !== 0) {
+                return
+              }
+
+              const consent = decodeConsent(consentRequest.result ?? { enabled: false, epoch: 0 })
+              rows = decodeFiles(fileRequest.result)
+              const native = new Map<number, NativeSource>()
+
+              const entries = rows.map((row): LibraryEntry => {
+                const { handle, ...metadata } = row
+                const retained = pending.get(row.identifier) ?? sources.get(row.identifier)
+
+                if (consent.enabled && handle !== undefined) {
+                  const source = row.source ?? `durable:legacy:${row.identifier}:${row.revision}`
+                  native.set(row.identifier, { epoch: consent.epoch, revision: row.revision, source, handle })
+
+                  return { ...metadata, source }
+                }
+
+                if (
+                  consent.enabled &&
+                  retained !== undefined &&
+                  retained.epoch === consent.epoch &&
+                  retained.revision === row.revision &&
+                  retained.source === row.source
+                ) {
+                  native.set(row.identifier, retained)
+
+                  return metadata
+                }
+
+                // A transient descriptor is meaningful only in the page retaining its File.
+                if (metadata.source?.startsWith("transient:") === true) {
+                  const { source: _source, ...missing } = metadata
+
+                  return missing
+                }
+
+                return metadata
+              })
+
+              published = native
+              loaded({ ...consent, files: entries, collections: decodeCollections(collectionRequest.result) })
+            })
+          }
+
+          consentRequest.onsuccess = complete
+          fileRequest.onsuccess = complete
+          collectionRequest.onsuccess = complete
+        }
+
+        const apply = (plan: CatalogPlan, before: LibrarySnapshot, index = 0): void => {
+          const mutation = plan[index]
+
+          if (mutation === undefined) {
+            load((value) => {
+              snapshot = value
+            })
+
+            return
+          }
+
+          const next = () => {
+            guard(() => {
+              apply(plan, before, index + 1)
+            })
+          }
+
+          const persist = (entry: LibraryEntry) => {
+            const candidate = entry.source === undefined ? undefined : candidates.get(entry.source)
+
+            if (candidate !== undefined) {
+              const source = `${candidate.handle === undefined ? "transient" : "durable"}:${before.epoch}:${entry.identifier}:${entry.revision}`
+
+              const native: NativeSource = {
+                epoch: before.epoch,
+                revision: entry.revision,
+                source,
+              }
+
+              if (candidate.handle !== undefined) {
+                native.handle = candidate.handle
+              }
+
+              if (candidate.file !== undefined) {
+                native.file = candidate.file
+              }
+
+              pending.set(entry.identifier, native)
+
+              return candidate.handle === undefined ? { ...entry, source } : { ...entry, source, handle: candidate.handle }
+            }
+
+            const old = rows.find((row) => row.identifier === entry.identifier)
+            const oldSource = old?.source ?? (old?.handle === undefined ? undefined : `durable:legacy:${old.identifier}:${old.revision}`)
+            const retained = sources.get(entry.identifier)
+
+            if (retained !== undefined && retained.epoch === before.epoch && retained.revision === old?.revision && retained.source === entry.source) {
+              pending.set(entry.identifier, { ...retained, revision: entry.revision })
+            }
+
+            return old?.handle !== undefined && entry.source === oldSource ? { ...entry, handle: old.handle } : entry
+          }
+
+          switch (mutation.type) {
+            case "settings": {
+              settings.put(mutation.consent, "consent").onsuccess = next
+              break
+            }
+
+            case "clear": {
+              files.clear().onsuccess = () => {
+                guard(() => {
+                  collections.clear().onsuccess = next
+                })
+              }
+
+              break
+            }
+
+            case "addFile": {
+              const added = files.add(mutation.entry)
+              added.onsuccess = () => {
+                guard(() => {
+                  const identifier = decodeIdentifier(added.result)
+                  files.put(persist({ ...mutation.entry, identifier })).onsuccess = next
+                })
+              }
+
+              break
+            }
+
+            case "putFile": {
+              files.put(persist(mutation.entry)).onsuccess = next
+              break
+            }
+
+            case "deleteFile": {
+              files.delete(mutation.identifier).onsuccess = next
+              break
+            }
+
+            case "addCollection": {
+              collections.add(mutation.collection).onsuccess = next
+              break
+            }
+
+            case "putCollection": {
+              collections.put(mutation.collection).onsuccess = next
+              break
+            }
+
+            case "deleteCollection": {
+              collections.delete(mutation.identifier).onsuccess = next
+              break
+            }
+          }
+        }
+
         current.oncomplete = () => {
           database?.close()
 
-          if (snapshot !== undefined) {
-            for (const [identifier, transient] of transientFiles) {
-              if (
-                !snapshot.enabled ||
-                transient.epoch !== snapshot.epoch ||
-                !snapshot.files.some((entry) => entry.identifier === identifier && entry.revision === transient.revision)
-              ) {
-                transientFiles.delete(identifier)
-              }
-            }
+          if (cancelled || snapshot === undefined) {
+            return
           }
 
-          for (const publish of committed) {
-            publish()
+          sources.clear()
+
+          for (const [identifier, source] of published) {
+            sources.set(identifier, source)
           }
 
-          if (snapshot !== undefined) {
-            resume(Effect.succeed(snapshot))
-          }
+          resume(Effect.succeed(snapshot))
         }
 
         current.addEventListener("abort", () => {
           database?.close()
-          fail(failure ?? current.error)
+
+          if (!cancelled) {
+            resume(Effect.fail(failure ?? new CatalogStorageError({ cause: current.error })))
+          }
+        })
+
+        load((value) => {
+          if (command === undefined) {
+            snapshot = value
+
+            return
+          }
+
+          const plan = decide(value, command)
+
+          if (Result.isFailure(plan)) {
+            failure = plan.failure
+            current.abort()
+
+            return
+          }
+
+          apply(plan.success, value)
         })
       } catch (error) {
+        try {
+          active?.abort()
+        } catch {
+          /* Already terminal. */
+        }
+
         database.close()
         fail(error)
       }
@@ -213,215 +370,69 @@ const transaction = (operation: Operation) =>
     return Effect.sync(() => {
       cancelled = true
 
-      if (active !== undefined) {
-        try {
-          active.abort()
-        } catch {
-          /* Already committed or aborted. */
-        }
+      try {
+        active?.abort()
+      } catch {
+        /* Already committed or aborted. */
       }
 
       database?.close()
     })
   })
 
-export const readLibrary = transaction({ mode: "read" })
-
-export const configureCatalog = (enabled: boolean, epoch: number) =>
-  transaction({
-    mode: "configure",
-    epoch,
-    edit: (snapshot, files, collections, settings, committed) => {
-      settings.put({ enabled, epoch: snapshot.epoch + 1 }, "consent")
-      committed.push(() => {
-        transientFiles.clear()
-      })
-
-      if (!enabled) {
-        files.clear()
-        collections.clear()
-      }
-    },
-  })
-
-export const rememberFiles = (incoming: readonly IndexedVersion[], epoch: number) =>
-  transaction({
-    mode: "edit",
-    epoch,
-    edit: (_snapshot, files, _collections, _settings, committed) => {
-      for (const entry of incoming) {
-        const request = files.add({ revision: 0, ...persistedVersion(entry) })
-        request.onsuccess = () => {
-          const identifier = request.result
-
-          if (Predicate.isNumber(identifier)) {
-            committed.push(() => {
-              retainFile(identifier, 0, epoch, entry)
-            })
-          }
+// Preserve the browser UI error contract while the shared service retains domain errors.
+const browserTransaction = (operation?: CatalogCommand | NativeCommand) =>
+  transaction(operation).pipe(
+    Effect.mapError((failure) => {
+      switch (failure._tag) {
+        case "CatalogStorageError": {
+          return new LibraryStorageError({ cause: failure.cause })
         }
-      }
-    },
-  })
 
-export const createCollection = (name: string, epoch: number) =>
-  transaction({
-    mode: "edit",
-    epoch,
-    edit: (_snapshot, _files, collections) => {
-      if (name.trim().length === 0) {
-        throw new DOMException("Name the collection.", "DataError")
-      }
+        case "InvalidCollectionName": {
+          return new LibraryStorageError({ cause: new DOMException("Name the collection.", "DataError") })
+        }
 
-      collections.add({ revision: 0, name, fileIdentifiers: [] })
-    },
-  })
-
-const requireFile = (snapshot: LibrarySnapshot, expected: LibrarySnapshot["files"][number]) => {
-  const current = snapshot.files.find((entry) => entry.identifier === expected.identifier)
-
-  if (current === undefined || current.revision !== expected.revision) {
-    throw conflict()
-  }
-
-  return current
-}
-
-const requireCollection = (snapshot: LibrarySnapshot, expected: LibraryCollection) => {
-  const current = snapshot.collections.find((entry) => entry.identifier === expected.identifier)
-
-  if (current === undefined || current.revision !== expected.revision) {
-    throw conflict()
-  }
-
-  return current
-}
-
-export const addToCollection = (expected: LibraryCollection, selected: LibrarySnapshot["files"], epoch: number) =>
-  transaction({
-    mode: "edit",
-    epoch,
-    edit: (snapshot, _files, collections) => {
-      const collection = requireCollection(snapshot, expected)
-      const identifiers = selected.map((entry) => requireFile(snapshot, entry).identifier)
-
-      collections.put({ ...collection, revision: collection.revision + 1, fileIdentifiers: [...new Set([...collection.fileIdentifiers, ...identifiers])] })
-    },
-  })
-
-export const removeFromCollection = (expected: LibraryCollection, file: LibrarySnapshot["files"][number], epoch: number) =>
-  transaction({
-    mode: "edit",
-    epoch,
-    edit: (snapshot, _files, collections) => {
-      const collection = requireCollection(snapshot, expected)
-      const current = requireFile(snapshot, file)
-
-      if (!collection.fileIdentifiers.includes(current.identifier)) {
-        throw conflict()
-      }
-
-      collections.put({
-        ...collection,
-        revision: collection.revision + 1,
-        fileIdentifiers: collection.fileIdentifiers.filter((value) => value !== current.identifier),
-      })
-    },
-  })
-
-export const deleteCollection = (expected: LibraryCollection, epoch: number) =>
-  transaction({
-    mode: "edit",
-    epoch,
-    edit: (snapshot, _files, collections) => {
-      const collection = requireCollection(snapshot, expected)
-      collections.delete(collection.identifier)
-    },
-  })
-
-export const deleteFile = (expected: LibrarySnapshot["files"][number], epoch: number) =>
-  transaction({
-    mode: "edit",
-    epoch,
-    edit: (snapshot, files, collections, _settings, committed) => {
-      const file = requireFile(snapshot, expected)
-      files.delete(file.identifier)
-      committed.push(() => {
-        transientFiles.delete(file.identifier)
-      })
-
-      for (const collection of snapshot.collections) {
-        if (collection.fileIdentifiers.includes(file.identifier)) {
-          collections.put({
-            ...collection,
-            revision: collection.revision + 1,
-            fileIdentifiers: collection.fileIdentifiers.filter((value) => value !== file.identifier),
+        case "CatalogConflict": {
+          return new LibraryStorageError({
+            cause: new DOMException("The catalog changed in another tab. Reload the Library and review again.", "InvalidStateError"),
           })
         }
       }
-    },
-  })
+    }),
+  )
 
-export const reconnectFile = (previous: LibrarySnapshot["files"][number], entry: IndexedVersion, epoch: number) =>
-  transaction({
-    mode: "edit",
-    epoch,
-    edit: (snapshot, files, _collections, _settings, committed) => {
-      const existing = snapshot.files.find((file) => file.identifier === previous.identifier)
+export const readLibrary = browserTransaction()
+export const catalogLayer = Layer.succeed(Catalog, Catalog.of({ read: transaction(), mutate: (command) => transaction(command) }))
+export const configureCatalog = (enabled: boolean, epoch: number) => browserTransaction({ type: "configure", enabled, epoch })
 
-      if (existing === undefined || existing.revision !== previous.revision) {
-        throw conflict()
-      }
+export const rememberFiles = (incoming: readonly IndexedVersion[], epoch: number) =>
+  browserTransaction((retain) => ({ type: "index", incoming: incoming.map(retain), epoch }))
 
-      const { handle: _previousHandle, ...baseline } = persistedVersion(existing)
+export const createCollection = (name: string, epoch: number) => browserTransaction({ type: "create", name, epoch })
 
-      const updated = {
-        ...baseline,
-        identifier: existing.identifier,
-        revision: existing.revision + 1,
-      }
+export const addToCollection = (collection: LibraryCollection, selected: readonly LibraryEntry[], epoch: number) =>
+  browserTransaction({ type: "add", collection, selected, epoch })
 
-      files.put(entry.handle === undefined ? updated : { ...updated, handle: entry.handle })
-      committed.push(() => {
-        retainFile(existing.identifier, existing.revision + 1, epoch, entry)
-      })
-    },
-  })
+export const removeFromCollection = (collection: LibraryCollection, file: LibraryEntry, epoch: number) =>
+  browserTransaction({ type: "remove", collection, file, epoch })
 
-/** Never overwrites another tab's newer approval, changes reviewed membership, or restores forgotten references. */
+export const deleteCollection = (collection: LibraryCollection, epoch: number) => browserTransaction({ type: "deleteCollection", collection, epoch })
+export const deleteFile = (file: LibraryEntry, epoch: number) => browserTransaction({ type: "deleteFile", file, epoch })
+
+export const reconnectFile = (previous: LibraryEntry, entry: IndexedVersion, epoch: number) =>
+  browserTransaction((retain) => ({ type: "reconnect", previous, current: retain(entry), epoch }))
+
+/** Approves only the actual reviewed versions and the exact reviewed membership. */
 export const approveVersions = (reviewed: readonly ReviewedFile[], epoch: number, collection?: LibraryCollection) =>
-  transaction({
-    mode: "edit",
-    epoch,
-    edit: (snapshot, files, _collections, _settings, committed) => {
-      if (collection?.identifier === 0) {
-        if (
-          snapshot.files.length !== collection.fileIdentifiers.length ||
-          snapshot.files.some((entry) => !collection.fileIdentifiers.includes(entry.identifier))
-        ) {
-          throw conflict()
-        }
-      } else if (collection !== undefined) {
-        const existing = snapshot.collections.find((entry) => entry.identifier === collection.identifier)
+  browserTransaction((retain) => {
+    const command = {
+      type: "approve" as const,
+      reviewed: reviewed.map((entry) => ({ previous: entry.previous, current: retain({ ...entry.current, file: entry.file }) })),
+      epoch,
+    }
 
-        if (existing === undefined || existing.revision !== collection.revision) {
-          throw conflict()
-        }
-      }
-
-      for (const entry of reviewed) {
-        const existing = snapshot.files.find((file) => file.identifier === entry.previous.identifier)
-
-        if (existing === undefined || existing.revision !== entry.previous.revision) {
-          throw conflict()
-        }
-
-        files.put({ identifier: existing.identifier, revision: existing.revision + 1, ...persistedVersion(entry.current) })
-        committed.push(() => {
-          retainFile(existing.identifier, existing.revision + 1, epoch, entry.current)
-        })
-      }
-    },
+    return collection === undefined ? command : { ...command, collection }
   })
 
 declare global {
@@ -499,40 +510,46 @@ export const chooseCatalogFiles = Effect.fnUntraced(function* (multiple: boolean
   return entries
 })
 
+/** Resolves actual browser capabilities, never capabilities smuggled into metadata.
+ * Permission prompts occur only during explicit review, not indexing or rendering.
+ * Native getFile/permission promises cannot be aborted; late results have no side effects.
+ */
+export const inspectCatalogSource = Effect.fnUntraced(function* (source: {
+  readonly file?: File
+  readonly handle?: FileSystemFileHandle
+}): Effect.fn.Return<InspectedFile, LibraryStorageError> {
+  if (source.handle !== undefined) {
+    const { handle } = source
+
+    const permission = yield* Effect.tryPromise({
+      try: async () => await handle.requestPermission({ mode: "read" }),
+      catch: (cause) => new LibraryStorageError({ cause }),
+    })
+
+    if (permission !== "granted") {
+      return yield* new LibraryStorageError({ cause: new DOMException("Read access was not granted. Allow access or reconnect the file.", "NotAllowedError") })
+    }
+
+    return yield* inspectHandle(handle)
+  }
+
+  if (source.file === undefined) {
+    return yield* new LibraryStorageError({ cause: new DOMException("Reselect this file before sharing.", "NotFoundError") })
+  }
+
+  const { file } = source
+  const fingerprint = yield* fingerprintFile(file)
+
+  return { file, current: { name: file.name, size: file.size, lastModified: file.lastModified, fingerprint, file } }
+})
+
 export const reviewCatalogFiles = Effect.fnUntraced(function* (entries: LibrarySnapshot["files"]) {
   const reviewed: ReviewedFile[] = []
 
   for (const previous of entries) {
-    let inspected: InspectedFile
-
-    if (previous.handle === undefined) {
-      // This is a captured snapshot, not a live filesystem reference. The UI must
-      // disclose this limitation and offer reselection to include later edits.
-      if (previous.file === undefined) {
-        return yield* new LibraryStorageError({ cause: new DOMException("Reselect this file before sharing.", "NotFoundError") })
-      }
-
-      const { file } = previous
-      const fingerprint = yield* fingerprintFile(file)
-      inspected = { file, current: { name: file.name, size: file.size, lastModified: file.lastModified, fingerprint, file } }
-    } else {
-      const { handle } = previous
-
-      const permission = yield* Effect.tryPromise({
-        try: async () => await handle.requestPermission({ mode: "read" }),
-        catch: (cause) => new LibraryStorageError({ cause }),
-      })
-
-      if (permission !== "granted") {
-        return yield* new LibraryStorageError({
-          cause: new DOMException("Read access was not granted. Allow access or reconnect the file.", "NotAllowedError"),
-        })
-      }
-
-      inspected = yield* inspectHandle(handle)
-    }
-
-    const { file, current } = inspected
+    const source = sources.get(previous.identifier)
+    const matching = source !== undefined && source.revision === previous.revision && source.source === previous.source ? source : {}
+    const { file, current } = yield* inspectCatalogSource(matching)
     reviewed.push({
       previous,
       current,

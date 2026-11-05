@@ -8,7 +8,7 @@ export const ChartMessage = Schema.TaggedStruct("CompletedChartMount", { success
 
 export type ChartMessage = typeof ChartMessage.Type
 
-const color = (name: string, fallback: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback
+const color = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim()
 
 /** The rendered element owns the uPlot instance until it is removed. */
 export const ChartMount = Mount.define("AdminChart", {
@@ -35,12 +35,12 @@ export const ChartMount = Mount.define("AdminChart", {
               width: Math.max(280, element.clientWidth),
               height: 240,
               scales: { x: { time: true } },
-              axes: [{ stroke: color("--muted", "#5d584c") }, { stroke: color("--muted", "#5d584c") }],
+              axes: [{ stroke: color("--muted-foreground") }, { stroke: color("--muted-foreground") }],
               series: [
                 {},
-                { label: "Rooms created", stroke: color("--muted", "#5d584c"), width: 2 },
-                { label: "Completed", stroke: color("--accent", "#8a5a00"), width: 2 },
-                { label: "Failed", stroke: color("--text", "#1d1b16"), width: 2, dash: [6, 4] },
+                { label: "Rooms created", stroke: color("--chart-1"), width: 2 },
+                { label: "Completed", stroke: color("--chart-2"), width: 2 },
+                { label: "Failed", stroke: color("--chart-3"), width: 2, dash: [6, 4] },
               ],
             },
             [values.map(({ hour }) => hour * 3600), series("room-created"), series("transfer-completed"), series("transfer-failed")],

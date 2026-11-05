@@ -136,103 +136,116 @@ export const view = defineView<Model, Message>((model, h) =>
       onToggle: (open) => Message.ToggledOpen({ open }),
       toView: (disclosure) =>
         h.section(
-          [],
+          [h.Class("browser-settings")],
           [
-            h.button(disclosure.button, ["Browser settings"]),
+            h.button([...disclosure.button, h.Class("button")], ["Browser settings"]),
             ...(model.open
               ? [
-                  h.div(disclosure.panel, [
-                    h.submodel({
-                      slotId: "tabs",
-                      model: model.tabs,
-                      view: SettingsTabs.view,
-                      toParentMessage: (message) => Message.GotTabsMessage({ message }),
-                      viewInputs: {
-                        tabs: ["direct", "storage"],
-                        selectedValue: model.selected,
-                        ariaLabel: "Browser settings",
-                        toView: ({ tablist, tabs }) =>
-                          h.div(
-                            [],
-                            [
-                              h.div(
-                                tablist,
-                                tabs.map((tab) => h.button(tab.tab, [tab.value === "direct" ? "Direct connections" : "Storage in this browser"])),
-                              ),
-                              ...tabs
-                                .filter((tab) => tab.isActive)
-                                .map((tab) =>
-                                  h.div(
-                                    tab.panel,
-                                    tab.value === "direct"
-                                      ? [
-                                          Switch.view(
-                                            {
-                                              id: "direct-connections",
-                                              isChecked: model.direct,
-                                              isDisabled: !model.directLoaded || model.directSaving,
-                                              onToggle: (allowed) => Message.ToggledDirect({ allowed }),
-                                              toView: (a) =>
-                                                h.div(
-                                                  [],
-                                                  [
-                                                    h.button(a.button, [model.direct ? "On" : "Off"]),
-                                                    h.span(a.label, ["Connect directly to the other side when possible"]),
-                                                  ],
-                                                ),
-                                            },
-                                            h,
-                                          ),
-                                          h.p(
-                                            [h.Class("direct-note")],
-                                            [
-                                              "Direct is faster and leaves the server less to carry, and files stay end-to-end encrypted either way. The other side learns this device's network (IP) address. Turned off, transfers use the relay. Applies to transfers you start or open from now on.",
-                                            ],
-                                          ),
-                                        ]
-                                      : [
-                                          h.p(
-                                            [h.Class("storage-text"), h.Role("status")],
-                                            [
-                                              Option.isSome(model.use)
-                                                ? `Received files stored here: ${formatSize(model.use.value.receivedBytes)}.${model.use.value.usage !== undefined && model.use.value.quota !== undefined ? ` This site uses ${formatSize(model.use.value.usage)} of browser storage, with ${formatSize(Math.max(0, model.use.value.quota - model.use.value.usage))} available.` : ""} Files of transfers still in use are kept.`
-                                                : "Checking storage.",
-                                            ],
-                                          ),
-                                          ...(model.confirm
-                                            ? [
-                                                h.p(
-                                                  [],
-                                                  [
-                                                    `Delete ${Option.isSome(model.use) ? formatSize(model.use.value.receivedBytes) : "stored"} received files from this browser?`,
-                                                  ],
-                                                ),
-                                                Button.view(
-                                                  { onClick: Message.ConfirmedClear(), isDisabled: model.busy, toView: (a) => h.button(a.button, ["Delete"]) },
-                                                  h,
-                                                ),
-                                                Button.view({ onClick: Message.CancelledClear(), toView: (a) => h.button(a.button, ["Cancel"]) }, h),
-                                              ]
-                                            : [
-                                                Button.view(
-                                                  {
-                                                    onClick: Message.RequestedClear(),
-                                                    isDisabled: Option.isNone(model.use) || !(model.use.value.stale > 0 || model.use.value.removable),
-                                                    toView: (a) => h.button(a.button, ["Clear stored files"]),
-                                                  },
-                                                  h,
-                                                ),
-                                              ]),
-                                          h.p([], ["Files you saved to your device are not affected."]),
-                                        ],
-                                  ),
+                  h.div(
+                    [...disclosure.panel, h.Class("settings-panel")],
+                    [
+                      h.submodel({
+                        slotId: "tabs",
+                        model: model.tabs,
+                        view: SettingsTabs.view,
+                        toParentMessage: (message) => Message.GotTabsMessage({ message }),
+                        viewInputs: {
+                          tabs: ["direct", "storage"],
+                          selectedValue: model.selected,
+                          ariaLabel: "Browser settings",
+                          toView: ({ tablist, tabs }) =>
+                            h.div(
+                              [],
+                              [
+                                h.div(
+                                  [...tablist, h.Class("mode-tabs settings-tabs")],
+                                  tabs.map((tab) => h.button(tab.tab, [tab.value === "direct" ? "Direct connections" : "Storage in this browser"])),
                                 ),
-                            ],
-                          ),
-                      },
-                    }),
-                    h.p([h.Role("status")], [model.status]),
-                  ]),
+                                ...tabs
+                                  .filter((tab) => tab.isActive)
+                                  .map((tab) =>
+                                    h.div(
+                                      tab.panel,
+                                      tab.value === "direct"
+                                        ? [
+                                            Switch.view(
+                                              {
+                                                id: "direct-connections",
+                                                isChecked: model.direct,
+                                                isDisabled: !model.directLoaded || model.directSaving,
+                                                onToggle: (allowed) => Message.ToggledDirect({ allowed }),
+                                                toView: (a) =>
+                                                  h.div(
+                                                    [],
+                                                    [
+                                                      h.button(a.button, [model.direct ? "On" : "Off"]),
+                                                      h.span(a.label, ["Connect directly to the other side when possible"]),
+                                                    ],
+                                                  ),
+                                              },
+                                              h,
+                                            ),
+                                            h.p(
+                                              [h.Class("direct-note")],
+                                              [
+                                                "Direct is faster and leaves the server less to carry, and files stay end-to-end encrypted either way. The other side learns this device's network (IP) address. Turned off, transfers use the relay. Applies to transfers you start or open from now on.",
+                                              ],
+                                            ),
+                                          ]
+                                        : [
+                                            h.p(
+                                              [h.Class("storage-text"), h.Role("status")],
+                                              [
+                                                Option.isSome(model.use)
+                                                  ? `Received files stored here: ${formatSize(model.use.value.receivedBytes)}.${model.use.value.usage !== undefined && model.use.value.quota !== undefined ? ` This site uses ${formatSize(model.use.value.usage)} of browser storage, with ${formatSize(Math.max(0, model.use.value.quota - model.use.value.usage))} available.` : ""} Files of transfers still in use are kept.`
+                                                  : "Checking storage.",
+                                              ],
+                                            ),
+                                            ...(model.confirm
+                                              ? [
+                                                  h.p(
+                                                    [],
+                                                    [
+                                                      `Delete ${Option.isSome(model.use) ? formatSize(model.use.value.receivedBytes) : "stored"} received files from this browser?`,
+                                                    ],
+                                                  ),
+                                                  Button.view(
+                                                    {
+                                                      onClick: Message.ConfirmedClear(),
+                                                      isDisabled: model.busy,
+                                                      toView: (a) => h.button([...a.button, h.Class("button")], ["Delete"]),
+                                                    },
+                                                    h,
+                                                  ),
+                                                  Button.view(
+                                                    {
+                                                      onClick: Message.CancelledClear(),
+                                                      toView: (a) => h.button([...a.button, h.Class("button")], ["Cancel"]),
+                                                    },
+                                                    h,
+                                                  ),
+                                                ]
+                                              : [
+                                                  Button.view(
+                                                    {
+                                                      onClick: Message.RequestedClear(),
+                                                      isDisabled: Option.isNone(model.use) || !(model.use.value.stale > 0 || model.use.value.removable),
+                                                      toView: (a) => h.button([...a.button, h.Class("button")], ["Clear stored files"]),
+                                                    },
+                                                    h,
+                                                  ),
+                                                ]),
+                                            h.p([], ["Files you saved to your device are not affected."]),
+                                          ],
+                                    ),
+                                  ),
+                              ],
+                            ),
+                        },
+                      }),
+                      h.p([h.Role("status")], [model.status]),
+                    ],
+                  ),
                 ]
               : []),
           ],

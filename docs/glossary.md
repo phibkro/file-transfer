@@ -60,14 +60,21 @@ One meaning per term, used the same way in code, docs and conversation. Code nam
 | Save tier     | How the browser writes to disk: file picker, service worker download, or OPFS.                                                                                                                                                                                                                                                                                                                 | `SaveTier`                                                  |
 | Resume        | Continuing an interrupted transfer from data record `i` of the same contract; both sides check records against their labels.                                                                                                                                                                                                                                                                   | `ResumeBitmap`                                              |
 
+## Catalogs and the Library
+
+| Term             | Meaning                                                                                                                                                                                           | In code                 |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
+| Catalog          | The owner's index of files or assets and their collections. A local catalog contains device-only metadata and source references. A future remote catalog must remain encrypted outside endpoints. | `libraries/catalog`     |
+| Library          | The owner's view of a catalog, grouped by storage location. Local indexing and remote storage have distinct capabilities.                                                                         | `apps/web/src/library`  |
+| Indexed file     | A catalog entry that identifies an original file without copying its bytes. Its approved version is the baseline for future share reviews.                                                        | `LibraryEntry`          |
+| Source reference | An opaque string that a source adapter resolves to a file capability. It contains no file bytes.                                                                                                  | `IndexedVersion.source` |
+
 ## Proposed for durable storage (ADR 0014, not yet in code)
 
 | Term                         | Meaning                                                                                                                                                                     |
 | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Asset                        | A parcel kept in a store under an account, with a persistence policy and an access policy. The parcel bytes are unchanged; only authorised clients decrypt it.              |
 | Wrapped key                  | A copy of a parcel's link secret encrypted for one accessor (an account, a device, or a link). Wraps are independent: adding one never touches the parcel.                  |
-| Catalog                      | The owner's encrypted, versioned index of assets: names, folders, wrapped keys and policies. The store sees it only as ciphertext.                                          |
-| Library                      | What the owner sees: the catalog, decrypted on their device.                                                                                                                |
 | Keyring                      | The keys that let an owner's devices unwrap the catalog, itself wrapped under keys the server never sees.                                                                   |
 | Persistence policy           | How long a room or asset lives: ephemeral (until the transfer ends or the room idles out) or a chosen retention. Enforced by the store from dates and sizes.                |
 | Access policy                | Who may fetch and who can decrypt: claims, a maximum number of recipients, expiry, named accounts. Enforced by rooms and stores, and by who holds a wrapped key.            |

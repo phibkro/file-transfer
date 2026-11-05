@@ -139,7 +139,7 @@ Rule: price only what we pay for. Throttling a path we do not carry would recrea
 See `CLAUDE.md` for the kinds and import rules.
 
 ```
-libraries/   parcel  transport  sink  client
+libraries/   catalog  parcel  transport  sink  client  machine  conformance
 services/    room  relay  quota  telemetry  abuse
 platforms/   cloudflare  self-hosted
 integrations/ turn  captcha  analytics
@@ -147,6 +147,16 @@ apps/        web
 ```
 
 Services are declared once as Effect services with an in-memory reference layer that acts as their executable model. Each platform provides a Layer per service; one conformance suite of property-based tests runs against the model and every platform.
+
+### Client catalog capability
+
+The [Catalog library](../libraries/catalog/src/index.ts) defines device catalog behavior independently of browser storage and Foldkit. Pure decisions own consent, revisions, collection membership and approval baselines. The Catalog service exposes reads and semantic commands. Its reference Layer holds transient state in an Effect Ref.
+
+The [browser adapter](../apps/web/src/localLibrary.ts) reads, decides and applies each mutation inside one IndexedDB transaction. IndexedDB allocates identifiers. Native file handles remain adapter-owned sidecars. Transient Files stay in page memory. Portable snapshots contain metadata and source strings, not native resources or file bytes. Existing version 1 and version 2 records remain readable.
+
+Mutation results describe committed state. Cancellation aborts pending transactions, and native source publication follows commit. Reconnection preserves the approved baseline. Collection approval requires the exact reviewed membership and current revisions. The [shared contract scenarios](../libraries/catalog/test/scenarios.ts) run against the reference Layer and the browser Catalog Layer.
+
+Local indexing does not provide remote storage. A future hosted cloud capability requires an account and Premium. A self-hosted cloud capability does not require Premium. Those capabilities must not change local indexing into an upload.
 
 ## Security posture
 

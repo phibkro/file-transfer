@@ -3,15 +3,18 @@ import { Command, Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
 import type { HtmlBuilder } from "foldkit/html"
 import { defineView } from "foldkit/submodel"
-import { Button, Checkbox, Dialog, Fieldset, FileDrop, Input, Select, Switch, Tabs } from "@foldkit/ui"
+import { Button, Checkbox, Dialog, Disclosure, FileDrop, Input, Switch, Tabs } from "@foldkit/ui"
+import { icon } from "../ui/icon.ts"
 import { privateValue } from "../privateValue.ts"
-import * as Catalog from "../localLibrary.ts"
+import { deriveMyFiles } from "@file-transfer/catalog"
+import type { LibraryCollection, LibrarySnapshot } from "@file-transfer/catalog"
+import * as BrowserCatalog from "../localLibrary.ts"
 
-type Snapshot = Catalog.LibrarySnapshot
+type Snapshot = LibrarySnapshot
 
 type Entry = Snapshot["files"][number]
 
-type Review = readonly Catalog.ReviewedFile[]
+type Review = readonly BrowserCatalog.ReviewedFile[]
 
 type Action =
   | { readonly kind: "load" }
@@ -19,40 +22,47 @@ type Action =
   | { readonly kind: "index"; readonly files: readonly File[]; readonly epoch: number; readonly reconnect: Entry | undefined }
   | { readonly kind: "picker"; readonly epoch: number }
   | { readonly kind: "create"; readonly name: string; readonly epoch: number }
-  | { readonly kind: "add"; readonly collection: Catalog.LibraryCollection; readonly files: readonly Entry[]; readonly epoch: number }
-  | { readonly kind: "remove"; readonly collection: Catalog.LibraryCollection; readonly file: Entry; readonly epoch: number }
+  | { readonly kind: "add"; readonly collection: LibraryCollection; readonly files: readonly Entry[]; readonly epoch: number }
+  | { readonly kind: "remove"; readonly collection: LibraryCollection; readonly file: Entry; readonly epoch: number }
   | { readonly kind: "forgetFile"; readonly file: Entry; readonly epoch: number }
-  | { readonly kind: "forgetCollection"; readonly collection: Catalog.LibraryCollection; readonly epoch: number }
-  | { readonly kind: "reconnect"; readonly previous: Entry; readonly current: Catalog.IndexedVersion; readonly epoch: number }
-  | { readonly kind: "review"; readonly entries: Snapshot["files"]; readonly collection: Catalog.LibraryCollection | undefined; readonly epoch: number }
-  | { readonly kind: "approve"; readonly reviewed: Review; readonly collection: Catalog.LibraryCollection | undefined; readonly epoch: number }
+  | { readonly kind: "forgetCollection"; readonly collection: LibraryCollection; readonly epoch: number }
+  | { readonly kind: "reconnect"; readonly previous: Entry; readonly current: BrowserCatalog.IndexedVersion; readonly epoch: number }
+  | { readonly kind: "review"; readonly entries: Snapshot["files"]; readonly collection: LibraryCollection | undefined; readonly epoch: number }
+  | { readonly kind: "approve"; readonly reviewed: Review; readonly collection: LibraryCollection | undefined; readonly epoch: number }
 
 type Result =
+  | { readonly kind: "loaded"; readonly snapshot: Snapshot }
   | { readonly kind: "snapshot"; readonly snapshot: Snapshot }
-  | { readonly kind: "review"; readonly reviewed: Review; readonly collection: Catalog.LibraryCollection | undefined; readonly epoch: number }
-  | { readonly kind: "candidate"; readonly previous: Entry; readonly current: Catalog.IndexedVersion; readonly epoch: number }
+  | { readonly kind: "review"; readonly reviewed: Review; readonly collection: LibraryCollection | undefined; readonly epoch: number }
+  | { readonly kind: "candidate"; readonly previous: Entry; readonly current: BrowserCatalog.IndexedVersion; readonly epoch: number }
   | { readonly kind: "share"; readonly snapshot: Snapshot; readonly files: readonly File[] }
 
 type Confirmation =
   | { readonly kind: "none" }
+  | { readonly kind: "add" }
+  | { readonly kind: "create" }
+  | { readonly kind: "manage"; readonly entry: Entry }
   | { readonly kind: "disable"; readonly epoch: number }
   | { readonly kind: "forgetFile"; readonly entry: Entry; readonly epoch: number }
-  | { readonly kind: "forgetCollection"; readonly collection: Catalog.LibraryCollection; readonly epoch: number }
-  | { readonly kind: "candidate"; readonly previous: Entry; readonly current: Catalog.IndexedVersion; readonly epoch: number }
-  | { readonly kind: "review"; readonly reviewed: Review; readonly collection: Catalog.LibraryCollection | undefined; readonly epoch: number }
+  | { readonly kind: "forgetCollection"; readonly collection: LibraryCollection; readonly epoch: number }
+  | { readonly kind: "candidate"; readonly previous: Entry; readonly current: BrowserCatalog.IndexedVersion; readonly epoch: number }
+  | { readonly kind: "review"; readonly reviewed: Review; readonly collection: LibraryCollection | undefined; readonly epoch: number }
 
 export const Model = Schema.Struct({
   snapshot: privateValue<Snapshot>(),
   collection: Schema.Int,
   selected: Schema.Array(Schema.Int),
   name: privateValue<string>(),
+  search: privateValue<string>(),
   confirmation: privateValue<Confirmation>(),
   reconnect: Schema.Option(Schema.Int),
+  detailsOpen: Schema.Boolean,
   storageLocation: Schema.Literals(["device", "cloud"]),
   tabs: Tabs.Model,
   dialog: Dialog.Model,
   fileDrop: FileDrop.Model,
-  busy: Schema.Boolean,
+  operation: Schema.Literals(["idle", "catalog", "source", "cancelling"]),
+  dropGeneration: Schema.Int,
   generation: Schema.Int,
   status: Schema.String,
 })
@@ -62,8 +72,13 @@ export type Model = typeof Model.Type
 export const Message = defineMessageUnion({
   GotTabsMessage: { message: Tabs.Message },
   GotDialogMessage: { message: Dialog.Message },
-  GotFileDropMessage: { message: privateValue<FileDrop.Message>() },
+  GotFileDropMessage: { message: privateValue<FileDrop.Message>(), generationId: Schema.Int },
   ChangedCollectionName: { name: privateValue<string>() },
+  ChangedSearch: { search: privateValue<string>() },
+  ToggledDetails: { open: Schema.Boolean },
+  RequestedAddDialog: {},
+  RequestedCreateDialog: {},
+  RequestedManageFile: { identifier: Schema.Int },
   SelectedCollection: { identifier: Schema.Int },
   ToggledFile: { identifier: Schema.Int },
   RequestedEnable: {},
@@ -78,6 +93,7 @@ export const Message = defineMessageUnion({
   RequestedReconnect: { identifier: Schema.Int },
   CancelledReconnect: {},
   RequestedReview: {},
+  RequestedReviewFile: { identifier: Schema.Int },
   RequestedReviewCollection: {},
   ConfirmedAction: {},
   SucceededLibraryAction: { generation: Schema.Int, result: privateValue<Result>() },
@@ -95,73 +111,66 @@ type Return = Update.ReturnWithOutMessage<Model, Message, OutMessage>
 
 const LocationTabs = Tabs.create<"device" | "cloud">()
 
-/** Catalog mutations return the pre-edit snapshot. Read only after commit. */
-const committedSnapshot = Effect.fnUntraced(function* (operation: Effect.Effect<Snapshot, Catalog.LibraryStorageError>) {
-  yield* operation
-
-  return yield* Catalog.readLibrary
-})
-
-const perform = Effect.fnUntraced(function* (action: Action): Effect.fn.Return<Result, Catalog.LibraryStorageError> {
+const perform = Effect.fnUntraced(function* (action: Action): Effect.fn.Return<Result, BrowserCatalog.LibraryStorageError> {
   switch (action.kind) {
     case "load": {
-      return { kind: "snapshot", snapshot: yield* Catalog.readLibrary }
+      return { kind: "loaded", snapshot: yield* BrowserCatalog.readLibrary }
     }
 
     case "configure": {
-      return { kind: "snapshot", snapshot: yield* committedSnapshot(Catalog.configureCatalog(action.enabled, action.epoch)) }
+      return { kind: "snapshot", snapshot: yield* BrowserCatalog.configureCatalog(action.enabled, action.epoch) }
     }
 
     case "index": {
-      const indexed = yield* Catalog.indexCatalogFiles(action.files)
+      const indexed = yield* BrowserCatalog.indexCatalogFiles(action.files)
 
       if (action.reconnect !== undefined) {
         const current = indexed[0]
 
         if (current === undefined || indexed.length !== 1) {
-          return yield* new Catalog.LibraryStorageError({ cause: "Choose exactly one original to reconnect" })
+          return yield* new BrowserCatalog.LibraryStorageError({ cause: "Choose exactly one original to reconnect" })
         }
 
         return { kind: "candidate", previous: action.reconnect, current, epoch: action.epoch }
       }
 
-      return { kind: "snapshot", snapshot: yield* committedSnapshot(Catalog.rememberFiles(indexed, action.epoch)) }
+      return { kind: "snapshot", snapshot: yield* BrowserCatalog.rememberFiles(indexed, action.epoch) }
     }
 
     case "picker": {
-      return { kind: "snapshot", snapshot: yield* committedSnapshot(Catalog.rememberFiles(yield* Catalog.chooseCatalogFiles(true), action.epoch)) }
+      return { kind: "snapshot", snapshot: yield* BrowserCatalog.rememberFiles(yield* BrowserCatalog.chooseCatalogFiles(true), action.epoch) }
     }
 
     case "create": {
-      return { kind: "snapshot", snapshot: yield* committedSnapshot(Catalog.createCollection(action.name, action.epoch)) }
+      return { kind: "snapshot", snapshot: yield* BrowserCatalog.createCollection(action.name, action.epoch) }
     }
 
     case "add": {
-      return { kind: "snapshot", snapshot: yield* committedSnapshot(Catalog.addToCollection(action.collection, action.files, action.epoch)) }
+      return { kind: "snapshot", snapshot: yield* BrowserCatalog.addToCollection(action.collection, action.files, action.epoch) }
     }
 
     case "remove": {
-      return { kind: "snapshot", snapshot: yield* committedSnapshot(Catalog.removeFromCollection(action.collection, action.file, action.epoch)) }
+      return { kind: "snapshot", snapshot: yield* BrowserCatalog.removeFromCollection(action.collection, action.file, action.epoch) }
     }
 
     case "forgetFile": {
-      return { kind: "snapshot", snapshot: yield* committedSnapshot(Catalog.deleteFile(action.file, action.epoch)) }
+      return { kind: "snapshot", snapshot: yield* BrowserCatalog.deleteFile(action.file, action.epoch) }
     }
 
     case "forgetCollection": {
-      return { kind: "snapshot", snapshot: yield* committedSnapshot(Catalog.deleteCollection(action.collection, action.epoch)) }
+      return { kind: "snapshot", snapshot: yield* BrowserCatalog.deleteCollection(action.collection, action.epoch) }
     }
 
     case "reconnect": {
-      return { kind: "snapshot", snapshot: yield* committedSnapshot(Catalog.reconnectFile(action.previous, action.current, action.epoch)) }
+      return { kind: "snapshot", snapshot: yield* BrowserCatalog.reconnectFile(action.previous, action.current, action.epoch) }
     }
 
     case "review": {
-      return { kind: "review", reviewed: yield* Catalog.reviewCatalogFiles(action.entries), collection: action.collection, epoch: action.epoch }
+      return { kind: "review", reviewed: yield* BrowserCatalog.reviewCatalogFiles(action.entries), collection: action.collection, epoch: action.epoch }
     }
 
     case "approve": {
-      const snapshot = yield* committedSnapshot(Catalog.approveVersions(action.reviewed, action.epoch, action.collection))
+      const snapshot = yield* BrowserCatalog.approveVersions(action.reviewed, action.epoch, action.collection)
 
       return { kind: "share", snapshot, files: action.reviewed.map((entry) => entry.file) }
     }
@@ -183,18 +192,26 @@ export const RunLibraryAction = Command.define("RunLibraryAction", {
     ),
 })
 
-export const cancel = (model: Model): Update.Return<Model, Message> => ({
-  model: { ...model, busy: false, generation: model.generation + 1 },
-  commands: [RunLibraryAction.Interrupt(() => Message.CompletedCancelRunLibraryAction())],
-})
-
-const start = (model: Model, action: Action): Update.Return<Model, Message> =>
-  model.busy
+export const cancel = (model: Model): Update.Return<Model, Message> =>
+  model.operation === "cancelling"
     ? { model }
     : {
-        model: { ...model, busy: true, generation: model.generation + 1, status: "Working locally. No file content is being uploaded." },
+        model: { ...model, operation: "cancelling", dropGeneration: model.dropGeneration + 1, generation: model.generation + 1 },
+        commands: [RunLibraryAction.Interrupt(() => Message.CompletedCancelRunLibraryAction())],
+      }
+
+const start = (model: Model, action: Action): Update.Return<Model, Message> =>
+  model.operation === "idle"
+    ? {
+        model: {
+          ...model,
+          operation: action.kind === "picker" || action.kind === "index" ? "source" : "catalog",
+          generation: model.generation + 1,
+          status: "Working locally. No file content is being uploaded.",
+        },
         commands: [RunLibraryAction({ action: Redacted.make(action), generation: model.generation + 1 })],
       }
+    : { model }
 
 export const init = (): Update.Return<Model, Message> => ({
   model: {
@@ -202,13 +219,16 @@ export const init = (): Update.Return<Model, Message> => ({
     collection: 0,
     selected: [],
     name: Redacted.make(""),
+    search: Redacted.make(""),
     confirmation: Redacted.make({ kind: "none" }),
     reconnect: Option.none(),
+    detailsOpen: false,
     storageLocation: "device",
     tabs: Tabs.init({ id: "library-location" }),
     dialog: Dialog.init({ id: "library-confirmation" }),
     fileDrop: FileDrop.init({ id: "library-files" }),
-    busy: false,
+    operation: "idle",
+    dropGeneration: 0,
     generation: 0,
     status: "Loading local Library.",
   },
@@ -220,8 +240,19 @@ const liftDialog = (message: Dialog.Message): Message => Message.GotDialogMessag
 
 const foldDialogOut =
   (out: Dialog.OutMessage) =>
-  (model: Model): Update.Return<Model, Message> =>
-    out._tag === "Closed" ? { model: { ...model, confirmation: Redacted.make({ kind: "none" }) } } : { model }
+  (model: Model): Update.Return<Model, Message> => {
+    if (out._tag !== "Closed") {
+      return { model }
+    }
+
+    const closed = { ...model, reconnect: Option.none(), confirmation: Redacted.make<Confirmation>({ kind: "none" }) }
+
+    if (model.operation === "source" && Redacted.value(model.confirmation).kind === "add") {
+      return cancel(closed)
+    }
+
+    return { model: closed }
+  }
 
 const foldDialog = Update.foldChild({
   update: Dialog.update,
@@ -259,29 +290,30 @@ const foldTabs = Update.foldChild({
     (model: Model): Return => ({ model: { ...model, storageLocation: out.value === "cloud" ? "cloud" : "device" } }),
 })
 
-const foldDrop = Update.foldChild({
-  update: FileDrop.update,
-  read: (model: Model) => Option.some(model.fileDrop),
-  write: (model: Model, fileDrop: FileDrop.Model): Model => ({ ...model, fileDrop }),
-  toParentMessage: (message: FileDrop.Message) => Message.GotFileDropMessage({ message: Redacted.make(message) }),
-  foldOutMessage:
-    (out: FileDrop.OutMessage) =>
-    (model: Model): Return => {
-      const snapshot = Redacted.value(model.snapshot)
+const foldDrop = (generation: number) =>
+  Update.foldChild({
+    update: FileDrop.update,
+    read: (model: Model) => Option.some(model.fileDrop),
+    write: (model: Model, fileDrop: FileDrop.Model): Model => ({ ...model, fileDrop }),
+    toParentMessage: (message: FileDrop.Message) => Message.GotFileDropMessage({ message: Redacted.make(message), generationId: generation }),
+    foldOutMessage:
+      (out: FileDrop.OutMessage) =>
+      (model: Model): Return => {
+        const snapshot = Redacted.value(model.snapshot)
 
-      if (out._tag === "RejectedNonFiles") {
-        return { model: { ...model, status: "Choose or drop files, not text or folders." } }
-      }
+        if (out._tag === "RejectedNonFiles") {
+          return { model: { ...model, status: "Choose or drop files, not text or folders." } }
+        }
 
-      if (!snapshot.enabled || model.busy) {
-        return { model }
-      }
+        if (!snapshot.enabled || model.operation !== "idle") {
+          return { model }
+        }
 
-      const reconnect = snapshot.files.find((entry) => Option.contains(model.reconnect, entry.identifier))
+        const reconnect = snapshot.files.find((entry) => Option.contains(model.reconnect, entry.identifier))
 
-      return start(model, { kind: "index", files: out.files, epoch: snapshot.epoch, reconnect })
-    },
-})
+        return start(model, { kind: "index", files: out.files, epoch: snapshot.epoch, reconnect })
+      },
+  })
 
 export const update = (model: Model, incoming: Message): Return => {
   const snapshot = Redacted.value(model.snapshot)
@@ -289,10 +321,23 @@ export const update = (model: Model, incoming: Message): Return => {
   const { epoch } = snapshot
 
   return Message.match<Return>(incoming, {
-    GotTabsMessage: (message) => (model.busy ? { model } : foldTabs(model, message.message)),
+    GotTabsMessage: (message) => (model.operation === "idle" ? foldTabs(model, message.message) : { model }),
     GotDialogMessage: (message) => foldDialog(model, message.message),
-    GotFileDropMessage: (message) => foldDrop(model, Redacted.value(message.message)),
+    GotFileDropMessage: (message) =>
+      message.generationId === model.dropGeneration && Redacted.value(model.confirmation).kind === "add"
+        ? foldDrop(message.generationId)(model, Redacted.value(message.message))
+        : { model },
     ChangedCollectionName: (message) => ({ model: { ...model, name: message.name } }),
+    ChangedSearch: (message) => ({ model: { ...model, search: message.search } }),
+    ToggledDetails: (message) => ({ model: { ...model, detailsOpen: message.open } }),
+    RequestedAddDialog: () =>
+      model.operation === "idle" ? ask({ ...model, dropGeneration: model.dropGeneration + 1, reconnect: Option.none() }, { kind: "add" }) : { model },
+    RequestedCreateDialog: () => (model.operation === "idle" ? ask(model, { kind: "create" }) : { model }),
+    RequestedManageFile: (message) => {
+      const entry = snapshot.files.find((file) => file.identifier === message.identifier)
+
+      return entry === undefined || model.operation !== "idle" ? { model } : ask(model, { kind: "manage", entry })
+    },
     SelectedCollection: (message) => ({ model: { ...model, collection: message.identifier, selected: [] } }),
     ToggledFile: (message) => ({
       model: {
@@ -304,14 +349,14 @@ export const update = (model: Model, incoming: Message): Return => {
     }),
     RequestedReload: () => start(model, { kind: "load" }),
     RequestedEnable: () => start(model, { kind: "configure", enabled: true, epoch }),
-    RequestedDisable: () => (model.busy ? { model } : ask(model, { kind: "disable", epoch })),
+    RequestedDisable: () => (model.operation === "idle" ? ask(model, { kind: "disable", epoch }) : { model }),
     RequestedCreateCollection: () =>
       snapshot.enabled && Redacted.value(model.name).trim().length > 0
         ? start(model, { kind: "create", name: Redacted.value(model.name).trim(), epoch })
         : { model },
     RequestedDurablePicker: () => (snapshot.enabled ? start(model, { kind: "picker", epoch }) : { model }),
     RequestedAddMembers: (message) => {
-      if (!snapshot.enabled || model.selected.length === 0 || message.identifier === 0 || model.busy) {
+      if (!snapshot.enabled || model.selected.length === 0 || message.identifier === 0 || model.operation !== "idle") {
         return { model }
       }
 
@@ -323,7 +368,7 @@ export const update = (model: Model, incoming: Message): Return => {
         : start(model, { kind: "add", collection: target, files, epoch })
     },
     RequestedRemoveMember: (message) => {
-      if (model.busy) {
+      if (model.operation !== "idle") {
         return { model }
       }
 
@@ -336,16 +381,20 @@ export const update = (model: Model, incoming: Message): Return => {
     RequestedForgetFile: (message) => {
       const entry = snapshot.files.find((file) => file.identifier === message.identifier)
 
-      return entry === undefined || model.busy ? { model } : ask(model, { kind: "forgetFile", entry, epoch })
+      return entry === undefined || model.operation !== "idle" ? { model } : ask(model, { kind: "forgetFile", entry, epoch })
     },
-    RequestedForgetCollection: () => (collection === undefined || model.busy ? { model } : ask(model, { kind: "forgetCollection", collection, epoch })),
-    RequestedReconnect: (message) => ({
-      model: {
-        ...model,
-        reconnect: Option.some(message.identifier),
-        status: "Choose exactly one original in the file chooser below. Review and confirm before replacing its reference.",
-      },
-    }),
+    RequestedForgetCollection: () =>
+      collection === undefined || model.operation !== "idle" ? { model } : ask(model, { kind: "forgetCollection", collection, epoch }),
+    RequestedReconnect: (message) =>
+      ask(
+        {
+          ...model,
+          dropGeneration: model.dropGeneration + 1,
+          reconnect: Option.some(message.identifier),
+          status: "Choose exactly one original in the file chooser below. Review and confirm before replacing its reference.",
+        },
+        { kind: "add" },
+      ),
     CancelledReconnect: () => ({ model: { ...model, reconnect: Option.none(), status: "Reconnection cancelled. The saved reference is unchanged." } }),
     RequestedReview: () => {
       const entries = snapshot.files.filter((entry) => model.selected.includes(entry.identifier))
@@ -354,10 +403,15 @@ export const update = (model: Model, incoming: Message): Return => {
         return { model: { ...model, status: "The selected files are no longer available. Reload the Library and select them again." } }
       }
 
-      return entries.length === 0 ? { model } : start(model, { kind: "review", entries, collection, epoch })
+      return entries.length === 0 ? { model } : start(model, { kind: "review", entries, collection: undefined, epoch })
+    },
+    RequestedReviewFile: (message) => {
+      const entry = snapshot.files.find((file) => file.identifier === message.identifier)
+
+      return entry === undefined ? { model } : start(model, { kind: "review", entries: [entry], collection: undefined, epoch })
     },
     RequestedReviewCollection: () => {
-      const current = collection ?? Catalog.deriveMyFiles(snapshot)
+      const current = collection ?? deriveMyFiles(snapshot)
       const entries = snapshot.files.filter((entry) => current.fileIdentifiers.includes(entry.identifier))
 
       if (entries.length !== current.fileIdentifiers.length) {
@@ -367,7 +421,7 @@ export const update = (model: Model, incoming: Message): Return => {
       return entries.length === 0 ? { model } : start(model, { kind: "review", entries, collection: current, epoch })
     },
     ConfirmedAction: () => {
-      if (model.busy) {
+      if (model.operation !== "idle") {
         return { model }
       }
 
@@ -376,6 +430,12 @@ export const update = (model: Model, incoming: Message): Return => {
 
       switch (confirmation.kind) {
         case "none": {
+          return { model }
+        }
+
+        case "add":
+        case "manage":
+        case "create": {
           return { model }
         }
 
@@ -411,12 +471,12 @@ export const update = (model: Model, incoming: Message): Return => {
       return { ...started, commands: [...(closed.commands ?? []), ...(started.commands ?? [])] }
     },
     SucceededLibraryAction: (message) => {
-      if (!model.busy || message.generation !== model.generation) {
+      if (!(model.operation !== "idle") || message.generation !== model.generation) {
         return { model }
       }
 
       const result = Redacted.value(message.result)
-      const ready: Model = { ...model, busy: false, status: "Library updated on this device only." }
+      const ready: Model = { ...model, operation: "idle", status: result.kind === "loaded" ? "" : "Library updated on this device only." }
 
       if (result.kind === "review") {
         return ask(ready, result)
@@ -435,59 +495,99 @@ export const update = (model: Model, incoming: Message): Return => {
         collection: result.snapshot.collections.some((entry) => entry.identifier === model.collection) ? model.collection : 0,
       }
 
-      return result.kind === "share" ? { model: next, outMessage: OutMessage.RequestedQuickShare({ files: Redacted.make(result.files) }) } : { model: next }
+      if (result.kind === "share") {
+        return { model: next, outMessage: OutMessage.RequestedQuickShare({ files: Redacted.make(result.files) }) }
+      }
+
+      return ["add", "create", "manage"].includes(Redacted.value(model.confirmation).kind) ? closeDialog(next) : { model: next }
     },
     FailedLibraryAction: (message) =>
       message.generation === model.generation
         ? {
             model: {
               ...model,
-              busy: false,
+              operation: "idle",
               status:
                 "Could not complete this local operation. Permission may be denied, the browser may not support durable references, or the catalog changed in another tab. Reload the Library and review again, or reselect the original. Nothing was shared.",
             },
           }
         : { model },
-    CompletedCancelRunLibraryAction: () => ({ model: { ...model, busy: false, generation: model.generation + 1 } }),
+    CompletedCancelRunLibraryAction: () =>
+      model.operation === "cancelling"
+        ? {
+            model: {
+              ...model,
+              operation: "idle",
+              status: "Local operation cancelled. Reload the Library to check for any change that committed before cancellation.",
+            },
+          }
+        : { model },
   })
 }
 
 const button = (h: HtmlBuilder<Message>, label: string, message: Message, disabled = false) =>
-  Button.view({ onClick: message, isDisabled: disabled, toView: (attributes) => h.button([...attributes.button], [label]) }, h)
+  Button.view({ onClick: message, isDisabled: disabled, toView: (attributes) => h.button([...attributes.button, h.Class("button")], [label]) }, h)
 
-export const view = defineView<Model, Message>((model, h) => {
+export const view = defineView<Model, Message, { readonly sharingDisabled: boolean }>((model, inputs, h) => {
   const snapshot = Redacted.value(model.snapshot)
 
   const collection =
-    model.collection === 0
-      ? Catalog.deriveMyFiles(snapshot)
-      : (snapshot.collections.find((entry) => entry.identifier === model.collection) ?? Catalog.deriveMyFiles(snapshot))
+    model.collection === 0 ? deriveMyFiles(snapshot) : (snapshot.collections.find((entry) => entry.identifier === model.collection) ?? deriveMyFiles(snapshot))
 
-  const disabled = model.busy || !snapshot.enabled
+  const disabled = model.operation !== "idle" || !snapshot.enabled
   const files = snapshot.files.filter((entry) => collection.fileIdentifiers.includes(entry.identifier))
+  const search = Redacted.value(model.search).trim().toLocaleLowerCase()
+
+  const visibleFiles = files.filter(
+    (entry) =>
+      entry.name.toLocaleLowerCase().includes(search) ||
+      snapshot.collections.some((group) => group.fileIdentifiers.includes(entry.identifier) && group.name.toLocaleLowerCase().includes(search)),
+  )
+
+  const sharingDisabled = disabled || inputs.sharingDisabled
 
   const device = () =>
     h.section(
       [],
       [
-        h.h2([], ["On this device"]),
-        h.p(
-          [],
-          [
-            "Your Library indexes original file references and metadata on this device. Adding files does not upload or copy their contents. Local edits affect future shares.",
-          ],
-        ),
-        h.p(
-          [],
-          [
-            "Standard file choosing keeps a captured File for this page only, not a live filesystem handle. After editing an original, reselect it with Reconnect before reviewing a future share. After reopening this page, reselect originals to reconnect. Durable references require browser support and permission.",
-          ],
+        h.p([], ["Originals stay on this device. Local edits affect future shares."]),
+        Disclosure.view(
+          {
+            id: "library-indexing-details",
+            isOpen: model.detailsOpen,
+            onToggle: (open) => Message.ToggledDetails({ open }),
+            toView: (details) =>
+              h.div(
+                [],
+                [
+                  h.button([...details.button, h.Class("button")], ["How local indexing works"]),
+                  model.detailsOpen
+                    ? h.div(
+                        [...details.panel],
+                        [
+                          h.p(
+                            [],
+                            ["Your Library indexes original file references and metadata on this device. Adding files does not upload or copy their contents."],
+                          ),
+                          h.p(
+                            [],
+                            [
+                              "Standard file choosing captures a File for this page only. Reselect after editing or reopening this page. Durable references require browser support and permission.",
+                            ],
+                          ),
+                        ],
+                      )
+                    : null,
+                ],
+              ),
+          },
+          h,
         ),
         Switch.view(
           {
             id: "library-consent",
             isChecked: snapshot.enabled,
-            isDisabled: model.busy,
+            isDisabled: model.operation !== "idle",
             onToggle: (enabled) => (enabled ? Message.RequestedEnable() : Message.RequestedDisable()),
             toView: (attributes) =>
               h.div(
@@ -508,151 +608,193 @@ export const view = defineView<Model, Message>((model, h) => {
               : "Remembering is off by default. My files is available without storing any file data. Quick Share remains available without opting in.",
           ],
         ),
-        Select.view(
-          {
-            id: "library-collection",
-            value: String(collection.identifier),
-            isDisabled: model.busy,
-            onChange: (value) =>
-              Message.SelectedCollection({
-                identifier:
-                  [Catalog.deriveMyFiles(snapshot), ...snapshot.collections].find((entry) => String(entry.identifier) === value)?.identifier ??
-                  model.collection,
-              }),
-            toView: (attributes) =>
-              h.div(
-                [],
-                [
-                  h.label([...attributes.label], ["Collection"]),
-                  h.select(
-                    [...attributes.select],
-                    [Catalog.deriveMyFiles(snapshot), ...snapshot.collections].map((entry) =>
-                      h.keyed("option")(String(entry.identifier), [h.Value(String(entry.identifier))], [`${entry.name} (${entry.fileIdentifiers.length})`]),
-                    ),
-                  ),
-                ],
-              ),
-          },
-          h,
-        ),
-        h.h3([], [collection.name]),
-        collection.identifier === 0
-          ? h.p([], ["My files includes every indexed file automatically and cannot be deleted."])
-          : button(h, "Forget collection", Message.RequestedForgetCollection(), disabled),
-        Fieldset.view(
-          {
-            id: "library-create-collection",
-            isDisabled: disabled,
-            toView: (attributes) =>
-              h.fieldset(
-                [...attributes.fieldset],
-                [
-                  h.legend([...attributes.legend], ["Create a collection"]),
-                  Input.view(
-                    {
-                      id: "library-collection-name",
-                      value: Redacted.value(model.name),
-                      isDisabled: disabled,
-                      onInput: (name) => Message.ChangedCollectionName({ name: Redacted.make(name) }),
-                      toView: (input) => h.div([], [h.label([...input.label], ["New collection name"]), h.input([...input.input])]),
-                    },
-                    h,
-                  ),
-                  button(h, "Create empty collection", Message.RequestedCreateCollection(), disabled || Redacted.value(model.name).trim().length === 0),
-                ],
-              ),
-          },
-          h,
-        ),
-        Option.isNone(model.reconnect)
-          ? null
-          : h.div(
-              [h.Role("status")],
+        inputs.sharingDisabled ? h.p([], ["Finish or clear Quick Share before sharing from your Library."]) : null,
+        h.div(
+          [h.Class("panel library-panel")],
+          [
+            h.div(
+              [h.Class("library-tools")],
               [
-                h.p([], ["Reconnect: choose one original below, then confirm the replacement."]),
-                button(h, "Cancel reconnection", Message.CancelledReconnect(), model.busy),
-              ],
-            ),
-        h.submodel({
-          slotId: "library-file-drop",
-          model: model.fileDrop,
-          view: FileDrop.view,
-          toParentMessage: (message) => Message.GotFileDropMessage({ message: Redacted.make(message) }),
-          viewInputs: {
-            multiple: Option.isNone(model.reconnect),
-            isDisabled: disabled,
-            toView: (attributes) =>
-              h.label(
-                [...attributes.root, h.Class("drop-zone")],
-                [
-                  h.input([...attributes.input, h.Class("visually-hidden")]),
-                  Option.isNone(model.reconnect) ? "Choose or drop files to add to My files" : "Choose the original to reconnect",
-                ],
-              ),
-          },
-        }),
-        button(h, "Choose durable file references (supported browsers)", Message.RequestedDurablePicker(), disabled || Option.isSome(model.reconnect)),
-        files.length === 0
-          ? h.p([], ["This collection is empty. Add files to My files, select them, then add them to a collection."])
-          : h.ul(
-              [h.Class("catalog-list")],
-              files.map((entry) =>
-                h.keyed("li")(
-                  String(entry.identifier),
-                  [],
+                h.div(
+                  [h.Class("filters")],
                   [
-                    Checkbox.view(
-                      {
-                        id: `library-file-${entry.identifier}`,
-                        isChecked: model.selected.includes(entry.identifier),
-                        isDisabled: disabled,
-                        onToggle: () => Message.ToggledFile({ identifier: entry.identifier }),
-                        toView: (attributes) =>
-                          h.div(
-                            [],
-                            [
-                              h.button([...attributes.checkbox], [model.selected.includes(entry.identifier) ? "Selected" : "Select"]),
-                              h.span([...attributes.label], [entry.name]),
-                            ],
-                          ),
-                      },
-                      h,
+                    ...[deriveMyFiles(snapshot), ...snapshot.collections].map((entry) =>
+                      Button.view(
+                        {
+                          onClick: Message.SelectedCollection({ identifier: entry.identifier }),
+                          isDisabled: model.operation !== "idle",
+                          toView: (attributes) =>
+                            h.button(
+                              [...attributes.button, h.AriaPressed(String(entry.identifier === collection.identifier))],
+                              [`${entry.name} (${entry.fileIdentifiers.length})`],
+                            ),
+                        },
+                        h,
+                      ),
                     ),
-                    h.p(
-                      [],
-                      [
-                        `${String(entry.size)} bytes. ${
-                          entry.handle === undefined ? "Reselect after edits or reopening this page." : "Original reference: access checked before sharing."
-                        }`,
-                      ],
-                    ),
-                    button(h, "Reconnect original", Message.RequestedReconnect({ identifier: entry.identifier }), disabled),
-                    collection.identifier === 0
-                      ? null
-                      : button(h, "Remove from collection", Message.RequestedRemoveMember({ identifier: entry.identifier }), disabled),
-                    button(h, "Forget file", Message.RequestedForgetFile({ identifier: entry.identifier }), disabled),
+                    button(h, "New collection", Message.RequestedCreateDialog(), disabled),
                   ],
                 ),
+                Input.view(
+                  {
+                    id: "library-search",
+                    value: Redacted.value(model.search),
+                    onInput: (query) => Message.ChangedSearch({ search: Redacted.make(query) }),
+                    toView: (attributes) =>
+                      h.div(
+                        [h.Class("search")],
+                        [
+                          h.label([...attributes.label, h.Class("visually-hidden")], ["Find a file"]),
+                          icon(h, "search"),
+                          h.input([...attributes.input, h.Placeholder("Find a file…"), h.Type("search")]),
+                        ],
+                      ),
+                  },
+                  h,
+                ),
+              ],
+            ),
+            h.h3([], [collection.name]),
+            collection.identifier === 0
+              ? h.p([], ["My files includes every indexed file automatically and cannot be deleted."])
+              : button(h, "Forget collection", Message.RequestedForgetCollection(), disabled),
+            files.length === 0 ? h.p([], ["This collection is empty."]) : null,
+            files.length > 0 && visibleFiles.length === 0 ? h.p([], ["No matching files."]) : null,
+            visibleFiles.length === 0
+              ? null
+              : h.ul(
+                  [h.Class("catalog-list")],
+                  visibleFiles.map((entry) =>
+                    h.keyed("li")(
+                      String(entry.identifier),
+                      [h.Class("row")],
+                      [
+                        Checkbox.view(
+                          {
+                            id: `library-file-${entry.identifier}`,
+                            isChecked: model.selected.includes(entry.identifier),
+                            isDisabled: disabled,
+                            onToggle: () => Message.ToggledFile({ identifier: entry.identifier }),
+                            toView: (attributes) =>
+                              h.div(
+                                [],
+                                [
+                                  h.button(
+                                    [...attributes.checkbox, h.Class("library-checkbox")],
+                                    [model.selected.includes(entry.identifier) ? icon(h, "check") : null],
+                                  ),
+                                  h.span([...attributes.label, h.Class("visually-hidden")], [entry.name]),
+                                ],
+                              ),
+                          },
+                          h,
+                        ),
+                        h.span([h.Class("file-icon")], [icon(h, "file")]),
+                        h.div(
+                          [h.Class("file-meta")],
+                          [
+                            h.span([h.Class("file-name")], [entry.name]),
+                            h.p(
+                              [h.Class("file-detail")],
+                              [
+                                `${String(entry.size)} bytes. ${{ durable: "Original reference: access checked before sharing.", transient: "Reselect after edits or reopening this page.", missing: "Original unavailable. Reconnect it before sharing." }[BrowserCatalog.sourceAvailability(entry)]}`,
+                              ],
+                            ),
+                          ],
+                        ),
+                        h.div(
+                          [h.Class("row-actions")],
+                          [
+                            Button.view(
+                              {
+                                onClick: Message.RequestedManageFile({ identifier: entry.identifier }),
+                                isDisabled: disabled,
+                                toView: (attributes) =>
+                                  h.button(
+                                    [
+                                      ...attributes.button,
+                                      h.Class("button p-2"),
+                                      h.AriaLabel(`Manage ${entry.name}`),
+                                      h.Attribute("title", `Manage ${entry.name}`),
+                                    ],
+                                    [icon(h, "file")],
+                                  ),
+                              },
+                              h,
+                            ),
+                            Button.view(
+                              {
+                                onClick: Message.RequestedReviewFile({ identifier: entry.identifier }),
+                                isDisabled: sharingDisabled,
+                                toView: (attributes) =>
+                                  h.button([...attributes.button, h.Class("button"), h.AriaLabel(`Share ${entry.name}`)], [icon(h, "send"), "Share"]),
+                              },
+                              h,
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+            h.p([], [`${String(model.selected.length)} selected`]),
+            button(h, "Review selected files before sharing", Message.RequestedReview(), sharingDisabled || model.selected.length === 0),
+            button(h, "Review collection before sharing", Message.RequestedReviewCollection(), sharingDisabled || files.length === 0),
+            ...snapshot.collections.map((entry) =>
+              button(
+                h,
+                `Add selected to ${entry.name}`,
+                Message.RequestedAddMembers({ identifier: entry.identifier }),
+                disabled || model.selected.length === 0,
               ),
             ),
-        h.p([], [`${String(model.selected.length)} selected`]),
-        button(h, "Review selected files before sharing", Message.RequestedReview(), disabled || model.selected.length === 0),
-        button(h, "Review collection before sharing", Message.RequestedReviewCollection(), disabled || files.length === 0),
-        ...snapshot.collections.map((entry) =>
-          button(h, `Add selected to ${entry.name}`, Message.RequestedAddMembers({ identifier: entry.identifier }), disabled || model.selected.length === 0),
+          ],
         ),
       ],
     )
 
   const confirmation = Redacted.value(model.confirmation)
 
-  const confirmationTitle = confirmation.kind === "review" ? "Review current versions" : "Confirm forgetting"
-  const title = confirmation.kind === "candidate" ? "Confirm reconnection" : confirmationTitle
+  let title = "Confirm forgetting"
+  let description = "Only Library metadata and references will be forgotten. Your original files are never deleted."
 
-  const description =
-    confirmation.kind === "candidate"
-      ? "Confirm that this is the intended original. Reconnecting changes its future shares, not an existing share."
-      : "Only Library metadata and references will be forgotten. Your original files are never deleted."
+  switch (confirmation.kind) {
+    case "manage": {
+      title = `Manage ${confirmation.entry.name}`
+      description = "Manage this local catalog entry. Your original file is never deleted."
+      break
+    }
+
+    case "add": {
+      title = "Add to catalog"
+      description = "Choose files to index locally. Their contents are not uploaded."
+      break
+    }
+
+    case "create": {
+      title = "New collection"
+      description = "Create an empty collection on this device."
+      break
+    }
+
+    case "candidate": {
+      title = "Confirm reconnection"
+      description = "Confirm that this is the intended original. Reconnecting changes its future shares, not an existing share."
+      break
+    }
+
+    case "review": {
+      title = "Review current versions"
+      break
+    }
+
+    case "disable":
+    case "forgetCollection":
+    case "forgetFile":
+    case "none": {
+      break
+    }
+  }
 
   const actionLabel = confirmation.kind === "candidate" ? "Confirm replacement reference" : "Forget"
 
@@ -670,6 +812,9 @@ export const view = defineView<Model, Message>((model, h) => {
         return h.p([], [`${confirmation.collection.name}. Its files remain in My files.`])
       }
 
+      case "manage":
+      case "add":
+      case "create":
       case "disable":
       case "none":
       case "review": {
@@ -679,11 +824,25 @@ export const view = defineView<Model, Message>((model, h) => {
   }
 
   return h.div(
-    [h.Class("library-page"), h.AriaBusy(model.busy)],
+    [h.Id("library"), h.Tabindex(-1), h.Class("library library-page"), h.AriaBusy(model.operation !== "idle")],
     [
-      h.h1([], ["Library"]),
-      h.p([h.Role("status")], [model.status]),
-      button(h, "Reload Library", Message.RequestedReload(), model.busy),
+      h.div(
+        [h.Class("library-header")],
+        [
+          h.div(
+            [h.Class("heading")],
+            [h.span([h.Class("section-icon lilac")], [icon(h, "folder")]), h.h2([], ["Local Library"]), h.span([h.Class("badge")], ["This device"])],
+          ),
+          h.div(
+            [h.Class("library-actions")],
+            [
+              button(h, "Reload Library", Message.RequestedReload(), model.operation !== "idle"),
+              button(h, "Add to catalog", Message.RequestedAddDialog(), disabled),
+            ],
+          ),
+        ],
+      ),
+      model.status === "" ? null : h.p([h.Role("status")], [model.status]),
       h.submodel({
         slotId: "library-location",
         model: model.tabs,
@@ -693,7 +852,7 @@ export const view = defineView<Model, Message>((model, h) => {
           tabs: ["device", "cloud"],
           selectedValue: model.storageLocation,
           ariaLabel: "Storage location",
-          isTabDisabled: () => model.busy,
+          isTabDisabled: () => model.operation !== "idle",
           toView: (render) =>
             h.div(
               [],
@@ -784,12 +943,100 @@ export const view = defineView<Model, Message>((model, h) => {
                                   ),
                                 )
                               : confirmationDetail(),
-                            button(
-                              h,
-                              confirmation.kind === "review" ? "Approve and share current versions" : actionLabel,
-                              Message.ConfirmedAction(),
-                              model.busy,
-                            ),
+                            confirmation.kind === "add"
+                              ? h.div(
+                                  [h.Class("dialog-form")],
+                                  [
+                                    h.submodel({
+                                      slotId: "libraryFileDrop",
+                                      model: model.fileDrop,
+                                      view: FileDrop.view,
+                                      toParentMessage: (message) =>
+                                        Message.GotFileDropMessage({ message: Redacted.make(message), generationId: model.dropGeneration }),
+                                      viewInputs: {
+                                        multiple: Option.isNone(model.reconnect),
+                                        isDisabled: disabled,
+                                        toView: (attributes) =>
+                                          h.label(
+                                            [...attributes.root, h.Class("drop-zone")],
+                                            [
+                                              h.input([...attributes.input, h.Class("visually-hidden")]),
+                                              Option.isNone(model.reconnect) ? "Choose or drop files to add to My files" : "Choose the original to reconnect",
+                                            ],
+                                          ),
+                                      },
+                                    }),
+                                    button(
+                                      h,
+                                      "Choose durable file references (supported browsers)",
+                                      Message.RequestedDurablePicker(),
+                                      disabled || Option.isSome(model.reconnect),
+                                    ),
+                                    Option.isSome(model.reconnect)
+                                      ? button(h, "Cancel reconnection", Message.CancelledReconnect(), model.operation !== "idle")
+                                      : null,
+                                  ],
+                                )
+                              : null,
+                            confirmation.kind === "create"
+                              ? h.div(
+                                  [h.Class("dialog-form")],
+                                  [
+                                    Input.view(
+                                      {
+                                        id: "library-collection-name",
+                                        value: Redacted.value(model.name),
+                                        isDisabled: disabled,
+                                        onInput: (name) => Message.ChangedCollectionName({ name: Redacted.make(name) }),
+                                        toView: (attributes) =>
+                                          h.div([], [h.label([...attributes.label], ["New collection name"]), h.input([...attributes.input])]),
+                                      },
+                                      h,
+                                    ),
+                                    button(
+                                      h,
+                                      "Create empty collection",
+                                      Message.RequestedCreateCollection(),
+                                      disabled || Redacted.value(model.name).trim().length === 0,
+                                    ),
+                                  ],
+                                )
+                              : null,
+                            confirmation.kind === "manage"
+                              ? h.div(
+                                  [h.Class("dialog-form")],
+                                  [
+                                    button(
+                                      h,
+                                      `Reconnect ${confirmation.entry.name}`,
+                                      Message.RequestedReconnect({ identifier: confirmation.entry.identifier }),
+                                      disabled,
+                                    ),
+                                    collection.identifier === 0
+                                      ? null
+                                      : button(
+                                          h,
+                                          `Remove ${confirmation.entry.name} from collection`,
+                                          Message.RequestedRemoveMember({ identifier: confirmation.entry.identifier }),
+                                          disabled,
+                                        ),
+                                    button(
+                                      h,
+                                      `Forget ${confirmation.entry.name}`,
+                                      Message.RequestedForgetFile({ identifier: confirmation.entry.identifier }),
+                                      disabled,
+                                    ),
+                                  ],
+                                )
+                              : null,
+                            confirmation.kind !== "add" && confirmation.kind !== "create" && confirmation.kind !== "manage"
+                              ? button(
+                                  h,
+                                  confirmation.kind === "review" ? "Approve and share current versions" : actionLabel,
+                                  Message.ConfirmedAction(),
+                                  model.operation !== "idle" || (confirmation.kind === "review" && inputs.sharingDisabled),
+                                )
+                              : null,
                             h.button([...render.closeButton], ["Cancel"]),
                           ],
                         ),

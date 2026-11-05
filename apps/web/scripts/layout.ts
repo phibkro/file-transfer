@@ -14,6 +14,7 @@ const head = `<meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta http-equiv="Content-Security-Policy" content="${contentSecurityPolicy}" />
     <meta name="referrer" content="no-referrer" />
+    <link rel="icon" href="/mark.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/src/style.css" />`
 
 const render = (view: (h: HtmlBuilder<never>) => Html): string =>

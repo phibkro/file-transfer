@@ -8,6 +8,7 @@ import { defineView } from "foldkit/submodel"
 import { transferSummary } from "../report.ts"
 import { directText, edgeLocation, megabytesPerSecond, pathText, reportText } from "../summary.ts"
 import { formatSize } from "../view.ts"
+import { icon } from "./icon.ts"
 
 const Summary = Schema.Struct({
   bytes: Schema.Finite,
@@ -97,7 +98,13 @@ export const view = defineView<Model, Message>((model, h) => {
         [],
         rows.flatMap(([term, value]) => [h.dt([], [term ?? ""]), h.dd([], [value ?? ""])]),
       ),
-      Button.view({ onClick: Message.ClickedCopy(), toView: (a) => h.button(a.button, [model.copied ? "Copied" : "Copy report"]) }, h),
+      Button.view(
+        {
+          onClick: Message.ClickedCopy(),
+          toView: (a) => h.button([...a.button, h.Class("button")], [icon(h, "copy"), model.copied ? "Copied" : "Copy report"]),
+        },
+        h,
+      ),
       h.p([h.Role("status")], [model.status]),
     ],
   )

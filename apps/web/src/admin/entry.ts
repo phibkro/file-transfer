@@ -5,7 +5,7 @@ const application = Runtime.makeApplication({
   Model,
   init: boot,
   update,
-  view: (model, h) => ({ title: "Operator · File transfer", body: view(model, h) }),
+  view: (model, h) => ({ title: "Operator · Pocketdrop", body: view(model, h) }),
   container: document.querySelector("#admin"),
   devTools: { Message },
 })

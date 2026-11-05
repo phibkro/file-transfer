@@ -60,12 +60,12 @@ export const view = defineView<Model, Message, Context>((model, context, h) => {
     return h.span(
       [h.Class("name-field")],
       [
-        h.span([h.Class("name")], [name]),
+        h.span([h.Class("name file-name")], [name]),
         Button.view(
           {
             isDisabled: !context.canRename,
             onClick: Message.Started(),
-            toView: (attributes) => h.button([...attributes.button, h.Class("rename"), h.AriaLabel(`Rename ${name}`)], ["Rename"]),
+            toView: (attributes) => h.button([...attributes.button, h.Class("rename button"), h.AriaLabel(`Rename ${name}`)], ["Rename"]),
           },
           h,
         ),
@@ -94,8 +94,8 @@ export const view = defineView<Model, Message, Context>((model, context, h) => {
         },
         h,
       ),
-      h.button([h.Type("submit")], ["Save"]),
-      Button.view({ onClick: Message.Cancelled(), toView: (attributes) => h.button(attributes.button, ["Cancel"]) }, h),
+      h.button([h.Type("submit"), h.Class("button primary")], ["Save"]),
+      Button.view({ onClick: Message.Cancelled(), toView: (attributes) => h.button([...attributes.button, h.Class("button")], ["Cancel"]) }, h),
       Option.isSome(model.problem) ? h.p([h.Class("rename-problem"), h.Role("alert")], [`This name cannot be used: ${model.problem.value}.`]) : null,
     ],
   )

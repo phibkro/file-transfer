@@ -291,7 +291,17 @@ const catalog = async (page: Page) =>
 
 /** Playwright supplies the bytes; the DOM file-input boundary supplies a deterministic timestamp. */
 const chooseLibraryFile = async (page: Page, file: ReturnType<typeof makeFiles>[number]) => {
-  const input = page.locator("label.drop-zone input[type=file]")
+  const input = page.locator("dialog.library-dialog label.drop-zone input[type=file]")
+
+  if ((await input.count()) === 0) {
+    await page.getByRole("button", { name: "Add to catalog", exact: true }).click()
+  }
+
+  await page.waitForFunction(() => {
+    const picker = document.querySelector("dialog.library-dialog label.drop-zone input[type=file]")
+
+    return picker instanceof HTMLInputElement && !picker.disabled
+  })
   await input.evaluate(
     (element, payload) => {
       if (!(element instanceof HTMLInputElement)) {
@@ -347,9 +357,10 @@ try {
     await capture(sender, "01-library-default")
     await sender.getByRole("switch", { name: "Remember files on this device" }).click()
     await sender.getByText("Remembering is enabled", { exact: false }).waitFor()
+    await sender.getByRole("button", { name: "New collection", exact: true }).click()
     await sender.getByLabel("New collection name").fill("Verification collection")
     await sender.getByRole("button", { name: "Create empty collection" }).click()
-    await sender.getByRole("option", { name: "Verification collection (0)" }).waitFor({ state: "attached" })
+    await sender.getByRole("button", { name: "Verification collection (0)" }).waitFor({ state: "attached" })
     const empty = await catalog(sender)
     step(
       "create an empty collection",
@@ -363,10 +374,15 @@ try {
     await sender.getByRole("checkbox", { name: control.name }).waitFor()
     const indexed = await catalog(sender)
     step("index originals", "two metadata entries, no stored file bytes", indexed.files.length === 2 && indexed.blobs === 0)
+    await sender.getByLabel("Find a file", { exact: true }).fill(original.name)
+    await sender.getByRole("checkbox", { name: control.name }).waitFor({ state: "hidden" })
+    step("search indexed files", "search filters the catalog locally", await sender.getByRole("checkbox", { name: original.name }).isVisible())
+    await sender.getByLabel("Find a file", { exact: true }).fill("")
+    await sender.getByRole("checkbox", { name: control.name }).waitFor()
     await sender.getByRole("checkbox", { name: original.name }).click()
     await sender.getByRole("button", { name: "Add selected to Verification collection" }).click()
-    await sender.getByRole("option", { name: "Verification collection (1)" }).waitFor({ state: "attached" })
-    await sender.getByLabel("Collection", { exact: true }).selectOption({ label: "Verification collection (1)" })
+    await sender.getByRole("button", { name: "Verification collection (1)" }).waitFor({ state: "attached" })
+    await sender.getByRole("button", { name: "Verification collection (1)", exact: true }).click()
     await sender.getByRole("heading", { name: "Verification collection" }).waitFor()
     const withMember = await catalog(sender)
     step("add a collection member", "collection has the indexed file", withMember.collections[0]?.fileIdentifiers.length === 1)
@@ -377,6 +393,19 @@ try {
       await sender.getByRole("heading", { name: "Quick Share" }).waitFor()
       const state = await waitForStatus(sender, ["waiting-for-recipient", "failed"])
       step("seal collection share", `sender ${state}`, state === "waiting-for-recipient")
+      const documentStartedAt = await sender.evaluate(() => performance.timeOrigin)
+      const navigation = sender.getByRole("navigation", { name: "Main navigation" })
+      await navigation.getByRole("link", { name: "Library", exact: true }).click()
+      await sender.getByRole("link", { name: "Pocketdrop home", exact: true }).click()
+      await sender.goBack()
+      await sender.waitForFunction(() => document.querySelector('header nav a[href="#library"]')?.getAttribute("aria-current") === "location")
+      await sender.goForward()
+      await sender.waitForFunction(() => document.querySelector('header nav a[href="#quick"]')?.getAttribute("aria-current") === "location")
+      step(
+        "navigate while sharing",
+        "section, brand and history navigation retain the live sender",
+        (await status(sender)) === "waiting-for-recipient" && (await sender.evaluate(() => performance.timeOrigin)) === documentStartedAt,
+      )
       const link = await revealLink(sender)
       await hideLink(sender)
       await recipient.goto(link)
@@ -392,8 +421,8 @@ try {
     await share(original, "original-")
     const baseline = await catalog(sender)
     await sender.goto(`${origin}/library`)
-    await sender.getByRole("option", { name: "Verification collection (1)" }).waitFor({ state: "attached" })
-    await sender.getByLabel("Collection", { exact: true }).selectOption({ label: "Verification collection (1)" })
+    await sender.getByRole("button", { name: "Verification collection (1)" }).waitFor({ state: "attached" })
+    await sender.getByRole("button", { name: "Verification collection (1)", exact: true }).click()
     const roomRequests = sent.filter((entry) => entry.page === "sender" && entry.kind === "url" && entry.text.includes("/api/rooms")).length
     await sender.getByRole("button", { name: "Review collection before sharing" }).click()
     await sender.getByText("Could not complete this local operation", { exact: false }).waitFor()
@@ -403,12 +432,13 @@ try {
       "review failed before creating a room",
       roomRequestsAfter === roomRequests && (await sender.getByRole("heading", { name: "Library" }).isVisible()),
     )
-    await sender.getByRole("button", { name: "Reconnect original" }).click()
+    await sender.getByRole("button", { name: `Manage ${original.name}`, exact: true }).click()
+    await sender.getByRole("button", { name: `Reconnect ${original.name}`, exact: true }).click()
     await sender.getByText("Choose the original to reconnect").waitFor()
     await chooseLibraryFile(sender, modified)
     await sender.getByRole("button", { name: "Confirm replacement reference" }).click()
     await sender.getByText("Library updated on this device only.").waitFor()
-    await sender.getByLabel("Collection", { exact: true }).selectOption({ label: "Verification collection (1)" })
+    await sender.getByRole("button", { name: "Verification collection (1)", exact: true }).click()
     await sender.getByRole("heading", { name: "Verification collection" }).waitFor()
     await sender.getByRole("button", { name: "Review collection before sharing" }).click()
     await sender.getByText("Changed since indexing or last approval").waitFor()
@@ -461,7 +491,10 @@ try {
     ])
 
     const link = await offer(sender, files)
-    await recipient.goto(link)
+    await recipient.goto(`${origin}/`)
+    await recipient.getByRole("tab", { name: "Receive", exact: true }).click()
+    await recipient.getByLabel("Transfer link", { exact: true }).fill(link)
+    await recipient.getByRole("button", { name: "Open link", exact: true }).click()
     const reviewing = await waitForStatus(recipient, ["reviewing", "failed"])
     await capture(recipient, "02-recipient-reviewing")
     step("open the link", `recipient status ${reviewing}`, reviewing === "reviewing")

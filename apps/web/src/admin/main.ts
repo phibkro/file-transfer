@@ -236,7 +236,7 @@ export const view = defineView<Model, Message>((model, h) => {
         ? []
         : [
             h.section(
-              [h.AriaLabelledBy("settings-heading")],
+              [h.Class("panel"), h.AriaLabelledBy("settings-heading")],
               [
                 h.h2([h.Id("settings-heading")], ["Settings"]),
                 facts(h, [
@@ -254,7 +254,7 @@ export const view = defineView<Model, Message>((model, h) => {
             ),
           ]),
       h.form(
-        [h.Class("admin-token"), h.OnSubmit(Message.RequestedCounts())],
+        [h.Class("admin-token panel"), h.OnSubmit(Message.RequestedCounts())],
         [
           Fieldset.view(
             {
@@ -273,8 +273,8 @@ export const view = defineView<Model, Message>((model, h) => {
                     },
                     h,
                   ),
-                  Button.view({ type: "submit", toView: (button) => h.button([...button.button, h.Class("primary")], ["Show counts"]) }, h),
-                  Button.view({ onClick: Message.RequestedForget(), toView: (button) => h.button(button.button, ["Forget token"]) }, h),
+                  Button.view({ type: "submit", toView: (button) => h.button([...button.button, h.Class("button primary")], ["Show counts"]) }, h),
+                  Button.view({ onClick: Message.RequestedForget(), toView: (button) => h.button([...button.button, h.Class("button")], ["Forget token"]) }, h),
                 ]),
             },
             h,
@@ -286,7 +286,7 @@ export const view = defineView<Model, Message>((model, h) => {
         ? []
         : [
             h.section(
-              [h.AriaLabelledBy("counts-heading")],
+              [h.Class("panel"), h.AriaLabelledBy("counts-heading")],
               [
                 h.h2([h.Id("counts-heading")], ["Counts"]),
                 facts(h, [

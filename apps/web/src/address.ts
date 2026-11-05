@@ -21,3 +21,20 @@ export const pagePath = (): string => location.pathname
 
 /** The fragment, link secret included. The recipient reads it once, to decode the secret; nothing else may. */
 export const linkFragment = (): string => location.hash
+
+/** Workspace navigation exposes only the two public section anchors. */
+export const workspaceAnchor = (): "quick" | "library" | undefined => {
+  switch (location.hash) {
+    case "#quick": {
+      return "quick"
+    }
+
+    case "#library": {
+      return "library"
+    }
+
+    default: {
+      return undefined
+    }
+  }
+}

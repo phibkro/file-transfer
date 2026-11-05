@@ -11,6 +11,7 @@ import * as Preview from "../preview/main.ts"
 import { ownDownloads } from "./downloads.ts"
 import { publishReport } from "../report.ts"
 import { offerRemoval } from "../storagePanel.ts"
+import { icon } from "../ui/icon.ts"
 
 interface Requirements {
   readonly roomIdentifier: string
@@ -306,13 +307,20 @@ export const view = Submodel.defineView<Model, Message>((model, h) => {
   const snapshot = Option.isSome(model.snapshot) ? Redacted.value(model.snapshot.value) : undefined
   const files = snapshot?.files ?? []
 
-  const button = (label: string, message: Message, disabled = false) =>
-    Button.view({ onClick: message, isDisabled: disabled, toView: (attributes) => h.button(attributes.button, [label]) }, h)
+  const button = (label: string, message: Message, disabled = false, primary = false) =>
+    Button.view(
+      {
+        onClick: message,
+        isDisabled: disabled,
+        toView: (attributes) => h.button([...attributes.button, h.Class(primary ? "button primary" : "button")], [label]),
+      },
+      h,
+    )
 
   return h.section(
-    [h.Attribute("aria-labelledby", "receive-heading")],
+    [h.Class("recipient-panel panel"), h.Attribute("aria-labelledby", "receive-heading")],
     [
-      h.h1([h.Id("receive-heading")], ["Receive files"]),
+      h.div([h.Class("heading")], [h.span([h.Class("section-icon")], [icon(h, "receive")]), h.h1([h.Id("receive-heading")], ["Receive files"])]),
       h.p([h.Class("status"), h.Role("status")], [snapshot?.statusText ?? "Connecting."]),
       h.p([h.Class("save-all-status"), h.Role("status")], [model.saveStatus]),
       h.ul(
@@ -321,8 +329,9 @@ export const view = Submodel.defineView<Model, Message>((model, h) => {
           const name = model.names[index]
 
           return h.li(
-            [],
+            [h.Class("row")],
             [
+              h.span([h.Class("file-icon")], [icon(h, "file")]),
               ...(name === undefined
                 ? []
                 : [
@@ -347,7 +356,7 @@ export const view = Submodel.defineView<Model, Message>((model, h) => {
                       [
                         h.Href(file.url),
                         h.Attribute("download", file.name.split("/").join("_")),
-                        h.Class("save"),
+                        h.Class("save button"),
                         h.Attribute("aria-label", `Save ${file.name}`),
                         h.OnClick(Message.RequestedSave({ index })),
                       ],
@@ -392,6 +401,7 @@ export const view = Submodel.defineView<Model, Message>((model, h) => {
                   snapshot.mobileWarning ? `Accept and download ${formatSize(snapshot.totalBytes)} on mobile data` : "Accept",
                   Message.RequestedAccept(),
                   snapshot.spaceChecking || snapshot.spaceShortfall !== undefined,
+                  true,
                 ),
                 button("Decline", Message.RequestedDecline()),
               ],

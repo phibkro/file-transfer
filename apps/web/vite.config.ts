@@ -5,11 +5,12 @@
  * page's sandbox, CORS for the preview frame's scripts).
  */
 import { foldkit } from "@foldkit/vite-plugin"
+import tailwindcss from "@tailwindcss/vite"
 import { defineConfig } from "vite-plus"
 import { layout } from "./scripts/layout.ts"
 
 export default defineConfig({
-  plugins: [layout(), foldkit()],
+  plugins: [layout(), tailwindcss(), foldkit()],
   server: {
     proxy: {
       "/api": { target: "http://127.0.0.1:8787", ws: true },

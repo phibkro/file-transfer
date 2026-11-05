@@ -1,7 +1,8 @@
 import { Effect } from "effect"
 import { describe, expect, it } from "vite-plus/test"
-import { deriveMyFiles, indexCatalogFiles, reviewCatalogFiles } from "../src/localLibrary.ts"
-import type { IndexedVersion, LibrarySnapshot } from "../src/localLibrary.ts"
+import { deriveMyFiles } from "@file-transfer/catalog"
+import type { IndexedVersion, LibrarySnapshot } from "@file-transfer/catalog"
+import { indexCatalogFiles, inspectCatalogSource, reviewCatalogFiles } from "../src/localLibrary.ts"
 
 const storedFile = (entry: IndexedVersion, identifier = 1) => ({ ...entry, identifier, revision: 3 })
 
@@ -23,16 +24,17 @@ const first = <A>(values: readonly A[]): A => {
 }
 
 // A foreign handle fixture exposes the full ABI without claiming decoded data.
-const readableHandle = (getFile: () => Promise<File>, permission: PermissionState = "granted"): FileSystemFileHandle => ({
-  kind: "file",
-  name: "fixture",
-  getFile,
-  requestPermission: async () => permission,
-  isSameEntry: async () => false,
-  createWritable: async () => {
-    throw new DOMException("Read-only fixture", "NotAllowedError")
-  },
-})
+const readableHandle = (getFile: () => Promise<File>, permission: PermissionState = "granted") =>
+  ({
+    kind: "file",
+    name: "fixture",
+    getFile,
+    requestPermission: async () => permission,
+    isSameEntry: async () => false,
+    createWritable: async () => {
+      throw new DOMException("Read-only fixture", "NotAllowedError")
+    },
+  }) satisfies FileSystemFileHandle
 
 const inspect = async (files: readonly File[]) => await Effect.runPromise(indexCatalogFiles(files))
 
@@ -66,45 +68,51 @@ describe("local Library file capabilities", () => {
     expect(entry.fingerprint).toBe("v1:6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d")
   })
 
-  it("detects changed bytes even when name, size and modification time are identical", async () => {
+  it("fingerprints changed bytes even when name, size and modification time are identical", async () => {
     const options = { lastModified: 123 }
     const original = first(await inspect([new File(["first"], "same.txt", options)]))
-    const replacement = new File(["other"], "same.txt", options)
-    const handle = readableHandle(async () => replacement)
-    const reviewed = first(await Effect.runPromise(reviewCatalogFiles([storedFile({ ...original, handle })])))
-    expect(reviewed.changed).toBe(true)
-    expect(reviewed.current.fingerprint).not.toBe(original.fingerprint)
-    expect(reviewed.file).toBe(replacement)
+    const replacement = first(await inspect([new File(["other"], "same.txt", options)]))
+    expect(replacement).toMatchObject({ name: "same.txt", size: 5, lastModified: 123 })
+    expect(replacement.fingerprint).not.toBe(original.fingerprint)
   })
 
-  it("rechecks durable handles instead of using an older captured File", async () => {
-    const original = first(await inspect([new File(["old"], "old.txt", { lastModified: 1 })]))
-    const current = new File(["newer"], "new.txt", { lastModified: 2 })
+  it("does not include the file name or modification time in the content fingerprint", async () => {
+    const original = first(await inspect([new File(["same bytes"], "old.txt", { lastModified: 1 })]))
+    const renamed = first(await inspect([new File(["same bytes"], "new.txt", { lastModified: 2 })]))
+    expect(renamed).toMatchObject({ name: "new.txt", size: 10, lastModified: 2 })
+    expect(renamed.fingerprint).toBe(original.fingerprint)
+  })
+
+  it("does not read candidate bytes when indexing is constructed and discarded", () => {
     let reads = 0
 
-    const handle = readableHandle(async () => {
-      reads++
+    class ObservedFile extends File {
+      override slice(start?: number, end?: number, contentType?: string): Blob {
+        reads++
 
-      return current
-    })
+        return super.slice(start, end, contentType)
+      }
+    }
 
-    const reviewed = first(await Effect.runPromise(reviewCatalogFiles([storedFile({ ...original, handle })])))
-    expect(reads).toBe(1)
-    expect(reviewed.changed).toBe(true)
-    expect(reviewed.current).toMatchObject({ name: "new.txt", size: 5, lastModified: 2, handle })
-    expect(reviewed.file).toBe(current)
+    const indexing = indexCatalogFiles([new ObservedFile(["private"], "private.txt", { lastModified: 1 })])
+    expect(indexing).toBeDefined()
+    expect(reads).toBe(0)
   })
 
-  it("reviews a captured snapshot without claiming it observes later filesystem edits", async () => {
-    const file = new File(["snapshot"], "draft.txt", { lastModified: 5 })
-    const entry = first(await inspect([file]))
-    const previous = storedFile(entry)
-    const reviewed = first(await Effect.runPromise(reviewCatalogFiles([previous])))
-    expect(reviewed.changed).toBe(false)
-    expect(reviewed.previous).toBe(previous)
-    expect(reviewed.file).toBe(file)
-    expect(reviewed.current.file).toBe(file)
-    expect(reviewed.current.handle).toBeUndefined()
+  it("preserves a foreign candidate read failure", async () => {
+    const cause = new DOMException("The selected file is no longer readable", "NotReadableError")
+
+    class UnreadableFile extends File {
+      readonly failure = cause
+
+      override slice(): Blob {
+        throw this.failure
+      }
+    }
+
+    const error = await Effect.runPromise(Effect.flip(indexCatalogFiles([new UnreadableFile(["private"], "private.txt", { lastModified: 1 })])))
+    expect(error._tag).toBe("LibraryStorageError")
+    expect(error.cause).toBe(cause)
   })
 
   it("requires reselection after reload leaves metadata without a handle or File", async () => {
@@ -117,58 +125,140 @@ describe("local Library file capabilities", () => {
     expect(error.cause).toMatchObject({ name: "NotFoundError" })
   })
 
-  it("reviews a reselected File against the old fingerprint and preserves the reviewed revision", async () => {
-    const original = first(await inspect([new File(["before"], "draft.txt", { lastModified: 1 })]))
-    const reselectedFile = new File(["after!"], "draft.txt", { lastModified: 1 })
-    const reselected = first(await inspect([reselectedFile]))
-    const previous = storedFile({ ...original, file: reselectedFile })
-    const reviewed = first(await Effect.runPromise(reviewCatalogFiles([previous])))
-    expect(reviewed.changed).toBe(true)
-    expect(reviewed.previous.identifier).toBe(1)
-    expect(reviewed.previous.revision).toBe(3)
-    expect(reviewed.current.fingerprint).toBe(reselected.fingerprint)
+  it("reviews an empty selection without acquiring source capabilities", async () => {
+    expect(await Effect.runPromise(reviewCatalogFiles([]))).toEqual([])
   })
 
-  it("does not read or substitute a captured File when durable permission is denied", async () => {
-    const original = first(await inspect([new File(["private"], "private.txt", { lastModified: 1 })]))
+  it("does not resolve a missing source when review is constructed and discarded", () => {
+    const review = reviewCatalogFiles([storedFile({ name: "empty", size: 0, lastModified: 0, fingerprint: "v1:fixture" })])
+    expect(review).toBeDefined()
+  })
+})
+
+describe("local Library browser source inspection", () => {
+  it("returns the actual captured File without claiming to observe later filesystem edits", async () => {
+    const file = new File(["snapshot"], "draft.txt", { lastModified: 5 })
+    const indexed = first(await inspect([file]))
+    const inspected = await Effect.runPromise(inspectCatalogSource({ file }))
+    expect(inspected.file).toBe(file)
+    expect(inspected.current).toMatchObject({ name: "draft.txt", size: 8, lastModified: 5, fingerprint: indexed.fingerprint })
+    expect(inspected.current.file).toBe(file)
+    expect(inspected.current.handle).toBeUndefined()
+  })
+
+  it("rechecks durable handles instead of using an older captured File", async () => {
+    const stale = new File(["old"], "old.txt", { lastModified: 1 })
+    const current = new File(["newer"], "new.txt", { lastModified: 2 })
     let reads = 0
+    const permissions: { mode: "read" }[] = []
+
+    const handle: FileSystemFileHandle = {
+      ...readableHandle(async () => {
+        reads++
+
+        return current
+      }),
+      requestPermission: async (options) => {
+        permissions.push(options)
+
+        return "granted"
+      },
+    }
+
+    const inspected = await Effect.runPromise(inspectCatalogSource({ file: stale, handle }))
+    expect(permissions).toEqual([{ mode: "read" }])
+    expect(reads).toBe(1)
+    expect(inspected.current).toMatchObject({ name: "new.txt", size: 5, lastModified: 2, handle })
+    expect(inspected.file).toBe(current)
+  })
+
+  it("fingerprints the newly read durable bytes even when metadata is unchanged", async () => {
+    const original = new File(["first"], "same.txt", { lastModified: 123 })
+    const originalVersion = first(await inspect([original]))
+    const replacement = new File(["other"], "same.txt", { lastModified: 123 })
+    const inspected = await Effect.runPromise(inspectCatalogSource({ file: original, handle: readableHandle(async () => replacement) }))
+    expect(inspected.current).toMatchObject({ name: "same.txt", size: 5, lastModified: 123 })
+    expect(inspected.current.fingerprint).not.toBe(originalVersion.fingerprint)
+    expect(inspected.file).toBe(replacement)
+  })
+
+  it.each(["denied", "prompt"] as const)("does not read or substitute a captured File when durable permission is %s", async (permission) => {
+    let reads = 0
+    const file = new File(["private"], "private.txt", { lastModified: 1 })
 
     const handle = readableHandle(async () => {
       reads++
 
-      return new File(["must not read"], "private.txt")
-    }, "denied")
+      return new File(["must not read"], "private.txt", { lastModified: 1 })
+    }, permission)
 
-    const error = await Effect.runPromise(Effect.flip(reviewCatalogFiles([storedFile({ ...original, handle })])))
+    const error = await Effect.runPromise(Effect.flip(inspectCatalogSource({ file, handle })))
     expect(reads).toBe(0)
     expect(error._tag).toBe("LibraryStorageError")
+    expect(error.cause).toBeInstanceOf(DOMException)
     expect(error.cause).toMatchObject({ name: "NotAllowedError" })
   })
 
-  it("preserves foreign read failures instead of silently sharing a stale snapshot", async () => {
-    const original = first(await inspect([new File(["old"], "draft.txt", { lastModified: 1 })]))
+  it("preserves foreign read failures instead of silently returning a stale snapshot", async () => {
+    const file = new File(["old"], "draft.txt", { lastModified: 1 })
     const cause = new DOMException("The original file was removed", "NotFoundError")
 
     const handle = readableHandle(async () => {
       throw cause
     })
 
-    const error = await Effect.runPromise(Effect.flip(reviewCatalogFiles([storedFile({ ...original, handle })])))
+    const error = await Effect.runPromise(Effect.flip(inspectCatalogSource({ file, handle })))
     expect(error._tag).toBe("LibraryStorageError")
     expect(error.cause).toBe(cause)
   })
 
-  it("does not acquire file bytes or permissions when review is constructed and discarded", () => {
+  it("preserves permission request failures without reading a durable handle", async () => {
     let reads = 0
+    const cause = new DOMException("Permission request failed", "SecurityError")
 
-    const handle = readableHandle(async () => {
-      reads++
+    const handle: FileSystemFileHandle = {
+      ...readableHandle(async () => {
+        reads++
 
-      return new File([], "empty")
-    })
+        return new File([], "empty", { lastModified: 0 })
+      }),
+      requestPermission: async () => {
+        throw cause
+      },
+    }
 
-    const review = reviewCatalogFiles([storedFile({ name: "empty", size: 0, lastModified: 0, fingerprint: "v1:fixture", handle })])
-    expect(review).toBeDefined()
+    const error = await Effect.runPromise(Effect.flip(inspectCatalogSource({ handle })))
     expect(reads).toBe(0)
+    expect(error._tag).toBe("LibraryStorageError")
+    expect(error.cause).toBe(cause)
+  })
+
+  it("requires reselection when neither a durable handle nor a captured File exists", async () => {
+    const error = await Effect.runPromise(Effect.flip(inspectCatalogSource({})))
+    expect(error._tag).toBe("LibraryStorageError")
+    expect(error.cause).toMatchObject({ name: "NotFoundError" })
+  })
+
+  it("does not acquire bytes or permissions when source inspection is constructed and discarded", () => {
+    let reads = 0
+    let permissions = 0
+
+    const handle: FileSystemFileHandle = {
+      ...readableHandle(async () => {
+        reads++
+
+        return new File([], "empty", { lastModified: 0 })
+      }),
+      requestPermission: async () => {
+        permissions++
+
+        return "granted"
+      },
+    }
+
+    const inspection = inspectCatalogSource({ handle })
+    expect(inspection).toBeDefined()
+    expect(reads).toBe(0)
+    expect(permissions).toBe(0)
   })
 })
