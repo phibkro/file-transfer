@@ -34,7 +34,7 @@ const sections: readonly Section[] = [
   section("services/room", "the `room/follows-machine` guarantee of the room's conformance suite, every cell.", roomMachine),
   section("services/relay", "the `relay/follows-machine` guarantee of the relay's conformance suite, every cell.", relaySessionMachine),
   section(
-    "apps/web/src/recipientPhase.ts",
+    "apps/web/src/features/receive/phase.ts",
     "`apps/web/test/recipientPhase.test.ts` (that the table is well formed, every command in a terminal phase, and the cells spike 0006 found broken) and the browser suite's life-cycle checks (`apps/web/scripts/endToEnd.ts`), which drive the app through those cells. It is not a service, so no conformance suite checks every cell.",
     recipientMachine,
   ),

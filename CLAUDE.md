@@ -27,7 +27,7 @@ Platforms are isomorphic: `cloudflare` and `self-hosted` provide a Layer for the
 
 - TypeScript 7, strict mode, ES modules, Bun workspaces, Vite+ (`vp`) for formatting, linting, type checking, tests and builds (docs/decisions/0010). Effect 4 for services, layers, streams and errors.
 - Names use full words: `RoomIdentifier`, not `RoomId`; `createRoom`, not `mkRoom`. Abbreviations only when unambiguous and universal (`url`, `http`, `id` inside compound protocol field names defined in `docs/parcel.md`).
-- Errors are typed (`Data.TaggedError`), never thrown strings. Code the browser loads returns plain data instead (`Decoded<T>`) and never imports Effect (ADR 0020).
+- Errors are typed (`Data.TaggedError`), never thrown strings. Portable browser wire code returns plain data (`Decoded<T>`) and uses Valibot (ADR 0020). Foldkit UI and its browser capability boundaries use Effect 4.1 and Schema-backed Models/Messages (ADR 0026); wire contracts are not duplicated in UI Schemas.
 - Wire contracts are Valibot schemas exposed as Standard Schema, defined once and decoded at the boundary (ADR 0020).
 - Services and libraries take capabilities (`Clock`, `SecureRandom`, project services) from the environment; never reach for `crypto`, `Date`, `console` or runtime modules directly. `effx check` enforces this per file role, declared in `effx.config.json`.
 - Life cycles are transition tables from `libraries/machine` (docs/decisions/0008).

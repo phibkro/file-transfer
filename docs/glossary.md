@@ -60,14 +60,21 @@ One meaning per term, used the same way in code, docs and conversation. Code nam
 | Save tier     | How the browser writes to disk: file picker, service worker download, or OPFS.                                                                                                                                                                                                                                                                                                                 | `SaveTier`                                                  |
 | Resume        | Continuing an interrupted transfer from data record `i` of the same contract; both sides check records against their labels.                                                                                                                                                                                                                                                                   | `ResumeBitmap`                                              |
 
+## Catalogs and the Library
+
+| Term             | Meaning                                                                                                                                                                                           | In code                         |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| Catalog          | The owner's index of files or assets and their collections. A local catalog contains device-only metadata and source references. A future remote catalog must remain encrypted outside endpoints. | `libraries/catalog`             |
+| Library          | The owner's view of a catalog, grouped by storage location. Local indexing and remote storage have distinct capabilities.                                                                         | `apps/web/src/features/library` |
+| Indexed file     | A catalog entry that identifies an original file without copying its bytes. Its approved version is the baseline for future share reviews.                                                        | `LibraryEntry`                  |
+| Source reference | An opaque string that a source adapter resolves to a file capability. It contains no file bytes.                                                                                                  | `IndexedVersion.source`         |
+
 ## Proposed for durable storage (ADR 0014, not yet in code)
 
 | Term                         | Meaning                                                                                                                                                                     |
 | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Asset                        | A parcel kept in a store under an account, with a persistence policy and an access policy. The parcel bytes are unchanged; only authorised clients decrypt it.              |
 | Wrapped key                  | A copy of a parcel's link secret encrypted for one accessor (an account, a device, or a link). Wraps are independent: adding one never touches the parcel.                  |
-| Catalog                      | The owner's encrypted, versioned index of assets: names, folders, wrapped keys and policies. The store sees it only as ciphertext.                                          |
-| Library                      | What the owner sees: the catalog, decrypted on their device.                                                                                                                |
 | Keyring                      | The keys that let an owner's devices unwrap the catalog, itself wrapped under keys the server never sees.                                                                   |
 | Persistence policy           | How long a room or asset lives: ephemeral (until the transfer ends or the room idles out) or a chosen retention. Enforced by the store from dates and sizes.                |
 | Access policy                | Who may fetch and who can decrypt: claims, a maximum number of recipients, expiry, named accounts. Enforced by rooms and stores, and by who holds a wrapped key.            |
@@ -88,12 +95,12 @@ One meaning per term, used the same way in code, docs and conversation. Code nam
 
 ## Previews and names (ADR 0018)
 
-| Term          | Meaning                                                                                                                                              | In code                         |
-| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
-| Sealing       | What "Seal parcel and create link" does: label every record and seal the contract. Files and names are fixed from then on; a change is a new parcel. | `prepare`, `sealContract`       |
-| Save name     | The name a recipient saves a file under. Starts as the manifest's name; renaming it is local and changes nothing in the contract.                    | `saveNames` (`recipient.ts`)    |
-| Preview frame | The sandboxed frame, with an opaque origin, in which previews render. The app never renders file content on its own origin.                          | `preview.ts`, `previewFrame.ts` |
-| Sniffing      | Deciding a file's preview kind from its first bytes against an allowlist, never from its name or `mediaType`.                                        | `sniff`                         |
+| Term          | Meaning                                                                                                                                              | In code                                                       |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| Sealing       | What "Seal parcel and create link" does: label every record and seal the contract. Files and names are fixed from then on; a change is a new parcel. | `prepare`, `sealContract`                                     |
+| Save name     | The name a recipient saves a file under. Starts as the manifest's name; renaming it is local and changes nothing in the contract.                    | `saveNames` (`apps/web/src/features/receive/session.ts`)      |
+| Preview frame | The sandboxed frame, with an opaque origin, in which previews render. The app never renders file content on its own origin.                          | `apps/web/src/capabilities/preview/main.ts`, `frame/entry.ts` |
+| Sniffing      | Deciding a file's preview kind from its first bytes against an allowlist, never from its name or `mediaType`.                                        | `sniff`                                                       |
 
 ## Words we avoid
 

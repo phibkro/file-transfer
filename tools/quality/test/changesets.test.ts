@@ -72,7 +72,7 @@ describe("reviewChangesets", () => {
 
   it("requires every changed package to be named", () => {
     const review = reviewChangesets({
-      changedFiles: ["libraries/parcel/src/seal.ts", "apps/web/src/main.ts", "tools/quality/src/x.ts"],
+      changedFiles: ["libraries/parcel/src/seal.ts", "apps/web/src/app/main.ts", "tools/quality/src/x.ts"],
       addedChangesets: [changeset([{ name: "@file-transfer/web", bump: "patch" }])],
       packages,
       ignored,

@@ -14,7 +14,7 @@ A sender chooses files and seals them into a link; a recipient opens the link, s
 ## How to get to it (user POV)
 
 - Sender: open the site, choose files with the file picker, choose `Seal parcel and create link`, then `Show link` or `Show QR code` and share it.
-- Recipient: open the shared link, read the offer, choose `Accept`.
+- Recipient: open the workspace, choose `Receive`, paste a same-instance `Transfer link`, and choose `Open link`. Directly opening a shared link also works.
 
 ## Driving it with drive.ts
 
@@ -26,7 +26,7 @@ Preconditions:
 - **Choose files.** `drive.ts` sets `#files` to `verify-report.bin` (300 KB random) and `verify-notes.txt`. `.file-list li` lists 2 files.
 - **Seal.** Choose `Seal parcel and create link`. Sender status becomes `waiting-for-recipient` (screenshot `01-sender-waiting`).
 - **Reveal the link.** Choose `Show link`. `#link` holds a URL whose fragment is longer than 32 characters.
-- **Open the link.** The recipient opens it. Recipient status becomes `reviewing` and the page lists both files (`02-recipient-reviewing`).
+- **Open the link.** The recipient pastes the link through the workspace Receive form. Recipient status becomes `reviewing` and lists both files (`02-recipient-reviewing`).
 - **Accept.** Choose `Accept`. Both sides reach `complete`; the recipient page says "Every file arrived and matched what the sender promised." (`03-recipient-complete`, `04-sender-complete`).
 - **Compare.** `fileTransferTest.fileHashes()` equals the SHA-256 of each file the sender chose.
 - **Privacy.** `sent.json` lists every URL and frame both browsers sent; none contains the fragment or a file name.

@@ -14,9 +14,12 @@
     "test": "vp test run",
     "check:graph": "ox-dep-lint",
     "check:dependencies": "knip --treat-config-hints-as-errors",
-    "check:effect": "effx check",
+    "check:effect": "bun tools/quality/src/checkWebRoles.ts && effx check",
     "check:secrets": "gitleaks git --redact --config .gitleaks.toml",
-    "check": "vp check --deny-warnings && bun run check:graph && bun run check:dependencies && bun run check:effect && vp test run",
+    "check:pdf-resources": "bun apps/web/scripts/generatePdfResources.ts --check",
+    "check:routes": "bun apps/web/scripts/fileRoutesCheck.ts",
+    "generate:routes": "bun apps/web/scripts/fileRoutesCheck.ts --write",
+    "check": "vp check --deny-warnings && bun run check:graph && bun run check:dependencies && bun run check:effect && bun run check:pdf-resources && bun run check:routes && vp test run",
     "check:vectors": "python3 -I libraries/parcel/test/vectors/verify.py",
     "check:changesets": "bun tools/quality/src/checkChangesets.ts",
     "release:prepare": "bun tools/quality/src/prepareRelease.ts",
@@ -26,6 +29,7 @@
   "devDependencies": {
     "@changesets/cli": "3.0.3",
     "@effect/tsgo": "0.48.0",
+    "@foldkit/oxlint-plugin": "0.15.4",
     "@phibkro/oxlint-effect-plugin": "0.2.0",
     "@types/bun": "latest",
     "fast-check": "^4.0.0",
@@ -42,6 +46,7 @@
   },
   "patchedDependencies": {
     "@alchemy.run/cloudflare@2.0.0-beta.84": "patches/@alchemy.run%2Fcloudflare@2.0.0-beta.84.patch",
-    "alchemy@2.0.0-beta.84": "patches/alchemy@2.0.0-beta.84.patch"
+    "alchemy@2.0.0-beta.84": "patches/alchemy@2.0.0-beta.84.patch",
+    "@phibkro/oxlint-effect-plugin@0.2.0": "patches/@phibkro%2Foxlint-effect-plugin@0.2.0.patch"
   }
 }

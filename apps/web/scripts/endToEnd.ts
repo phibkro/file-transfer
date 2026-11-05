@@ -21,6 +21,7 @@
  * test-only endpoint. Exits non-zero on the first failed check.
  *
  * `E2E_BROWSER` picks chromium (default), firefox or webkit for both sides. `E2E_SUITE` picks what runs:
+ * `E2E_BROWSER_EXECUTABLE_PATH` selects an explicit installed browser binary; otherwise Playwright uses its bundled browser.
  *
  * - `standard` (default): the scenarios above;
  * - `latency`: 128 MB throughput through scripts/latencyProxy.ts at round trips of 0, 50, 150 and 300 ms (local only);
@@ -47,7 +48,7 @@ import { tmpdir } from "node:os"
 import nodePath from "node:path"
 import { decodeLinkSecret, deriveRoomToken, hashRoomToken } from "@file-transfer/parcel"
 import { chromium, firefox, webkit } from "playwright"
-import type { Browser, BrowserContext, LaunchOptions, Page, WebSocketRoute } from "playwright"
+import type { Browser, BrowserContext, LaunchOptions, Page, Route, WebSocketRoute } from "playwright"
 import { describePlan, faultPlan } from "./faultPlan.ts"
 import { blackhole, browserInHome, build as buildLab, hasNetem, impair, moveRouter, serverAddress, setNat, tearDown as tearDownLab } from "./networkLab.ts"
 import type { Impairment, LabSide, NatBehaviour } from "./networkLab.ts"
@@ -168,7 +169,11 @@ const browserTypes = new Map([
   ["webkit", webkit],
 ])
 
-const browserType = browserTypes.get(browserName) ?? chromium
+const browserType = browserTypes.get(browserName)
+
+if (browserType === undefined) {
+  throw new Error(`Unknown E2E_BROWSER ${browserName}; use chromium, firefox or webkit`)
+}
 
 /**
  * Two pages in one browser on one machine connect directly through their host candidates, which browsers hide behind
@@ -180,6 +185,11 @@ const launchOptionsByBrowser = new Map<string, LaunchOptions>([
 ])
 
 const launchOptions: LaunchOptions = launchOptionsByBrowser.get(browserName) ?? {}
+const browserExecutablePath = process.env.E2E_BROWSER_EXECUTABLE_PATH
+
+if (browserExecutablePath !== undefined) {
+  launchOptions.executablePath = browserExecutablePath
+}
 
 /**
  * WebKit sends data channel messages from a queue and, when a send fails there (the channel's transport went away under
@@ -252,7 +262,7 @@ const startLocalServer = async () => {
       // Everything the server prints goes to files the leak probe reads (serverKeptNoSecrets).
       "--log-level",
       "log",
-      // Counting on with a known admin token, so the operator page can be checked (src/admin.ts).
+      // Counting on with a known admin token, so the operator page can be checked (src/features/administration/main.ts).
       "--var",
       "COUNTERS:on",
       "--var",
@@ -410,7 +420,7 @@ const openPage = async (browser: Browser, routed = true, persistent = false, dir
   }
 
   if (!direct) {
-    // The setting a person turns off under "Direct connections" (apps/web/src/directSettings.ts).
+    // The setting a person turns off under "Direct connections" (apps/web/src/capabilities/connection/directSettings.ts).
     await context.addInitScript(() => {
       localStorage.setItem("file-transfer:direct-connections", "off")
     })
@@ -578,8 +588,41 @@ const cutSocket = async (observed: Observed, mode: "clean" | "half-open") => {
 const describe = async (label: string, page: Page, observed: Observed) =>
   `${label}: status ${await status(page)}, progress ${JSON.stringify(await page.evaluate(() => window.fileTransferTest?.progress()))}, failure ${await page.evaluate(() => window.fileTransferTest?.failure())}, sockets ${observed.sockets.length}`
 
+const waitForFileInput = async (page: Page) => {
+  await page.waitForFunction(
+    () => {
+      const input = document.querySelector<HTMLInputElement>("#files")
+
+      return input !== null && !input.disabled
+    },
+    undefined,
+    { timeout: timeoutMilliseconds },
+  )
+}
+
+const waitForFiles = async (page: Page, count: number) => {
+  await page.waitForFunction((wanted) => document.querySelectorAll(".file-list li").length === wanted, count, { timeout: timeoutMilliseconds })
+}
+
+const revealLink = async (page: Page) => {
+  await page.getByRole("button", { name: "Show link" }).click()
+  await page.waitForFunction(
+    () => {
+      const value = document.querySelector<HTMLInputElement>("#link")?.value ?? ""
+      const fragment = value.split("#")[1] ?? ""
+
+      return /^[A-Za-z0-9_-]{32,}$/u.test(fragment)
+    },
+    undefined,
+    { timeout: timeoutMilliseconds },
+  )
+
+  return await page.inputValue("#link")
+}
+
 const offer = async (sender: Page, base: string, files: readonly PayloadFile[]) => {
   await sender.goto(`${base}/`)
+  await waitForFileInput(sender)
   // Playwright takes in-memory files only up to 50 MB in total, so larger payloads go through a temporary directory.
   const total = files.reduce((sum, file) => sum + file.buffer.length, 0)
 
@@ -587,9 +630,11 @@ const offer = async (sender: Page, base: string, files: readonly PayloadFile[]) 
     // Two batches, so the check covers adding files after the first choice; all of them become one parcel.
     const split = Math.ceil(files.length / 2)
     await sender.setInputFiles("#files", files.slice(0, split))
+    await waitForFiles(sender, split)
 
     if (split < files.length) {
       await sender.setInputFiles("#files", files.slice(split))
+      await waitForFiles(sender, files.length)
     }
 
     const listed = await sender.locator(".file-list li").count()
@@ -604,6 +649,7 @@ const offer = async (sender: Page, base: string, files: readonly PayloadFile[]) 
       "#files",
       files.map((file) => nodePath.join(payloadDirectory, file.name)),
     )
+    await waitForFiles(sender, files.length)
   }
 
   await sender.getByRole("button", { name: "Seal parcel and create link" }).click()
@@ -614,29 +660,58 @@ const offer = async (sender: Page, base: string, files: readonly PayloadFile[]) 
     await sender.evaluate(() => window.fileTransferTest?.failure()),
   )
 
-  // The link and its QR code stay hidden until asked for (apps/web/src/share.ts).
-  const masked = await sender.inputValue("#link")
-  check(
-    masked.endsWith("•".repeat(12)) && !masked.includes("#A") && (await sender.locator("#share-qr svg").count()) === 0,
-    "the link and QR code are hidden by default",
-    masked,
-  )
-  await sender.getByRole("button", { name: "Show link" }).click()
-  const link = await sender.inputValue("#link")
-  check(new URL(link).hash.length > 32, "Show link reveals the full link")
+  // Capture the visible surface before revealing the link, then compare it with the real fragment.
+  await sender.getByRole("button", { name: "Show link" }).waitFor({ state: "visible" })
+
+  const initialVisible = await sender.evaluate(() => [
+    document.body.textContent ?? "",
+    ...Array.from(document.querySelectorAll<HTMLInputElement>("input"))
+      .filter((input) => input.getClientRects().length > 0 && getComputedStyle(input).visibility !== "hidden")
+      .map((input) => input.value),
+  ])
+
+  const qr = sender.getByRole("img", { name: "QR code of the share link" })
+  const qrInitiallyHidden = await qr.isHidden()
+  const link = await revealLink(sender)
+  const fragment = new URL(link).hash.slice(1)
+  check(fragment.length > 32, "Show link reveals the full link")
+  check(!initialVisible.some((text) => text.includes(fragment)) && qrInitiallyHidden, "the link and QR code are hidden by default")
   rememberOffer(link, files)
+  await sender.getByRole("button", { name: "Hide link" }).click()
+  await sender.getByRole("button", { name: "Show link" }).waitFor({ state: "visible" })
+  await sender.waitForFunction(
+    (secret) => {
+      const input = document.querySelector<HTMLInputElement>("#link")
+
+      return input === null || input.getClientRects().length === 0 || !input.value.includes(secret)
+    },
+    fragment,
+    { timeout: timeoutMilliseconds },
+  )
+
+  const hidden = await sender.evaluate((secret) => {
+    const visible = [
+      document.body.textContent ?? "",
+      ...Array.from(document.querySelectorAll<HTMLInputElement>("input"))
+        .filter((input) => input.getClientRects().length > 0 && getComputedStyle(input).visibility !== "hidden")
+        .map((input) => input.value),
+    ]
+
+    return !visible.some((text) => text.includes(secret))
+  }, fragment)
+
+  check(hidden, "Hide link removes the secret from visible UI")
   await sender.getByRole("button", { name: "Show QR code" }).click()
 
-  // The encoder loads on first use (src/share.ts), so the code appears a moment after the click.
-  const qrDrawn = await sender
-    .locator("#share-qr svg")
+  const qrDrawn = await qr
     .waitFor({ state: "visible", timeout: 10_000 })
     .then(() => true)
     .catch(() => false)
 
   check(qrDrawn, "Show QR code draws the QR code")
   await sender.getByRole("button", { name: "Hide QR code" }).click()
-  check(await sender.locator("#share-qr").isHidden(), "Hide QR code hides it again")
+  await qr.waitFor({ state: "hidden", timeout: 10_000 })
+  check(await qr.isHidden(), "Hide QR code hides it again")
 
   return link
 }
@@ -914,16 +989,40 @@ const storedTransfers = async (page: Page): Promise<readonly string[]> =>
  * on the next page load.
  */
 const checkStorageClearing = async (page: Page, base: string) => {
-  const heading = page.locator(".storage-panel summary")
-  const headingText = (await heading.textContent()) ?? ""
-  check(/Storage in this browser: \d/u.test(headingText), "storage: the panel shows the size of received files", headingText)
-  await heading.click()
+  // A second, locked transfer represents another tab still using its files.
+  await page.evaluate(async () => {
+    const root = await navigator.storage.getDirectory()
+    const transfers = await root.getDirectoryHandle("transfers", { create: true })
+    await transfers.getDirectoryHandle("active-check", { create: true })
+    await new Promise<void>((resolve) => {
+      void navigator.locks.request("file-transfer:transfer:active-check", async () => {
+        const release = Promise.withResolvers<undefined>()
+        window.releaseStorage = () => {
+          release.resolve(undefined)
+        }
+
+        resolve()
+        await release.promise
+      })
+    })
+  })
+  await page.getByRole("button", { name: "Settings", exact: true }).click()
+  await page.getByRole("tab", { name: "Storage in this browser" }).click()
+  const storageStatus = page.getByRole("status").filter({ hasText: "Received files stored here:" })
+  await storageStatus.waitFor({ state: "visible" })
+  const headingText = (await storageStatus.textContent()) ?? ""
+  check(/Received files stored here: \d/u.test(headingText), "storage: the panel shows the size of received files", headingText)
   await page.getByRole("button", { name: "Clear stored files" }).click()
   await page.getByRole("button", { name: "Delete", exact: true }).click()
-  await page.locator(".storage-text", { hasText: "No received files are stored here." }).waitFor({ timeout: 10_000 })
+  await page.getByRole("button", { name: "Clear stored files" }).waitFor({ state: "visible", timeout: 10_000 })
+  await page.getByRole("button", { name: "Remove from this browser" }).waitFor({ state: "hidden", timeout: 10_000 })
   const afterClear = await storedTransfers(page)
-  check(afterClear.length === 0, "storage: Clear deletes this page's received files", afterClear)
+  check(afterClear.length === 1 && afterClear[0] === "active-check", "storage: Clear deletes received files but preserves an active transfer", afterClear)
   check((await page.locator(".downloads a[href]").count()) === 0, "storage: after Clear the page no longer offers the deleted files")
+  await page.evaluate(async () => {
+    window.releaseStorage?.()
+    await navigator.locks.request("file-transfer:transfer:active-check", () => true)
+  })
 
   // As a crashed tab leaves an unfinished transfer behind: no lock holds it, so the next load deletes it.
   await page.evaluate(async () => {
@@ -936,7 +1035,7 @@ const checkStorageClearing = async (page: Page, base: string) => {
     await writable.close()
   })
   await page.goto(base)
-  await page.locator(".storage-panel").waitFor()
+  await page.getByRole("button", { name: "Settings", exact: true }).waitFor({ state: "visible" })
   const afterVisit = await storedTransfers(page)
   check(afterVisit.length === 0, "storage: a transfer left by a closed tab is deleted on the next visit", afterVisit)
 }
@@ -954,6 +1053,117 @@ const closePreview = async (page: Page) => {
   await page.locator(".preview-dialog").getByRole("button", { name: "Close" }).click()
 }
 
+// Two pages with distinct filled rectangles and valid cross-reference offsets.
+const previewPdf = () => {
+  const streams = ["0 0 0 rg 20 20 80 80 re f\n", "0 0 0 rg 120 120 100 100 re f\n"]
+
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 300] /Contents 5 0 R >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 300] /Contents 6 0 R >>",
+    ...streams.map((stream) => `<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}endstream`),
+  ]
+
+  return assemblePdf(objects)
+}
+
+const assemblePdf = (objects: string[]) => {
+  let pdf = "%PDF-1.4\n"
+
+  const offsets = objects.map((object, index) => {
+    const offset = Buffer.byteLength(pdf)
+    pdf += `${index + 1} 0 obj\n${object}\nendobj\n`
+
+    return offset
+  })
+
+  const xref = Buffer.byteLength(pdf)
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.map((offset) => `${String(offset).padStart(10, "0")} 00000 n \n`).join("")}trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`
+
+  return Buffer.from(pdf)
+}
+
+// The predefined Japanese CMap exercises packaged PDF.js font resources.
+const previewCmapPdf = () => {
+  const stream = "BT /F1 24 Tf 30 150 Td <65e5672c> Tj ET\n"
+
+  return assemblePdf([
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 300] /Resources << /Font << /F1 4 0 R >> >> /Contents 6 0 R >>",
+    "<< /Type /Font /Subtype /Type0 /BaseFont /HeiseiKakuGo-W5 /Encoding /UniJIS-UCS2-H /DescendantFonts [5 0 R] >>",
+    "<< /Type /Font /Subtype /CIDFontType0 /BaseFont /HeiseiKakuGo-W5 /CIDSystemInfo << /Registry (Adobe) /Ordering (Japan1) /Supplement 5 >> /FontDescriptor 7 0 R >>",
+    `<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}endstream`,
+    "<< /Type /FontDescriptor /FontName /HeiseiKakuGo-W5 /Flags 4 /FontBBox [-123 -257 1001 910] /ItalicAngle 0 /Ascent 880 /Descent -120 /CapHeight 700 /StemV 80 >>",
+  ])
+}
+
+const checkPdfPreview = async (page: Page, who: string, name = "report.pdf", pages = 2) => {
+  const requests: string[] = []
+
+  const blockFrameAssets = async (route: Route) => {
+    if (route.request().frame() === page.mainFrame()) {
+      await route.continue()
+    } else {
+      requests.push(route.request().url())
+      await route.fulfill({ status: 302, headers: { location: "/login" } })
+    }
+  }
+
+  await page.route("**/assets/**", blockFrameAssets)
+  await page.getByRole("button", { name: `Preview ${name}` }).click()
+  const frame = previewFrame(page)
+
+  for (let number = 1; number <= pages; number++) {
+    await frame.locator(`canvas[aria-label="PDF page ${number}"]`).waitFor({ timeout: 10_000 })
+    const frameElement = await page.locator("iframe.preview-frame").elementHandle()
+    const target = await frameElement?.contentFrame()
+
+    if (target === undefined || target === null) {
+      throw new Error("The PDF preview frame is missing")
+    }
+
+    // Canvas mounting precedes painting, so wait for painted pixels.
+    await target.waitForFunction(
+      (pageNumber) => {
+        const canvas = document.querySelector<HTMLCanvasElement>(`canvas[aria-label="PDF page ${pageNumber}"]`)
+
+        if (canvas === null || canvas.width === 0 || canvas.height === 0) {
+          return false
+        }
+
+        const context = canvas.getContext("2d")
+
+        if (context === null) {
+          return false
+        }
+
+        const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data
+
+        for (let index = 0; index < pixels.length; index += 4) {
+          if (pixels[index + 3] === 255 && (pixels[index] ?? 255) < 100 && (pixels[index + 1] ?? 255) < 100 && (pixels[index + 2] ?? 255) < 100) {
+            return true
+          }
+        }
+
+        return false
+      },
+      number,
+      { timeout: 10_000 },
+    )
+    check(true, `preview: ${who} renders PDF page ${number}`)
+
+    if (number < pages) {
+      await frame.getByRole("button", { name: "Next" }).click()
+    }
+  }
+
+  check(requests.length === 0, `preview: ${who} needs no frame asset requests`, requests)
+  await page.unroute("**/assets/**", blockFrameAssets)
+  await closePreview(page)
+}
+
 /**
  * Renaming and previews (docs/decisions/0018-previews-and-renaming.md): the sender renames a file before sealing and
  * the recipient sees the new name; the recipient renames a file it saves; both preview an image in a frame whose
@@ -968,6 +1178,8 @@ const previewsAndNames = async (browser: Browser, base: string) => {
     const files: PayloadFile[] = [
       { name: "photo.png", mimeType: "image/png", buffer: orangePng },
       { name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("Packing list: tent, stove, map\n") },
+      { name: "report.pdf", mimeType: "application/pdf", buffer: previewPdf() },
+      { name: "cmap.pdf", mimeType: "application/pdf", buffer: previewCmapPdf() },
       {
         name: "page.html",
         mimeType: "text/html",
@@ -976,7 +1188,11 @@ const previewsAndNames = async (browser: Browser, base: string) => {
     ]
 
     await sender.page.goto(`${base}/`)
+    await waitForFileInput(sender.page)
     await sender.page.setInputFiles("#files", files)
+    await waitForFiles(sender.page, files.length)
+    await checkPdfPreview(sender.page, "sender")
+    await checkPdfPreview(sender.page, "sender", "cmap.pdf", 1)
 
     await sender.page.getByRole("button", { name: "Preview photo.png" }).click()
     await previewFrame(sender.page).locator("img").waitFor({ timeout: 10_000 })
@@ -998,34 +1214,45 @@ const previewsAndNames = async (browser: Browser, base: string) => {
     const shownAsText = (await previewFrame(sender.page).locator("pre").textContent()) ?? ""
     const hostileElements = await previewFrame(sender.page).locator("#hostile").count()
     check(shownAsText.includes("<script>") && hostileElements === 0, "preview: an HTML file previews as text, never as a page", shownAsText)
-    await closePreview(sender.page)
+    await sender.page.locator("iframe.preview-frame").focus()
+    await sender.page.waitForFunction(() => document.activeElement === document.querySelector("iframe.preview-frame"))
+    await sender.page.keyboard.press("Escape")
+    await sender.page.locator("iframe.preview-frame").waitFor({ state: "detached" })
+    await sender.page.waitForFunction(() => document.activeElement?.getAttribute("aria-label") === "Preview page.html")
+    check(
+      await sender.page.getByRole("button", { name: "Preview page.html" }).evaluate((button) => document.activeElement === button),
+      "preview: Escape inside the sandbox closes the dialog and restores its trigger",
+    )
 
     await sender.page.getByRole("button", { name: "Rename notes.txt" }).click()
     await sender.page.getByRole("textbox", { name: "New name for notes.txt" }).fill("con.txt")
     await sender.page.getByRole("button", { name: "Save" }).click()
+    await sender.page.locator(".rename-problem").waitFor({ state: "visible" })
     const refusal = (await sender.page.locator(".rename-problem").textContent()) ?? ""
     check(refusal.startsWith("This name cannot be used"), "rename: a name the parcel's rules forbid is refused in place", refusal)
     await sender.page.getByRole("textbox", { name: "New name for notes.txt" }).fill("packing list.txt")
     await sender.page.getByRole("button", { name: "Save" }).click()
+    await sender.page.getByRole("button", { name: "Rename packing list.txt" }).waitFor({ state: "visible" })
     check((await sender.page.getByRole("button", { name: "Rename packing list.txt" }).count()) === 1, "rename: the sender renames a file before sealing")
 
     await sender.page.getByRole("button", { name: "Seal parcel and create link" }).click()
     await waitForStatus(sender.page, ["waiting-for-recipient", "failed"])
+    await sender.page.getByRole("button", { name: "Send other files" }).waitFor({ state: "visible" })
     check(
       (await sender.page.locator(".file-list button.rename, .file-list button.remove").count()) === 0 &&
         (await sender.page.getByRole("button", { name: "Send other files" }).isVisible()),
       "seal: a sealed parcel cannot be renamed or changed, and offers Send other files instead",
     )
-    await sender.page.getByRole("button", { name: "Show link" }).click()
-    const link = await sender.page.inputValue("#link")
+    const link = await revealLink(sender.page)
     rememberOffer(link, files)
     leakNeedles.names.add("packing list.txt").add("holiday.png")
 
     await recipient.page.goto(link)
     await waitForStatus(recipient.page, ["reviewing", "failed"])
+    await waitForFiles(recipient.page, files.length)
     const offered = await recipient.page.locator(".file-list .name").allTextContents()
     check(
-      JSON.stringify(offered) === JSON.stringify(["photo.png", "packing list.txt", "page.html"]),
+      JSON.stringify(offered) === JSON.stringify(["photo.png", "packing list.txt", "report.pdf", "cmap.pdf", "page.html"]),
       "rename: the recipient is offered the sender's new name",
       offered,
     )
@@ -1050,6 +1277,8 @@ const previewsAndNames = async (browser: Browser, base: string) => {
 
     check(receivedWidth === 64, "preview: the recipient previews a received image", String(receivedWidth))
     await closePreview(recipient.page)
+    await checkPdfPreview(recipient.page, "recipient")
+    await checkPdfPreview(recipient.page, "recipient", "cmap.pdf", 1)
 
     // Opened on its own, the preview page must still have an opaque origin (the `sandbox` header in public/_headers).
     await recipient.page.goto(`${base}/preview.html`)
@@ -1067,7 +1296,7 @@ const previewsAndNames = async (browser: Browser, base: string) => {
 const localAdminToken = "end-to-end-admin-token"
 
 /**
- * The operator page (src/admin.ts) against the local server, after the transfers above: a wrong token is refused, the
+ * The operator page (src/features/administration/main.ts) against the local server, after the transfers above: a wrong token is refused, the
  * right one shows the counts and draws the chart, and the page ships nothing that identifies a transfer.
  */
 const operatorPage = async (browser: Browser, base: string) => {
@@ -1120,6 +1349,7 @@ const transfer = async (browser: Browser, base: string, scenario: TransferScenar
     await recipient.page.goto(link)
     await waitForStatus(recipient.page, ["reviewing", "failed"])
     check((await status(recipient.page)) === "reviewing", `${scenario}: the recipient reviews the contract before any content`)
+    await waitForFiles(recipient.page, files.length)
     const listedItems = await recipient.page.locator(".file-list li").allTextContents()
     const listed = listedItems.join("\n")
     check(
@@ -1129,6 +1359,7 @@ const transfer = async (browser: Browser, base: string, scenario: TransferScenar
     )
 
     if (scenario === "resume") {
+      await recipient.page.getByRole("button", { name: /^Accept and download .+ on mobile data$/u }).waitFor({ state: "visible" })
       check(
         await recipient.page.getByRole("button", { name: /^Accept and download .+ on mobile data$/u }).isVisible(),
         "resume: on mobile data, Accept states the size and asks for confirmation",
@@ -1168,6 +1399,7 @@ const transfer = async (browser: Browser, base: string, scenario: TransferScenar
     check(identical, `${scenario}: every file arrives byte-identical`, hashes)
 
     if (files.length > 1) {
+      await recipient.page.getByRole("button", { name: /^Save all files/u }).waitFor({ state: "visible" })
       check(await recipient.page.getByRole("button", { name: /^Save all files/u }).isVisible(), `${scenario}: several files offer Save all files`)
     }
 
@@ -1400,7 +1632,7 @@ const releaseStorage = async (page: Page) => {
 }
 
 /**
- * The recipient's life cycle (src/recipientPhase.ts) at the points spike 0006 found broken: R2, a failure while the offer
+ * The recipient's life cycle (src/features/receive/phase.ts) at the points spike 0006 found broken: R2, a failure while the offer
  * is on screen; R3, an abort while storage is opening; a rejoin while storage is opening (found in review of #18); R1,
  * saving the files fails. Faults come from the network (an
  * abort frame on the routed socket) and from the browser's storage API (an init script that delays or breaks it).
@@ -1414,16 +1646,19 @@ const recipientLifeCycle = async (browser: Browser, base: string) => {
     try {
       const link = await offer(sender.page, base, payload([["golf-review.bin", 10_000]]))
       await recipient.page.goto(link)
-      await waitForStatus(recipient.page, ["reviewing", "failed"])
+      await recipient.page.bringToFront()
+      await waitForStatus(recipient.page, ["reviewing"])
+
+      const accept = recipient.page.getByRole("button", { name: /^Accept/u })
+      const decline = recipient.page.getByRole("button", { name: "Decline", exact: true })
+
+      // Native reports precede queued Foldkit snapshots, so observe both rendered sides of the transition.
+      await Promise.all([accept.waitFor({ state: "visible", timeout: 10_000 }), decline.waitFor({ state: "visible", timeout: 10_000 })])
       abortRecipient(recipient.observed)
       await waitForStatus(recipient.page, ["failed"], 10_000)
-      const accept = recipient.page.getByRole("button", { name: /^Accept/u })
-      const buttons = (await accept.count()) + (await recipient.page.getByRole("button", { name: "Decline", exact: true }).count())
+      await Promise.all([accept.waitFor({ state: "hidden", timeout: 10_000 }), decline.waitFor({ state: "hidden", timeout: 10_000 })])
 
-      if ((await accept.count()) > 0) {
-        await accept.click()
-        await recipient.page.waitForTimeout(1500)
-      }
+      const buttons = (await accept.count()) + (await decline.count())
 
       check(buttons === 0 && (await status(recipient.page)) === "failed", "life cycle: after a failure while reviewing, Accept and Decline are gone (R2)", {
         buttons,
@@ -1682,12 +1917,13 @@ const large = async (browser: Browser, base: string) => {
 
   try {
     await sender.page.goto(`${base}/`)
+    await waitForFileInput(sender.page)
     await sender.page.setInputFiles("#files", file.path)
+    await waitForFiles(sender.page, 1)
     await sender.page.getByRole("button", { name: "Seal parcel and create link" }).click()
     await waitForStatus(sender.page, ["waiting-for-recipient", "failed"])
     check((await status(sender.page)) === "waiting-for-recipient", `large: the sender labels ${gigabytes} GB and waits`)
-    await sender.page.getByRole("button", { name: "Show link" }).click()
-    const link = await sender.page.inputValue("#link")
+    const link = await revealLink(sender.page)
 
     // A private window's quota is smaller than the offer: the recipient must say so before accepting, not fail midway.
     if (browserName === "chromium" && file.size > 2.2e9) {
@@ -1748,7 +1984,7 @@ const latency = async (browser: Browser, origin: string) => {
     }
   }
 
-  console.log(`   latency results (128 MB, credit window from apps/web/src/recipient.ts): ${rows.join(", ")}`)
+  console.log(`   latency results (128 MB, credit window from apps/web/src/features/receive/session.ts): ${rows.join(", ")}`)
 }
 
 /** Strikes one planned fault on a side's current socket or direct path. */
@@ -2165,7 +2401,11 @@ const lab = async () => {
     const only = process.env.E2E_LAB_ONLY
 
     const launchIn = async (side: LabSide) => {
-      const launched = await browserType.launch({ ...labLaunchOptions(), executablePath: browserInHome(side, browserType.executablePath(), scratch) })
+      const launched = await browserType.launch({
+        ...labLaunchOptions(),
+        executablePath: browserInHome(side, launchOptions.executablePath ?? browserType.executablePath(), scratch),
+      })
+
       browsers.push(launched)
 
       return launched

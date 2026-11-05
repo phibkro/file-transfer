@@ -18,9 +18,9 @@ export default defineConfig({
   },
   // The conformance suite's entry is shipped as a source of tests, so it may import the test-only modules.
   packages: { "@file-transfer/conformance": { testSupportFiles: ["src/index.ts"] } },
-  // Files that never ship: tests, development scripts and deployment declarations. Package-root configuration files
-  // (vite.config.ts) stay shipped, as before.
-  fileClasses: [{ files: ["test/**", "scripts/**", "**/*.test.ts", "alchemy.run.ts"], policy: "development" }],
+  // Tests, development scripts, deployment declarations and Vite configuration never ship to clients.
+  // Build plugins belong in devDependencies; application source still requires production dependencies.
+  fileClasses: [{ files: ["test/**", "scripts/**", "**/*.test.ts", "alchemy.run.ts", "vite.config.ts"], policy: "development" }],
   testOnlySpecifiers: ["vite-plus/test", "bun:test", "fast-check", "effect/testing", "@file-transfer/conformance"],
   // Shipped code takes outside packages from dependencies only.
   imports: { shippedFields: ["dependencies"], typeOnly: "as-values" },

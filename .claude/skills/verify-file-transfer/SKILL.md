@@ -15,7 +15,7 @@ Generated on 2026-10-29 by following pstack's `create-verification-skill` (curso
 bun apps/web/scripts/verify/launch.ts            # prints {"run": "<run directory>", "origin": "http://127.0.0.1:<port>"}
 ```
 
-It builds `apps/web` and `platforms/cloudflare`, copies the build and the wrangler configuration into `<run>/build` (so a later launch's rebuild cannot restart or crash a running instance), starts `wrangler dev` from that copy on a random port with its Durable Object state under `<run>/state` (empty on every launch, so there is nothing to migrate or seed), and returns only once the page is the app (`<title>File transfer</title>`) and `GET /api/limits` answers JSON. It writes `<run>/server.json` (origin, process group, revision, a digest of uncommitted edits, `ready`) as soon as the server process exists, sets `ready` once it is usable, and logs to `<run>/server.log`. An interrupted or failed launch stops the server it started. A launch takes from a few seconds to half a minute, most of it building.
+The launcher builds both packages and copies their output into `<run>/build`. It starts Wrangler with isolated state under `<run>/state`. Readiness requires the application mount and a JSON response from `/api/limits`, not a particular product title. `server.json` records the origin, process group, revision, dirty-tree digest and readiness. Evidence and logs stay in the run directory. Interrupted or failed launches stop their server.
 
 Instances are isolated by port, state directory and build copy, so two runs can live side by side; launches themselves rebuild the checkout, so start them one at a time. The run directory must be outside the checkout (launch refuses one inside, symbolic links resolved, since its files would count as uncommitted edits) and must not already hold a server (stop it first, or relaunch into a new directory). Never drive a server you did not start in this run, and never drive production (`send.phibkro.org`).
 
@@ -36,13 +36,16 @@ Read-only. For a run directory it checks that launch finished (`ready`), that th
 bun apps/web/scripts/verify/drive.ts <journey> <origin> <run directory>/evidence [chromium | firefox | webkit]
 ```
 
-Journeys, one per feature file in `features/`: `send-receive`, `decline`, `wrong-key`, `resume`. Each opens two fresh Playwright profiles (sender and recipient), prints one `ok` or `NOT OK` line per step, and ends with `PASS <journey>` or `FAIL <journey>: <step>`; the exit code follows.
+Journeys, one per feature file in `features/`: `send-receive`, `decline`, `wrong-key`, `resume`, `library`. Each opens two fresh Playwright profiles and prints the result of every step. The final `PASS` or `FAIL` line matches the exit code.
+
+To use a system browser, set `E2E_BROWSER_EXECUTABLE_PATH=/etc/profiles/per-user/nori/bin/chromium` before the drive command. Omit it to use the Playwright default. On Nix hosts, use a stable run directory outside the nix-shell `TMPDIR`, such as a directory under `/var/tmp`. Pass that directory to launch, doctor, drive, and stop.
 
 For behaviour no journey covers, write a short Playwright script in the scratchpad that follows the same conventions (features/README.md, Driving conventions). Stable handles in this app:
 
 - Sender: file input `#files`, list `.file-list li`, button `Seal parcel and create link`, buttons `Show link`, `Show QR code`, `Send other files`, link field `#link`.
+- Library: `#library`, checkbox `Remember files on this device`, `New collection`, `New collection name`, `Create empty collection`, `Add files`, the dialog file input, collection filter buttons, `Find a file`, `Preview <filename>`, `Manage <filename>`, `Reconnect <filename>`, `Review collection before sharing`, and `Approve and share current versions`. Selection actions appear only after selecting files.
 - Recipient: buttons `Accept` (or `Accept and download … on mobile data`), `Decline`, `Save all files` (`Save all files to a folder` where the browser has a folder picker), `Remove from this browser`, per file `Rename <name>`, `Preview <name>`, `Save <name>`.
-- State: `document.body.dataset.status` and the test hook `window.fileTransferTest` (`status()`, `progress()`, `failure()`, `failureDetail()`, `fileHashes()`, `path()`, `wentDirect()`), from `apps/web/src/report.ts`. Statuses (`Status` in report.ts): sender `idle`, `labelling`, `creating-room`, `waiting-for-recipient`, `offering`; recipient `connecting`, `waiting-for-sender`, `reviewing`; both `reconnecting`, `transferring`, `complete`, `declined`, `failed`.
+- State: `document.body.dataset.status` and the test hook `window.fileTransferTest` (`status()`, `progress()`, `failure()`, `failureDetail()`, `fileHashes()`, `path()`, `wentDirect()`), from `apps/web/src/capabilities/transfer/report.ts`. Statuses (`Status` in report.ts): sender `idle`, `labelling`, `creating-room`, `waiting-for-recipient`, `offering`; recipient `connecting`, `waiting-for-sender`, `reviewing`; both `reconnecting`, `transferring`, `complete`, `declined`, `failed`.
 - Relay only: set `localStorage["file-transfer:direct-connections"] = "off"` in an init script before the page loads (the "Direct connections" setting).
 
 ## Evidence
@@ -50,7 +53,7 @@ For behaviour no journey covers, write a short Playwright script in the scratchp
 Each journey writes to `<evidence>/<journey>/`:
 
 - `NN-<side>-<state>.png` and `NN-<side>-<state>.aria.yml`: a full-page screenshot and the ARIA snapshot after each step, so the proof shows the action and the state it left, with the app's heading visible.
-- `sent.json` (send-receive): every request URL, request body and socket frame either browser sent, checked for the link secret and the file names, after waiting for bodies still being read. This is CLAUDE.md's invariant seen from the endpoints. Not seen: a body sent from a worker or a just-created `about:blank` frame, or as a stream (`apps/web/scripts/requestBodies.ts`).
+- `sent.json` (send-receive and library): observed request URLs, bodies, and socket frames, checked for link secrets and file names. Secret and name matches are redacted in the evidence. Worker, new `about:blank` frame, and stream bodies are not seen (`apps/web/scripts/requestBodies.ts`).
 - `result.json`: journey, origin, browser, each step's action and observed outcome, the failure if any, and `failedSides`: each side's status, failure reason and detail when the journey failed.
 - `failed-<side>.png` and `failed-<side>.aria.yml`: each page as it was when a journey failed.
 

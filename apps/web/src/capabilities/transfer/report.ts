@@ -1,0 +1,257 @@
+// oxlint-effect-plugin ignore-file:
+// reason: the end-to-end test hook hands Playwright a Promise of file hashes; browser glue, not domain logic
+/**
+ * Status and progress, mirrored for end-to-end tests: `document.body.dataset.status` and `dataset.progress`
+ * ("done/total"), and `window.fileTransferTest`, which on completion also gives the SHA-256 of each received file.
+ * File references and hashes stay in this endpoint. The hook never exposes the link secret or sends file contents to a server.
+ */
+
+export type Status =
+  | "idle"
+  | "labelling"
+  | "creating-room"
+  | "waiting-for-recipient"
+  | "offering"
+  | "connecting"
+  | "reconnecting"
+  | "waiting-for-sender"
+  | "reviewing"
+  | "transferring"
+  | "complete"
+  | "declined"
+  | "failed"
+
+export interface Progress {
+  readonly done: number
+  readonly total: number
+}
+
+export interface TestHook {
+  readonly status: () => Status
+  readonly progress: () => Progress
+  /** The failure reason code, when the status is `failed`. */
+  readonly failure: () => string | undefined
+  /** SHA-256 (hex) of each received file in manifest order; empty until the recipient completes. */
+  readonly fileHashes: () => Promise<readonly string[]>
+  /** Hex of bytes `start` to `end` of received file `index`, read lazily; for files too large to hash in memory. */
+  readonly fileSlice: (index: number, start: number, end: number) => Promise<string>
+  /** Byte size of each received file; empty until the recipient completes. */
+  readonly fileSizes: () => readonly number[]
+  /** The exception behind a generic failure reason, as "Name: message"; stays in the page. */
+  readonly failureDetail: () => string | undefined
+  /** Bytes the browser said it could still store, when that was less than the offer needs. */
+  readonly spaceShortfall: () => number | undefined
+  /** The path parcel units travel now, and whether a direct path ever opened in this transfer. */
+  readonly path: () => "relay" | "direct"
+  readonly wentDirect: () => boolean
+}
+
+declare global {
+  interface Window {
+    fileTransferTest?: TestHook
+  }
+}
+
+let status: Status = "idle"
+let progress: Progress = { done: 0, total: 0 }
+let failure: string | undefined
+let hashes: () => Promise<readonly string[]> = async () => []
+let receivedFiles: readonly File[] = []
+let failureDetail: string | undefined
+let spaceShortfall: number | undefined
+let path: "relay" | "direct" = "relay"
+let wentDirect = false
+const listeners = new Set<() => void>()
+let frameRequested = false
+let totalBytes = 0
+let transferStartedAt: number | undefined
+let transferEndedAt: number | undefined
+let reconnects = 0
+
+/** When the direct path first opened during the transfer, and how often it closed before the end. */
+let directOpenedAt: number | undefined
+let directDrops = 0
+let publishedSummary: TransferSummary | undefined
+let publishedUnsavedFiles = false
+
+const flush = () => {
+  frameRequested = false
+  document.body.dataset.progress = `${progress.done}/${progress.total}`
+
+  for (const listener of listeners) {
+    listener()
+  }
+}
+
+export const setStatus = (next: Status, reason?: string) => {
+  if (next === "transferring" && transferStartedAt === undefined) {
+    transferStartedAt = performance.now()
+  }
+
+  if (next === "reconnecting" && status !== "reconnecting") {
+    reconnects++
+  }
+
+  if (next === "complete" && transferEndedAt === undefined) {
+    transferEndedAt = performance.now()
+  }
+
+  status = next
+  failure = next === "failed" ? reason : undefined
+  document.body.dataset.status = next
+  flush()
+}
+
+/** Coalesces updates to one per animation frame, so per-record progress does not thrash the page. */
+export const setProgress = (done: number, total: number) => {
+  progress = { done, total }
+
+  if (frameRequested) {
+    return
+  }
+
+  frameRequested = true
+  requestAnimationFrame(flush)
+}
+
+export const setFailureDetail = (cause: unknown) => {
+  failureDetail = cause instanceof Error ? `${cause.name}: ${cause.message}` : String(cause)
+}
+
+export const setSpaceShortfall = (available: number) => {
+  spaceShortfall = available
+}
+
+/** The recipient's committed files, for the byte-range and size hooks. */
+export const setReceivedFiles = (files: readonly File[]) => {
+  receivedFiles = files
+}
+
+const hexOf = (bytes: Uint8Array): string => [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("")
+
+export const setFileHashes = (compute: () => Promise<readonly string[]>) => {
+  hashes = compute
+}
+
+/** The plaintext bytes this transfer carries (the manifest's total size), for the completion summary. */
+/** The path parcel units travel (connection.ts); mirrored as `document.body.dataset.path`. */
+export const setPath = (next: "relay" | "direct") => {
+  if (next === "direct" && directOpenedAt === undefined) {
+    directOpenedAt = performance.now()
+  }
+
+  if (next === "relay" && path === "direct" && status === "transferring") {
+    directDrops++
+  }
+
+  path = next
+  wentDirect ||= next === "direct"
+  document.body.dataset.path = next
+
+  for (const listener of listeners) {
+    listener()
+  }
+}
+
+export const setTotalBytes = (bytes: number) => {
+  totalBytes = bytes
+}
+
+export interface TransferSummary {
+  readonly bytes: number
+  /** From the first `transferring` status to `complete`, in seconds. */
+  readonly seconds: number
+  readonly reconnects: number
+  /** Whether any of it went directly between the browsers. */
+  readonly direct: boolean
+  /** Seconds from the start of the transfer until the direct path opened (zero when it was open before). */
+  readonly secondsToDirect: number | undefined
+  /** How often the direct path closed mid-transfer, sending the rest back to the relay. */
+  readonly directDrops: number
+}
+
+/** What the completion summary reports: sizes and timing only, never names, keys or the link. */
+export const transferSummary = (): TransferSummary =>
+  publishedSummary ?? {
+    bytes: totalBytes,
+    seconds: transferStartedAt === undefined || transferEndedAt === undefined ? 0 : (transferEndedAt - transferStartedAt) / 1000,
+    reconnects,
+    direct: wentDirect,
+    secondsToDirect: directOpenedAt === undefined || transferStartedAt === undefined ? undefined : Math.max(0, (directOpenedAt - transferStartedAt) / 1000),
+    directDrops,
+  }
+
+export const currentStatus = (): Status => status
+export const currentPublishedUnsavedFiles = (): boolean => publishedUnsavedFiles
+
+/** Calls `listener` after every status or progress change. */
+export const onReport = (listener: () => void) => {
+  listeners.add(listener)
+
+  return () => {
+    listeners.delete(listener)
+  }
+}
+
+export const currentProgress = (): Progress => progress
+
+/** Publishes one recipient snapshot from the owned session boundary. */
+export const publishReport = (snapshot: {
+  readonly status: Status
+  readonly progress: Progress
+  readonly path: "relay" | "direct"
+  readonly summary: TransferSummary
+  readonly unsavedFiles: boolean
+  readonly failure?: string | undefined
+  readonly failureDetail?: string | undefined
+  readonly files: readonly File[]
+  readonly spaceShortfall?: number | undefined
+}) => {
+  status = snapshot.status
+  progress = snapshot.progress
+  path = snapshot.path
+  publishedSummary = snapshot.summary
+  wentDirect = snapshot.summary.direct
+  failure = snapshot.failure
+  failureDetail = snapshot.failureDetail
+  receivedFiles = snapshot.files
+  hashes = async () =>
+    await Promise.all(snapshot.files.map(async (file) => hexOf(new Uint8Array(await crypto.subtle.digest("SHA-256", await file.arrayBuffer())))))
+  spaceShortfall = snapshot.spaceShortfall
+  document.body.dataset.status = status
+  document.body.dataset.path = path
+  publishedUnsavedFiles = snapshot.unsavedFiles
+  flush()
+}
+
+export const installTestHook = () => {
+  const hook: TestHook = {
+    status: () => status,
+    progress: () => progress,
+    failure: () => failure,
+    fileHashes: async () => await hashes(),
+    fileSlice: async (index, start, end) => {
+      const file = receivedFiles[index]
+
+      return file === undefined ? "" : hexOf(new Uint8Array(await file.slice(start, end).arrayBuffer()))
+    },
+    fileSizes: () => receivedFiles.map((file) => file.size),
+    failureDetail: () => failureDetail,
+    spaceShortfall: () => spaceShortfall,
+    path: () => path,
+    wentDirect: () => wentDirect,
+  }
+
+  window.fileTransferTest = hook
+  document.body.dataset.status = status
+
+  return () => {
+    if (window.fileTransferTest === hook) {
+      delete window.fileTransferTest
+      receivedFiles = []
+      hashes = async () => []
+      failureDetail = undefined
+      publishedUnsavedFiles = false
+    }
+  }
+}

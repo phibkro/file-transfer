@@ -1,7 +1,7 @@
 import * as fc from "fast-check"
 import { describe, expect, it } from "vite-plus/test"
-import { fileStarts, spansFor } from "../src/files.ts"
-import type { FileSpan } from "../src/files.ts"
+import { fileStarts, spansFor } from "../src/features/receive/files.ts"
+import type { FileSpan } from "../src/features/receive/files.ts"
 
 const spans = (sizes: readonly number[], offset: number, length: number): readonly FileSpan[] => {
   const result = spansFor(sizes, offset, length)

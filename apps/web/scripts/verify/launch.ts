@@ -8,11 +8,11 @@
  *   bun apps/web/scripts/verify/launch.ts [run directory]
  */
 import { spawn, spawnSync } from "node:child_process"
-import { createHash } from "node:crypto"
 import { cpSync, existsSync, mkdirSync, openSync, readFileSync, realpathSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import nodePath from "node:path"
 import * as v from "valibot"
+import { snapshot } from "./snapshot.ts"
 
 const repository = nodePath.resolve(import.meta.dirname, "../../../..")
 const appDirectory = nodePath.join(repository, "apps/web")
@@ -57,6 +57,7 @@ if (hasLiveServer()) {
 mkdirSync(run, { recursive: true })
 
 const environment = { ...process.env, NO_PROXY: "127.0.0.1,localhost", no_proxy: "127.0.0.1,localhost", WRANGLER_SEND_METRICS: "false" }
+const { revision, workingTree } = snapshot(repository)
 
 for (const [label, directory] of [
   ["app", appDirectory],
@@ -90,6 +91,13 @@ cpSync(nodePath.join(appDirectory, "dist"), nodePath.join(build, "web"), { recur
 
 writeFileSync(nodePath.join(build, "wrangler.jsonc"), configuration.replace(assetsSetting, '"directory": "./web"'))
 
+const afterBuild = snapshot(repository)
+
+if (afterBuild.revision !== revision || afterBuild.workingTree !== workingTree) {
+  console.error("source changed during verification builds; refusing to start server")
+  process.exit(1)
+}
+
 const port = 20_000 + Math.floor(Math.random() * 20_000)
 const origin = `http://127.0.0.1:${port}`
 const log = openSync(nodePath.join(run, "server.log"), "a")
@@ -117,16 +125,6 @@ const server = spawn(
 )
 
 server.unref()
-
-const git = (...arguments_: string[]) => spawnSync("git", arguments_, { cwd: repository, encoding: "utf-8" }).stdout
-const revision = git("rev-parse", "HEAD").trim()
-
-// Uncommitted edits are built too, so the instance is described by the revision plus a digest of the working tree's
-// difference from it (doctor.ts recomputes both).
-const workingTree = createHash("sha256")
-  .update(git("diff", "HEAD"))
-  .update(git("status", "--porcelain", "--untracked-files=all"))
-  .digest("hex")
 
 const describe = (ready: boolean) => {
   const description = { run, origin, processIdentifier: server.pid, revision, workingTree, ready, startedAt: new Date().toISOString() }
@@ -166,7 +164,7 @@ const isReady = async (): Promise<boolean> => {
     const body = await page.text()
     const type = limits.headers.get("content-type") ?? ""
 
-    return page.ok && body.includes("<title>File transfer</title>") && limits.ok && type.includes("json")
+    return page.ok && body.includes('id="app"') && limits.ok && type.includes("json")
   } catch {
     return false
   }

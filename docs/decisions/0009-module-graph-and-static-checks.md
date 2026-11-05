@@ -18,6 +18,8 @@ Adapted from the module-layer check of phibkro/vektorprogrammet-reimagined (its 
 4. `lint`: `effx check`, the coordinator of `@phibkro/oxlint-effect-plugin`. It runs the plugin's oxlint rules, audits reasoned escapes, gates the import closure, and includes the type-aware Effect diagnostics of effect-tsgo (enabled through the `@effect/language-service` plugin entry in `tsconfig.json`); any diagnostic fails it. Roles and platforms per file group live in `effx.config.json`, which `oxlint.config.ts` also reads. Groups must be disjoint (they compile to overrides that merge rule by rule) and must not use brace globs (the coordinator does not expand them). Workspace packages are admitted to the import closure by exact specifier with a reason, because Bun links them through `node_modules`; the kind-level edge is `check:graph`'s job.
 5. `test`: `bun test`.
 
+Package-root Vite configurations are development files. Their plugins belong in `devDependencies` because configurations do not ship to clients. Application source still requires production dependencies. Knip explicitly includes the global CSS entry injected by the layout plugin. Its native Tailwind compiler follows CSS imports, so Tailwind needs no unused-dependency exception.
+
 File-level import cycles are oxlint's `import/no-cycle`, which Ultracite's core preset already turns on in `vp check`.
 
 `bun run check:effect` prints the effect-tsgo diagnostics on their own, for reading; `check` does not repeat them.

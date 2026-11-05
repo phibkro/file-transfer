@@ -5,22 +5,24 @@
  * Lint: Ultracite's oxlint core and anti-slop presets (docs/decisions/0016), run by `vp check --deny-warnings`. Rules
  * turned off below conflict with this codebase on purpose; each line says why.
  */
+import foldkitRecommended from "@foldkit/oxlint-plugin/recommended.json" with { type: "json" }
 import antiSlop from "ultracite/oxlint/anti-slop"
 import core from "ultracite/oxlint/core"
 import { defineConfig } from "vite-plus"
 import effxConfig from "./effx.config.json" with { type: "json" }
+import { formatOptions } from "./apps/web/scripts/formatOptions.ts"
 import moduleGraph from "./ox-dep-lint.config.ts"
 
 /** Files effx governs as Effect code, where `Effect.promise(() => f())` is the idiom and native async is rejected. */
 const effectFiles = effxConfig.effect.groups.filter((group) => group.role === "effect-library" || group.role === "service").flatMap((group) => group.files)
 
 export default defineConfig({
-  fmt: { semi: false, printWidth: 160, ignorePatterns: [".claude/**"] },
+  fmt: { ...formatOptions, ignorePatterns: [".claude/**"] },
   lint: {
     extends: [core, antiSlop],
     // The package-kind rules (docs/decisions/0009): ox-dep-lint's per-file findings, where they are written. The
     // whole-graph checks (package.json edges, package cycles) run in `bun run check:graph`.
-    jsPlugins: ["ox-dep-lint/plugin"],
+    jsPlugins: ["ox-dep-lint/plugin", ...foldkitRecommended.jsPlugins],
     ignorePatterns: [
       "**/node_modules/**",
       "**/dist/**",
@@ -83,8 +85,35 @@ export default defineConfig({
     },
     overrides: [
       {
+        files: [
+          "apps/web/src/features/**/*.ts",
+          "apps/web/src/capabilities/preview/**/*.ts",
+          "apps/web/src/ui/**/*.ts",
+          "apps/web/src/site/**/*.ts",
+          "apps/web/src/app/**/*.ts",
+          "apps/web/src/routing/**/*.ts",
+          "apps/web/src/routes/**/*.ts",
+        ],
+        // SAFETY: the installed recommended preset contains only error and off severities.
+        rules: foldkitRecommended.rules as Record<string, "error" | "off">,
+      },
+      {
+        files: ["apps/web/src/app/entry.ts", "apps/web/src/capabilities/preview/frame/entry.ts"],
+        rules: { "foldkit/no-impure-call-at-decision-time": "off" },
+      },
+      {
+        // Session callbacks run at the browser boundary, not during Foldkit decisions.
+        files: ["apps/web/src/features/receive/session.ts", "apps/web/src/features/quick-share/session.ts"],
+        rules: { "foldkit/no-impure-call-at-decision-time": "off" },
+      },
+      {
+        // Lifecycle adapters keep their current callback and browser listener state outside Foldkit decisions.
+        files: ["apps/web/src/features/settings/storagePanel.ts", "apps/web/src/app/leaveGuard.ts"],
+        rules: { "foldkit/no-module-level-mutable-state": "off" },
+      },
+      {
         // The link secret lives in the URL fragment (docs/invariants.md, C1). Shipped browser code reads the page's
-        // address only through apps/web/src/address.ts, so the fragment cannot reach a log, a request or a report from
+        // address only through apps/web/src/app/address.ts, so the fragment cannot reach a log, a request or a report from
         // anywhere else by accident. The common routes to the URL below are closed too; this guards against a mistake,
         // not a determined read (a form's action, a prototype getter); the end-to-end leak check catches one sent in a URL,
         // a request body or a socket frame.
@@ -94,9 +123,9 @@ export default defineConfig({
             "error",
             {
               name: "location",
-              message: "Read the page's address through apps/web/src/address.ts: the fragment holds the link secret.",
+              message: "Read the page's address through apps/web/src/app/address.ts: the fragment holds the link secret.",
             },
-            { name: "navigation", message: "The Navigation API exposes the page's URL, fragment included; use apps/web/src/address.ts." },
+            { name: "navigation", message: "The Navigation API exposes the page's URL, fragment included; use apps/web/src/app/address.ts." },
           ],
           // Any object's property, not only window's or document's: `w.location` after `const w = window`,
           // `document.body.baseURI`, `window.navigation`, a navigation timing entry and `hashchange` all carry the URL.
@@ -106,18 +135,18 @@ export default defineConfig({
               (property) => ({
                 property,
                 message:
-                  "May expose the page's URL, link secret included: read the address through apps/web/src/address.ts. Bare `URL` and `performance.now()` are fine; for an unrelated object's property of this name, disable the line with a reason.",
+                  "May expose the page's URL, link secret included: read the address through apps/web/src/app/address.ts. Bare `URL` and `performance.now()` are fine; for an unrelated object's property of this name, disable the line with a reason.",
               }),
             ),
           ],
         },
       },
       {
-        files: ["apps/web/src/address.ts"],
+        files: ["apps/web/src/app/address.ts"],
         rules: { "eslint/no-restricted-globals": "off", "eslint/no-restricted-properties": "off" },
       },
       {
-        files: effectFiles,
+        files: [...effectFiles, "apps/web/scripts/fileRoutes.ts", "apps/web/scripts/fileRoutesPlugin.ts", "apps/web/src/routes/**/*.ts"],
         // Ultracite wants `async` on every Promise-returning function; effx forbids native async in Effect code.
         rules: { "typescript/promise-function-async": "off" },
       },
@@ -129,9 +158,10 @@ export default defineConfig({
           "platforms/cloudflare/src/counters.ts",
           "platforms/cloudflare/src/relayBudget.ts",
           "platforms/cloudflare/src/salt.ts",
+          "apps/web/scripts/fileRoutes.ts",
         ],
-        // Parsers of untrusted JSON (the manifest, room creation, control messages, admission bodies): the I/O boundary anti-slop asks
-        // code to parse at, so they take unknown and narrow it with typeof.
+        // Parsers of untrusted JSON and route source ASTs narrow values at their input boundaries.
+        // The same boundary handles unknown filesystem errors before rethrowing them.
         rules: {
           "anti-slop/no-unknown-parameters": "off",
           "anti-slop/no-runtime-typeof": "off",
@@ -159,6 +189,7 @@ export default defineConfig({
       "integrations/*/test/**/*.test.ts",
       "tools/*/test/**/*.test.ts",
       "apps/*/test/**/*.test.ts",
+      "apps/web/generator-test/**/*.test.ts",
     ],
   },
 })

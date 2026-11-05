@@ -27,6 +27,10 @@
         "reason": "workspace package governed by its own group below; tools/quality checks the edge"
       },
       {
+        "specifier": "@file-transfer/catalog",
+        "reason": "portable catalog capability and pure decisions, governed by its own group below; tools/quality checks the edge"
+      },
+      {
         "specifier": "@file-transfer/transport",
         "reason": "workspace package governed by its own group below; tools/quality checks the edge"
       },
@@ -58,6 +62,7 @@
     "groups": [
       {
         "files": [
+          "libraries/catalog/src/**",
           "libraries/client/src/**",
           "libraries/machine/src/**",
           "libraries/sink/src/**",
@@ -74,6 +79,9 @@
       },
       {
         "files": [
+          "effx.config.json",
+          "apps/web/scripts/formatOptions.ts",
+          "apps/web/scripts/renderFileRoutes.ts",
           "libraries/parcel/src/**",
           "tools/quality/src/changesets.ts",
           "tools/quality/src/releaseNotes.ts",
@@ -84,6 +92,11 @@
           "platforms/cloudflare/src/directSettings.ts"
         ],
         "role": "pure-library",
+        "platform": "portable"
+      },
+      {
+        "files": ["tools/quality/src/previewReadiness.ts"],
+        "role": "effect-library",
         "platform": "portable"
       },
       {
@@ -102,19 +115,22 @@
           "tools/quality/src/checkChangesets.ts",
           "tools/quality/src/prepareRelease.ts",
           "tools/quality/src/releaseNotesFor.ts",
-          "tools/quality/src/writeStateMachines.ts"
+          "tools/quality/src/writeStateMachines.ts",
+          "tools/quality/src/checkPreviewReadiness.ts"
         ],
         "role": "composition-root",
         "platform": "node"
       },
       {
         "files": [
-          "apps/web/src/files.ts",
-          "apps/web/src/ranges.ts",
-          "apps/web/src/credits.ts",
-          "apps/web/src/selection.ts",
-          "apps/web/src/sniff.ts",
-          "apps/web/src/recipientPhase.ts",
+          "apps/web/src/app/assets.ts",
+          "apps/web/src/capabilities/appearance/preference.ts",
+          "apps/web/src/features/receive/files.ts",
+          "apps/web/src/capabilities/connection/ranges.ts",
+          "apps/web/src/capabilities/connection/credits.ts",
+          "apps/web/src/ui/selection.ts",
+          "apps/web/src/capabilities/preview/sniff.ts",
+          "apps/web/src/features/receive/phase.ts",
           "apps/web/scripts/faultPlan.ts"
         ],
         "role": "pure-library",
@@ -122,34 +138,109 @@
       },
       {
         "files": [
-          "apps/web/src/address.ts",
-          "apps/web/src/connection.ts",
-          "apps/web/src/storage.ts",
-          "apps/web/src/report.ts",
-          "apps/web/src/view.ts",
-          "apps/web/src/sender.ts",
-          "apps/web/src/recipient.ts",
-          "apps/web/src/share.ts",
-          "apps/web/src/summary.ts",
-          "apps/web/src/saveAll.ts",
-          "apps/web/src/leaveGuard.ts",
-          "apps/web/src/storagePanel.ts",
-          "apps/web/src/preview.ts",
-          "apps/web/src/previewFrame.ts",
-          "apps/web/src/rename.ts",
-          "apps/web/src/serverLimits.ts",
-          "apps/web/src/admin.ts",
-          "apps/web/src/direct.ts",
-          "apps/web/src/directSettings.ts"
+          "apps/web/src/capabilities/appearance/browser.ts",
+          "apps/web/src/app/address.ts",
+          "apps/web/src/capabilities/connection/connection.ts",
+          "apps/web/src/capabilities/transfer/storage.ts",
+          "apps/web/src/capabilities/transfer/report.ts",
+          "apps/web/src/ui/view.ts",
+          "apps/web/src/features/quick-share/session.ts",
+          "apps/web/src/features/receive/session.ts",
+          "apps/web/src/capabilities/transfer/summary.ts",
+          "apps/web/src/app/leaveGuard.ts",
+          "apps/web/src/features/settings/storagePanel.ts",
+          "apps/web/src/features/quick-share/serverLimits.ts",
+          "apps/web/src/capabilities/connection/direct.ts",
+          "apps/web/src/capabilities/connection/directSettings.ts",
+          "apps/web/src/capabilities/catalog/browser.ts"
         ],
         "role": "runtime-adapter",
         "platform": "browser",
         "adapterDependencies": ["uqr", "uplot", "valibot"]
       },
       {
-        "files": ["apps/web/src/main.ts"],
+        "files": [
+          "apps/web/src/features/quick-share/main.ts",
+          "apps/web/src/features/receive/main.ts",
+          "apps/web/src/features/receive/downloads.ts",
+          "apps/web/src/features/receive/unsavedFiles.ts",
+          "apps/web/src/features/library/main.ts",
+          "apps/web/src/features/settings/main.ts",
+          "apps/web/src/features/administration/main.ts",
+          "apps/web/src/features/administration/data.ts",
+          "apps/web/src/features/administration/chart.ts",
+          "apps/web/src/capabilities/preview/main.ts",
+          "apps/web/src/capabilities/preview/protocol.ts",
+          "apps/web/src/capabilities/preview/pdf/pdfResources.ts",
+          "apps/web/src/ui/icon.ts",
+          "apps/web/src/ui/receive.ts",
+          "apps/web/src/ui/share.ts",
+          "apps/web/src/ui/summary.ts",
+          "apps/web/src/ui/name.ts",
+          "apps/web/src/routing/**",
+          "apps/web/src/routes/**",
+          "apps/web/src/site/**",
+          "apps/web/src/ui/privateValue.ts",
+          "apps/web/src/app/routes.ts",
+          "apps/web/src/app/main.ts"
+        ],
+        "role": "runtime-adapter",
+        "platform": "browser",
+        "adapterDependencies": ["foldkit", "@foldkit/ui", "@effect/platform-browser", "uplot", "uqr", "valibot"]
+      },
+      {
+        "files": ["apps/web/src/capabilities/preview/pdf/pdfResourceManifest.ts"],
+        "role": "runtime-adapter",
+        "platform": "browser",
+        "adapterDependencies": ["pdfjs-dist"]
+      },
+      {
+        "files": ["apps/web/src/capabilities/preview/frame/entry.ts"],
         "role": "composition-root",
-        "platform": "browser"
+        "platform": "browser",
+        "adapterDependencies": ["foldkit", "@foldkit/ui", "pdfjs-dist"]
+      },
+      {
+        "files": ["apps/web/src/app/entry.ts", "apps/web/src/features/administration/entry.ts"],
+        "role": "composition-root",
+        "platform": "browser",
+        "adapterDependencies": ["foldkit"]
+      },
+      {
+        "files": ["apps/web/scripts/fileRoutes.ts"],
+        "role": "runtime-adapter",
+        "platform": "node",
+        "adapterDependencies": ["node:fs", "node:path", "oxc-parser", "vite-plus"]
+      },
+      {
+        "files": ["apps/web/scripts/fileRoutesCheck.ts", "apps/web/scripts/fileRoutesPlugin.ts"],
+        "role": "composition-root",
+        "platform": "node",
+        "adapterDependencies": ["node:path", "vite-plus"]
+      },
+      {
+        "files": ["tools/quality/src/checkWebRoles.ts"],
+        "role": "composition-root",
+        "platform": "bun",
+        "adapterDependencies": ["bun"]
+      },
+      {
+        "files": ["apps/web/scripts/verify/snapshot.ts"],
+        "role": "runtime-adapter",
+        "platform": "node",
+        "adapterDependencies": ["node:child_process", "node:crypto", "node:fs", "node:path"]
+      },
+      {
+        "files": ["apps/web/generator-test/**"],
+        "role": "composition-root",
+        "platform": "node",
+        "adapterDependencies": ["@effect/platform-node", "node:fs", "node:os", "node:path"]
+      },
+      {
+        "files": ["apps/*/test/**"],
+        "role": "test",
+        "platform": "node",
+        "adapterDependencies": ["foldkit", "@foldkit/ui", "vite-plus", "node:child_process", "node:fs", "node:os", "node:path"]
       },
       {
         "files": [
@@ -158,7 +249,6 @@
           "services/*/test/**",
           "platforms/*/test/**",
           "integrations/*/test/**",
-          "apps/*/test/**",
           "tools/*/test/**"
         ],
         "role": "test",

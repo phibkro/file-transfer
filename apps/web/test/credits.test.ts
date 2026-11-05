@@ -1,6 +1,15 @@
 import * as fc from "fast-check"
 import { describe, expect, it } from "vite-plus/test"
-import { consume, createCreditWindow, grantDue, maximumCreditsPerMessage, outstanding, receiveCredit, resetCredits, spendCredit } from "../src/credits.ts"
+import {
+  consume,
+  createCreditWindow,
+  grantDue,
+  maximumCreditsPerMessage,
+  outstanding,
+  receiveCredit,
+  resetCredits,
+  spendCredit,
+} from "../src/capabilities/connection/credits.ts"
 
 describe("recipient credit window", () => {
   it("grants the whole window first, then tops up at half", () => {

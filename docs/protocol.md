@@ -97,7 +97,7 @@ Each binary frame carries one unit: a 9-byte prefix, then the unit's bytes as `p
 
 A sender's socket can drop with `complete` in flight, so it never hears it. Two things make sure it still learns the transfer completed:
 
-- The completed recipient stays connected for two minutes and sends `complete` again whenever the sender joins (`apps/web/src/recipient.ts`).
+- The completed recipient stays connected for two minutes and sends `complete` again whenever the sender joins (`apps/web/src/features/receive/session.ts`).
 - The room remembers that a recipient completed: when an admitted recipient sends the first `complete` the room can decode, it stores the sequence number (not the message; later ones change nothing), and every sender that joins afterwards gets `complete` with that sequence right after `joined`. This covers a sender that gets back after every recipient has gone. The room learns nothing it did not already relay, and the record goes with the room when it expires after a day without participants.
 
 A sender treats every `complete` for its sequence alike, so hearing it twice changes nothing.

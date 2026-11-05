@@ -1,6 +1,6 @@
 import * as fc from "fast-check"
 import { describe, expect, it } from "vite-plus/test"
-import { addToSelection, removeFromSelection, renameProblem } from "../src/selection.ts"
+import { addToSelection, removeFromSelection, renameProblem } from "../src/ui/selection.ts"
 
 const named = (...names: readonly string[]) => names.map((name) => ({ name }))
 
