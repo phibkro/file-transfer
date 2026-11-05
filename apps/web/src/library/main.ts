@@ -9,6 +9,7 @@ import { privateValue } from "../privateValue.ts"
 import { deriveMyFiles } from "@file-transfer/catalog"
 import type { LibraryCollection, LibrarySnapshot } from "@file-transfer/catalog"
 import * as BrowserCatalog from "../localLibrary.ts"
+import * as Preview from "../preview/main.ts"
 
 type Snapshot = LibrarySnapshot
 
@@ -28,6 +29,7 @@ type Action =
  | { readonly kind: "forgetCollection"; readonly collection: LibraryCollection; readonly epoch: number }
  | { readonly kind: "reconnect"; readonly previous: Entry; readonly current: BrowserCatalog.IndexedVersion; readonly epoch: number }
  | { readonly kind: "review"; readonly entries: Snapshot["files"]; readonly collection: LibraryCollection | undefined; readonly epoch: number }
+ | { readonly kind: "preview"; readonly entry: Entry }
  | { readonly kind: "approve"; readonly reviewed: Review; readonly collection: LibraryCollection | undefined; readonly epoch: number }
 
 type Result =
@@ -35,6 +37,7 @@ type Result =
  | { readonly kind: "snapshot"; readonly snapshot: Snapshot }
  | { readonly kind: "review"; readonly reviewed: Review; readonly collection: LibraryCollection | undefined; readonly epoch: number }
  | { readonly kind: "candidate"; readonly previous: Entry; readonly current: BrowserCatalog.IndexedVersion; readonly epoch: number }
+ | { readonly kind: "preview"; readonly file: File }
  | { readonly kind: "share"; readonly snapshot: Snapshot; readonly files: readonly File[] }
 
 type Confirmation =
@@ -62,7 +65,8 @@ export const Model = Schema.Struct({
  tabs: Tabs.Model,
  dialog: Dialog.Model,
  fileDrop: FileDrop.Model,
- operation: Schema.Literals(["idle", "catalog", "source", "cancelling"]),
+ preview: Preview.Model,
+ operation: Schema.Literals(["idle", "catalog", "source", "preview", "cancelling"]),
  dropGeneration: Schema.Int,
  generation: Schema.Int,
  status: Schema.String,
@@ -74,6 +78,9 @@ export const Message = defineMessageUnion({
  GotTabsMessage: { message: Tabs.Message },
  GotDialogMessage: { message: Dialog.Message },
  GotFileDropMessage: { message: privateValue<FileDrop.Message>(), generationId: Schema.Int },
+ GotPreviewMessage: { message: privateValue<Preview.Message>() },
+ RequestedPreview: { identifier: Schema.Int },
+ CancelledPreview: {},
  ChangedCollectionName: { name: privateValue<string>() },
  ChangedSearch: { search: privateValue<string>() },
  ToggledDetails: { open: Schema.Boolean },
@@ -166,6 +173,15 @@ const perform = Effect.fnUntraced(function*(action: Action): Effect.fn.Return<Re
    return { kind: "snapshot", snapshot: yield* BrowserCatalog.reconnectFile(action.previous, action.current, action.epoch) }
   }
 
+  case "preview": {
+   const reviewed = yield* BrowserCatalog.reviewCatalogFiles([action.entry])
+   const entry = reviewed[0]
+   if (entry === undefined) {
+    return yield* new BrowserCatalog.LibraryStorageError({ cause: "Original unavailable" })
+   }
+   return { kind: "preview", file: entry.file }
+  }
+
   case "review": {
    return { kind: "review", reviewed: yield* BrowserCatalog.reviewCatalogFiles(action.entries), collection: action.collection, epoch: action.epoch }
   }
@@ -206,7 +222,7 @@ const start = (model: Model, action: Action): Update.Return<Model, Message> =>
   ? {
    model: {
     ...model,
-    operation: action.kind === "picker" || action.kind === "index" ? "source" : "catalog",
+    operation: action.kind === "preview" ? "preview" : action.kind === "picker" || action.kind === "index" ? "source" : "catalog",
     generation: model.generation + 1,
     status: "Working locally. No file content is being uploaded.",
    },
@@ -227,6 +243,7 @@ export const init = (): Update.Return<Model, Message> => ({
   detailsOpen: false,
   storageLocation: "device",
   tabs: Tabs.init({ id: "library-location" }),
+  preview: Preview.init().model,
   dialog: Dialog.init({ id: "library-confirmation" }),
   fileDrop: FileDrop.init({ id: "library-files" }),
   operation: "idle",
@@ -317,12 +334,35 @@ const foldDrop = (generation: number) =>
     },
  })
 
+const liftPreview = (message: Preview.Message): Message => Message.GotPreviewMessage({ message: Redacted.make(message) })
+
+const foldPreview = Update.foldChild({
+ update: Preview.update,
+ read: (model: Model) => Option.some(model.preview),
+ write: (model: Model, preview: Preview.Model): Model => ({ ...model, preview }),
+ toParentMessage: liftPreview,
+})
+
+const openPreview = (model: Model, file: File): Return =>
+ Update.foldChildStep({
+  update: (preview: Preview.Model) => Preview.open(preview, Redacted.make({ file, name: file.name })),
+  read: (parent: Model) => Option.some(parent.preview),
+  write: (parent: Model, preview: Preview.Model): Model => ({ ...parent, preview }),
+  toParentMessage: liftPreview,
+ })(model)
+
 export const update = (model: Model, incoming: Message): Return => {
  const snapshot = Redacted.value(model.snapshot)
  const collection = snapshot.collections.find((entry) => entry.identifier === model.collection)
  const { epoch } = snapshot
 
  return Message.match<Return>(incoming, {
+  GotPreviewMessage: ({ message }) => foldPreview(model, Redacted.value(message)),
+  RequestedPreview: ({ identifier }) => {
+   const entry = snapshot.files.find((file) => file.identifier === identifier)
+   return entry === undefined || !snapshot.enabled ? { model } : start(model, { kind: "preview", entry })
+  },
+  CancelledPreview: () => model.operation === "preview" ? cancel(model) : { model },
   GotTabsMessage: (message) => (model.operation === "idle" ? foldTabs(model, message.message) : { model }),
   GotDialogMessage: (message) => foldDialog(model, message.message),
   GotFileDropMessage: (message) =>
@@ -478,6 +518,9 @@ export const update = (model: Model, incoming: Message): Return => {
    }
 
    const result = Redacted.value(message.result)
+   if (result.kind === "preview") {
+    return openPreview({ ...model, operation: "idle", status: "" }, result.file)
+   }
    const ready: Model = { ...model, loadState: result.kind === "loaded" ? "ready" : model.loadState, operation: "idle", status: result.kind === "loaded" ? "" : "Library updated on this device only." }
 
    if (result.kind === "review") {
@@ -567,7 +610,7 @@ export const view = defineView<Model, Message, { readonly sharingDisabled: boole
 
  const device = () =>
   h.section(
-   [],
+   [h.Class("space-y-3")],
    [
     Checkbox.view(
      {
@@ -673,7 +716,7 @@ export const view = defineView<Model, Message, { readonly sharingDisabled: boole
         [
          h.p([], [collection.identifier === 0 ? "No files added yet." : "This collection is empty."]),
          collection.identifier === 0
-          ? button(h, "Add files", Message.RequestedAddDialog(), disabled)
+          ? h.p([h.Class("text-sm")], [snapshot.enabled ? "Use Add files to index originals on this device." : "Turn on remembering to add files to your Library."])
           : h.p([h.Class("text-sm")], ["Select files in My files to add them to this collection."]),
         ],
        )
@@ -724,6 +767,14 @@ export const view = defineView<Model, Message, { readonly sharingDisabled: boole
            h.div(
             [h.Class("row-actions")],
             [
+             Button.view(
+              {
+               onClick: Message.RequestedPreview({ identifier: entry.identifier }),
+               isDisabled: disabled,
+               toView: (attributes) => h.button([...attributes.button, h.Class("button"), h.AriaLabel(`Preview ${entry.name}`)], ["Preview"]),
+              },
+              h,
+             ),
              Button.view(
               {
                onClick: Message.RequestedManageFile({ identifier: entry.identifier }),
@@ -863,6 +914,7 @@ export const view = defineView<Model, Message, { readonly sharingDisabled: boole
     ],
    ),
    model.status === "" ? null : h.p([h.Role("status")], [model.status]),
+   model.operation === "preview" ? button(h, "Cancel preview", Message.CancelledPreview()) : null,
    h.submodel({
     slotId: "library-location",
     model: model.tabs,
@@ -908,6 +960,7 @@ export const view = defineView<Model, Message, { readonly sharingDisabled: boole
       ),
     },
    }),
+   h.submodel({ slotId: "library-preview", model: model.preview, view: Preview.view, toParentMessage: liftPreview }),
    h.submodel({
     slotId: "library-confirmation",
     model: model.dialog,

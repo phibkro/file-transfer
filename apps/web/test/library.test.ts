@@ -38,6 +38,28 @@ const actionFrom = (result: ReturnType<typeof update>) => {
 }
 
 describe("Library page transitions", () => {
+  test("preview resolves one current file without approving or sharing it", () => {
+    const model = catalogModel()
+    const requested = update(model, Message.RequestedPreview({ identifier: firstFile.identifier }))
+    expect(actionFrom(requested)).toEqual({ kind: "preview", entry: firstFile })
+    expect(requested.model.operation).toBe("preview")
+    const file = new File(["current"], "current.txt")
+    const opened = update(requested.model, Message.SucceededLibraryAction({ generation: requested.model.generation, result: Redacted.make({ kind: "preview", file }) }))
+    expect(Redacted.value(opened.model.preview.input)).toEqual({ file, name: file.name })
+    expect(opened.model.snapshot).toBe(model.snapshot)
+    expect(opened.outMessage).toBeUndefined()
+  })
+
+  test("cancelled preview cannot open from a late result", () => {
+    const requested = update(catalogModel(), Message.RequestedPreview({ identifier: firstFile.identifier })).model
+    const cancelled = update(requested, Message.CancelledPreview())
+    expect(cancelled.model.operation).toBe("cancelling")
+    const file = new File(["current"], "current.txt")
+    const late = update(cancelled.model, Message.SucceededLibraryAction({ generation: requested.generation, result: Redacted.make({ kind: "preview", file }) }))
+    expect(Redacted.value(late.model.preview.input)).toBeUndefined()
+    expect(late.outMessage).toBeUndefined()
+  })
+
   test("loading the Library leaves no update status and indexing details start closed", () => {
     const pending = boot().model
     expect(pending.detailsOpen).toBe(false)
