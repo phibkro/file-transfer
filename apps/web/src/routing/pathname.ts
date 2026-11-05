@@ -18,7 +18,7 @@ export const parsePathname = <A>(pathname: string, router: Route.Parser<A>): Eff
     return Effect.succeedNone
   }
 
-  if (segments.some((segment) => segment === "" || segment.includes("/"))) {
+  if (segments.some((segment) => segment === "" || segment === "." || segment === ".." || segment.includes("/"))) {
     return Effect.succeedNone
   }
 
@@ -52,13 +52,25 @@ export const buildRoutePath = (
 
     const result = Schema.encodeOption(segment.schema)(input)
 
-    if (result._tag === "None" || result.value === "" || result.value.includes("/")) {
+    if (result._tag === "None" || result.value === "" || result.value === "." || result.value === ".." || result.value.includes("/")) {
       return undefined
     }
   }
 
   try {
-    return print(values)?.split("/").map(encodeURIComponent).join("/")
+    const printed = print(values)
+
+    if (printed === undefined) {
+      return undefined
+    }
+
+    const parts = printed.split("/")
+
+    if (parts.some((part) => part === "." || part === "..")) {
+      return undefined
+    }
+
+    return parts.map(encodeURIComponent).join("/")
   } catch {
     return undefined
   }

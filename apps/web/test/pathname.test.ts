@@ -37,6 +37,8 @@ const printItem = (params: Readonly<Record<string, string>>) => {
   return itemRouter({ first: params.first, second: params.second })
 }
 
+const print = (params: Readonly<Record<string, string>>) => `/item/${params.name}`
+
 describe("pathname routing", () => {
   it("rejects invalid generated paths without fallback or exception", () => {
     expect(Effect.runSync(parsePath("/library/extra"))._tag).toBe("None")
@@ -99,6 +101,20 @@ describe("pathname routing", () => {
     ]) {
       expect(Effect.runSync(parsePathname(path, router))._tag).toBe("None")
     }
+  })
+
+  it("rejects dot segments before URL normalization", () => {
+    const permissive = pipe(Route.literal("item"), Route.slash(Route.schemaSegment("name", Schema.String)))
+    const permissiveSegments = ["item", { name: "name", schema: Schema.String }] as const
+
+    for (const value of [".", "..", "%2e", "%2E%2e", ".%2e", "%2e."]) {
+      expect(Effect.runSync(parsePathname(`/item/${value}`, permissive))._tag).toBe("None")
+    }
+
+    expect(buildRoutePath(permissiveSegments, { name: "." }, print)).toBeUndefined()
+    expect(buildRoutePath(permissiveSegments, { name: ".." }, print)).toBeUndefined()
+    expect(buildRoutePath(["item", ".."], undefined, () => "/item/..")).toBeUndefined()
+    expect(buildRoutePath(permissiveSegments, { name: "safe" }, print)).toBe("/item/safe")
   })
 
   it("validates and encodes each parameter when building", () => {
