@@ -32,7 +32,6 @@ jobs:
           node-version: 22
       - run: bun install --frozen-lockfile
       # Vite+ check (format, lint, types), module graph, dependency hygiene (knip), Effect profile (effx), tests (Vitest).
-      - run: node --test .github/scripts/preview-readiness.test.mjs
       - run: bun run check
       # Independent re-implementation of parcel v1 (Python, OpenSSL) must reproduce every test vector byte.
       - uses: actions/setup-python@v6
@@ -231,7 +230,9 @@ jobs:
         id: readiness
         env:
           PREVIEW_URL: ${{ steps.deploy.outputs.check_url }}
-        run: node .github/scripts/preview-readiness.mjs
+        run: |
+          result="$(bun tools/quality/src/checkPreviewReadiness.ts)"
+          echo "result=$result" >> "$GITHUB_OUTPUT"
       - name: Comment the preview URL
         env:
           GH_TOKEN: ${{ github.token }}

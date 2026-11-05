@@ -95,6 +95,11 @@
         "platform": "portable"
       },
       {
+        "files": ["tools/quality/src/previewReadiness.ts"],
+        "role": "effect-library",
+        "platform": "portable"
+      },
+      {
         "files": ["services/*/src/**"],
         "role": "service",
         "platform": "portable"
@@ -110,7 +115,8 @@
           "tools/quality/src/checkChangesets.ts",
           "tools/quality/src/prepareRelease.ts",
           "tools/quality/src/releaseNotesFor.ts",
-          "tools/quality/src/writeStateMachines.ts"
+          "tools/quality/src/writeStateMachines.ts",
+          "tools/quality/src/checkPreviewReadiness.ts"
         ],
         "role": "composition-root",
         "platform": "node"
