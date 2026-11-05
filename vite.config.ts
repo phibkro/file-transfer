@@ -85,21 +85,28 @@ export default defineConfig({
     overrides: [
       {
         files: [
-          "apps/web/src/{sender,recipient,library,admin,preview,ui,site}/**/*.ts",
-          "apps/web/src/main.ts",
-          "apps/web/src/entry.ts",
-          "apps/web/src/previewFrame.ts",
+          "apps/web/src/features/{quick-share,receive,library,administration}/main.ts",
+          "apps/web/src/features/receive/{downloads,unsavedFiles}.ts",
+          "apps/web/src/features/administration/{chart,data,entry}.ts",
+          "apps/web/src/features/settings/main.ts",
+          "apps/web/src/capabilities/preview/{main,protocol}.ts",
+          "apps/web/src/capabilities/preview/pdf/**/*.ts",
+          "apps/web/src/ui/{icon,receive,share,summary,name}.ts",
+          "apps/web/src/site/**/*.ts",
+          "apps/web/src/app/main.ts",
+          "apps/web/src/app/entry.ts",
+          "apps/web/src/capabilities/preview/frame/entry.ts",
         ],
         // SAFETY: the installed recommended preset contains only error and off severities.
         rules: foldkitRecommended.rules as Record<string, "error" | "off">,
       },
       {
-        files: ["apps/web/src/entry.ts", "apps/web/src/previewFrame.ts"],
+        files: ["apps/web/src/app/entry.ts", "apps/web/src/capabilities/preview/frame/entry.ts"],
         rules: { "foldkit/no-impure-call-at-decision-time": "off" },
       },
       {
         // The link secret lives in the URL fragment (docs/invariants.md, C1). Shipped browser code reads the page's
-        // address only through apps/web/src/address.ts, so the fragment cannot reach a log, a request or a report from
+        // address only through apps/web/src/app/address.ts, so the fragment cannot reach a log, a request or a report from
         // anywhere else by accident. The common routes to the URL below are closed too; this guards against a mistake,
         // not a determined read (a form's action, a prototype getter); the end-to-end leak check catches one sent in a URL,
         // a request body or a socket frame.
@@ -109,9 +116,9 @@ export default defineConfig({
             "error",
             {
               name: "location",
-              message: "Read the page's address through apps/web/src/address.ts: the fragment holds the link secret.",
+              message: "Read the page's address through apps/web/src/app/address.ts: the fragment holds the link secret.",
             },
-            { name: "navigation", message: "The Navigation API exposes the page's URL, fragment included; use apps/web/src/address.ts." },
+            { name: "navigation", message: "The Navigation API exposes the page's URL, fragment included; use apps/web/src/app/address.ts." },
           ],
           // Any object's property, not only window's or document's: `w.location` after `const w = window`,
           // `document.body.baseURI`, `window.navigation`, a navigation timing entry and `hashchange` all carry the URL.
@@ -121,14 +128,14 @@ export default defineConfig({
               (property) => ({
                 property,
                 message:
-                  "May expose the page's URL, link secret included: read the address through apps/web/src/address.ts. Bare `URL` and `performance.now()` are fine; for an unrelated object's property of this name, disable the line with a reason.",
+                  "May expose the page's URL, link secret included: read the address through apps/web/src/app/address.ts. Bare `URL` and `performance.now()` are fine; for an unrelated object's property of this name, disable the line with a reason.",
               }),
             ),
           ],
         },
       },
       {
-        files: ["apps/web/src/address.ts"],
+        files: ["apps/web/src/app/address.ts"],
         rules: { "eslint/no-restricted-globals": "off", "eslint/no-restricted-properties": "off" },
       },
       {

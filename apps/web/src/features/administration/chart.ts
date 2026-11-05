@@ -1,7 +1,7 @@
 import { Effect, Redacted, Schema } from "effect"
 import { Mount } from "foldkit"
 import "uplot/dist/uPlot.min.css"
-import { privateValue } from "../privateValue.ts"
+import { privateValue } from "../../ui/privateValue.ts"
 import type { HourRow } from "./data.ts"
 
 export const ChartMessage = Schema.TaggedStruct("CompletedChartMount", { success: Schema.Boolean })

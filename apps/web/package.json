@@ -5,7 +5,7 @@
   "license": "AGPL-3.0-only",
   "type": "module",
   "exports": {
-    "./recipientPhase": "./src/recipientPhase.ts"
+    "./recipientPhase": "./src/features/receive/phase.ts"
   },
   "scripts": {
     "dev": "vp dev",

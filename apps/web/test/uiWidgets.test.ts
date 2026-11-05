@@ -1,7 +1,7 @@
 import { Option, Redacted } from "effect"
 import { describe, expect, it } from "vite-plus/test"
 import * as Name from "../src/ui/name.ts"
-import * as Settings from "../src/ui/settings.ts"
+import * as Settings from "../src/features/settings/main.ts"
 import * as Share from "../src/ui/share.ts"
 
 describe("private transfer widgets", () => {

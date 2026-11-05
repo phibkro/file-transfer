@@ -14,8 +14,8 @@ import {
   rangesAreValid,
   rangesOf,
   replaceDebt,
-} from "../src/ranges.ts"
-import type { RecordRange } from "../src/ranges.ts"
+} from "../src/capabilities/connection/ranges.ts"
+import type { RecordRange } from "../src/capabilities/connection/ranges.ts"
 
 const expand = (ranges: readonly RecordRange[]) => ranges.flatMap(([start, end]) => Array.from({ length: end - start }, (_, offset) => start + offset))
 

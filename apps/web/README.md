@@ -26,7 +26,7 @@ Cloud storage is not implemented. Service-provided cloud storage requires an acc
 
 ## Shared theme
 
-[style.css](src/style.css) is the authoritative global stylesheet. Its `:root` defines semantic background/foreground pairs, cards, primary actions, muted content, borders, focus rings, radii, fonts and chart colors. Tailwind's `@theme inline` maps those variables to utilities. Components use semantic tokens instead of separate color palettes. The convention follows [shadcn theming](https://ui.shadcn.com/docs/theming), without React or shadcn component dependencies.
+[style.css](src/styles/theme.css) is the authoritative global stylesheet. Its `:root` defines semantic background/foreground pairs, cards, primary actions, muted content, borders, focus rings, radii, fonts and chart colors. Tailwind's `@theme inline` maps those variables to utilities. Components use semantic tokens instead of separate color palettes. The convention follows [shadcn theming](https://ui.shadcn.com/docs/theming), without React or shadcn component dependencies.
 
 Settings offers Light, Dark and System appearance, stored only on this device. System follows the operating-system theme live. The shared layout applies a validated saved choice before paint through a CSP-hashed startup script, including recipient, operator and static information pages. The opaque preview receives the choice over its validated channel rather than accessing storage.
 The operator-supplied design provides the Pocketdrop identity and artwork. Its provenance is in [research.md](../../docs/research.md#pocketdrop-design-reference). Its demo transfer storage, sample files, history and expiry controls are not part of this application. Preview content remains isolated in its sandbox. QR black and white modules are scanner requirements, not theme colors.
@@ -39,13 +39,13 @@ The bundled main-thread PDF worker avoids a worker or network exception in CSP. 
 
 ## Implementation boundaries
 
-- [entry.ts](src/entry.ts) owns browser startup and address capture. [main.ts](src/main.ts) composes page Submodels, settings, summaries and owned subscriptions.
+- [entry.ts](src/app/entry.ts) owns browser startup and address capture. [main.ts](src/app/main.ts) composes page Submodels, settings, summaries and owned subscriptions.
 - The sender, recipient, Library and operator directories contain Schema-backed Models and Messages, pure update/view functions, and Foldkit lifecycle primitives. [ui/](src/ui/) contains shared controls.
-- [sender.ts](src/sender.ts), [recipient.ts](src/recipient.ts), [connection.ts](src/connection.ts), [direct.ts](src/direct.ts) and [storage.ts](src/storage.ts) provide transfer and native browser capabilities. Wire decoding stays Valibot-based; the parcel format is unchanged.
+- [sender.ts](src/features/quick-share/session.ts), [recipient.ts](src/features/receive/session.ts), [connection.ts](src/capabilities/connection/connection.ts), [direct.ts](src/capabilities/connection/direct.ts) and [storage.ts](src/capabilities/transfer/storage.ts) provide transfer and native browser capabilities. Wire decoding stays Valibot-based; the parcel format is unchanged.
 - [catalog](../../libraries/catalog/src/index.ts) owns portable metadata, collection rules, consent epochs, revision checks and approval decisions. Its reference Layer uses in-memory state.
-- [localLibrary.ts](src/localLibrary.ts) implements those decisions inside native IndexedDB transactions. It owns file handles, transient Files, source resolution and fingerprint reads.
+- [localLibrary.ts](src/capabilities/catalog/browser.ts) implements those decisions inside native IndexedDB transactions. It owns file handles, transient Files, source resolution and fingerprint reads.
 - Catalog snapshots contain metadata and opaque source strings, never native Files or handles. The browser adapter returns committed snapshots and publishes source capabilities only after commit.
-- [privateValue.ts](src/privateValue.ts) gives sensitive state a redacted, non-restorable development JSON codec. Names, keys, fragments, native Files/handles and preview payloads must not enter preservation or diagnostic messages as plaintext.
+- [privateValue.ts](src/ui/privateValue.ts) gives sensitive state a redacted, non-restorable development JSON codec. Names, keys, fragments, native Files/handles and preview payloads must not enter preservation or diagnostic messages as plaintext.
 - [site/](src/site/) and [layout.ts](scripts/layout.ts) render shared chrome and static information pages through Foldkit. Information pages remain useful without JavaScript. uPlot is isolated to the operator page and owned by an element Mount.
 
 ## Development and AI tools

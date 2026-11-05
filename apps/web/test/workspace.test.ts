@@ -1,9 +1,9 @@
 import { Option, Redacted } from "effect"
 import { describe, expect, it } from "vite-plus/test"
-import * as Main from "../src/main.ts"
-import * as Library from "../src/library/main.ts"
-import * as Sender from "../src/sender/main.ts"
-import { AppRoute } from "../src/routes.ts"
+import * as Main from "../src/app/main.ts"
+import * as Library from "../src/features/library/main.ts"
+import * as Sender from "../src/features/quick-share/main.ts"
+import { AppRoute } from "../src/app/routes.ts"
 
 const boot = () => Main.init({ route: AppRoute.QuickShare(), fragment: Redacted.make(""), initialSection: "quick", origin: "https://example.test" }).model
 

@@ -6,7 +6,7 @@
  * keys. The location comes from Cloudflare's `/cdn-cgi/trace` on this same origin; elsewhere it reads "unknown".
  */
 import type { TransferSummary } from "./report.ts"
-import { formatSize } from "./view.ts"
+import { formatSize } from "../../ui/view.ts"
 
 /** The `colo` line of Cloudflare's trace endpoint, such as "OSL"; undefined off Cloudflare. */
 export const edgeLocation = async (): Promise<string | undefined> => {

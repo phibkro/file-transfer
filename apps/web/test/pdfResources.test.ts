@@ -1,6 +1,6 @@
 import { Effect } from "effect"
 import { describe, expect, test } from "vite-plus/test"
-import { pdfResource } from "../src/preview/pdfResources.ts"
+import { pdfResource } from "../src/capabilities/preview/pdf/pdfResources.ts"
 
 describe("PDF resources", () => {
   test("rejects names outside the packaged resource sets", async () => {

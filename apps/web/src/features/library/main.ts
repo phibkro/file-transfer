@@ -4,12 +4,12 @@ import { defineMessageUnion } from "foldkit/message"
 import type { HtmlBuilder } from "foldkit/html"
 import { defineView } from "foldkit/submodel"
 import { Button, Checkbox, Dialog, Disclosure, FileDrop, Input, Tabs } from "@foldkit/ui"
-import { icon } from "../ui/icon.ts"
-import { privateValue } from "../privateValue.ts"
+import { icon } from "../../ui/icon.ts"
+import { privateValue } from "../../ui/privateValue.ts"
 import { deriveMyFiles } from "@file-transfer/catalog"
 import type { LibraryCollection, LibrarySnapshot } from "@file-transfer/catalog"
-import * as BrowserCatalog from "../localLibrary.ts"
-import * as Preview from "../preview/main.ts"
+import * as BrowserCatalog from "../../capabilities/catalog/browser.ts"
+import * as Preview from "../../capabilities/preview/main.ts"
 
 type Snapshot = LibrarySnapshot
 

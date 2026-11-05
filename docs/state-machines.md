@@ -49,7 +49,7 @@ stateDiagram-v2
 | Open   | rejected    | Open (a credit is unspent) | Open         | Open      | Closed       |
 | Closed | rejected    | rejected                   | rejected     | Closed    | Closed       |
 
-## Recipient (`apps/web/src/recipientPhase.ts`)
+## Recipient (`apps/web/src/features/receive/phase.ts`)
 
 Checked by `apps/web/test/recipientPhase.test.ts` (that the table is well formed, every command in a terminal phase, and the cells spike 0006 found broken) and the browser suite's life-cycle checks (`apps/web/scripts/endToEnd.ts`), which drive the app through those cells. It is not a service, so no conformance suite checks every cell.
 

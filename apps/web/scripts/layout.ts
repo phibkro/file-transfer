@@ -7,7 +7,7 @@ import type { Html, HtmlBuilder } from "foldkit/html"
 import type { Plugin } from "vite-plus"
 import { contentPages } from "../src/site/content.ts"
 import { siteFooter, siteHeader } from "../src/site/layout.ts"
-import { appearanceStorageKey, appearanceValues } from "../src/appearance.ts"
+import { appearanceStorageKey, appearanceValues } from "../src/capabilities/appearance/preference.ts"
 
 // Run before styles paint, including static pages, with a CSP hash rather than unsafe-inline.
 const appearanceStartup = `try{const value=localStorage.getItem(${JSON.stringify(appearanceStorageKey)});if(${JSON.stringify(appearanceValues.filter((value) => value !== "system"))}.includes(value))document.documentElement.dataset.appearance=value}catch{}`
@@ -20,7 +20,7 @@ const head = `<meta charset="utf-8" />
     <meta name="referrer" content="no-referrer" />
     <script>${appearanceStartup}</script>
     <link rel="icon" href="/mark.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="/src/style.css" />`
+    <link rel="stylesheet" href="/src/styles/theme.css" />`
 
 const render = (view: (h: HtmlBuilder<never>) => Html): string =>
   Effect.runSync(renderToString<null, never>({ init: () => ({ model: null }), view: (_model, h) => ({ title: "", body: view(h) }) }, { isHydratable: false }))

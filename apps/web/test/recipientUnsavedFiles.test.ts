@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test"
-import { createUnsavedFiles } from "../src/recipient/unsavedFiles.ts"
+import { createUnsavedFiles } from "../src/features/receive/unsavedFiles.ts"
 
 describe("received file save tracking", () => {
   it("keeps leave protection until every distinct file is saved", () => {

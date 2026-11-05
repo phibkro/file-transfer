@@ -74,7 +74,7 @@ const openProfile = async (label: string) => {
   const context = await browser.newContext()
 
   if (journey === "resume") {
-    // Relay only, the setting a person turns off under "Direct connections" (apps/web/src/directSettings.ts): a
+    // Relay only, the setting a person turns off under "Direct connections" (apps/web/src/capabilities/connection/directSettings.ts): a
     // direct path would carry the records and the cut socket would prove nothing about resuming on the relay.
     await context.addInitScript(() => {
       localStorage.setItem("file-transfer:direct-connections", "off")

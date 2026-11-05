@@ -3,12 +3,12 @@ import { Effect, Option, Schema } from "effect"
 import { Command, Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
 import { defineView } from "foldkit/submodel"
-import { appearanceValues } from "../appearance.ts"
-import { setAppearance, storedAppearance } from "../appearanceBrowser.ts"
-import { directAllowed, setDirectAllowed } from "../directSettings.ts"
-import { hasOfferedRemoval, removeOfferedFiles } from "../storagePanel.ts"
-import { storageUse, sweepStaleTransfers } from "../storage.ts"
-import { formatSize } from "../view.ts"
+import { appearanceValues } from "../../capabilities/appearance/preference.ts"
+import { setAppearance, storedAppearance } from "../../capabilities/appearance/browser.ts"
+import { directAllowed, setDirectAllowed } from "../../capabilities/connection/directSettings.ts"
+import { hasOfferedRemoval, removeOfferedFiles } from "./storagePanel.ts"
+import { storageUse, sweepStaleTransfers } from "../../capabilities/transfer/storage.ts"
+import { formatSize } from "../../ui/view.ts"
 
 const Use = Schema.Struct({
   receivedBytes: Schema.Finite,

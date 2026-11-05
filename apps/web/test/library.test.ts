@@ -3,7 +3,7 @@ import type { LibraryCollection, LibrarySnapshot } from "@file-transfer/catalog"
 import { Predicate, Redacted } from "effect"
 import { describe, expect, test } from "vite-plus/test"
 import { Dialog, FileDrop, Tabs } from "@foldkit/ui"
-import { boot, cancel, init, Message, update } from "../src/library/main.ts"
+import { boot, cancel, init, Message, update } from "../src/features/library/main.ts"
 
 const firstFile: LibrarySnapshot["files"][number] = { identifier: 7, revision: 3, name: "first-private.txt", size: 4, lastModified: 10, fingerprint: "first" }
 

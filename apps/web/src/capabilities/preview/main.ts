@@ -6,11 +6,11 @@ import { defineView } from "foldkit/submodel"
 import * as v from "valibot"
 import { focus } from "foldkit/dom"
 import { afterPaint } from "foldkit/render"
-import { privateValue } from "../privateValue.ts"
-import { sniff, sniffLength } from "../sniff.ts"
-import type { ClearMessage, ShowMessage } from "../previewFrame.ts"
+import { privateValue } from "../../ui/privateValue.ts"
+import { sniff, sniffLength } from "./sniff.ts"
+import type { ClearMessage, ShowMessage } from "./frame/entry.ts"
 import { FrameReply } from "./protocol.ts"
-import { isAppearance } from "../appearance.ts"
+import { isAppearance } from "../appearance/preference.ts"
 
 export interface Input {
   readonly file: Blob

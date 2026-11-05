@@ -5,7 +5,7 @@ import type { Update } from "foldkit"
 import { Command } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
 import { defineView } from "foldkit/submodel"
-import { privateValue } from "../privateValue.ts"
+import { privateValue } from "./privateValue.ts"
 import { icon } from "./icon.ts"
 
 interface Qr {

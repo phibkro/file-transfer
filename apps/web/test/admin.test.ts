@@ -2,9 +2,9 @@ import { Effect, Option, Redacted } from "effect"
 import { Mount } from "foldkit"
 import * as Scene from "foldkit/scene"
 import { afterEach, describe, expect, it, vi } from "vite-plus/test"
-import { ChartMount } from "../src/admin/chart.ts"
-import { fetchCounters, fetchInstance, lastHours, readStoredToken, storeToken } from "../src/admin/data.ts"
-import { init, Message, update, view } from "../src/admin/main.ts"
+import { ChartMount } from "../src/features/administration/chart.ts"
+import { fetchCounters, fetchInstance, lastHours, readStoredToken, storeToken } from "../src/features/administration/data.ts"
+import { init, Message, update, view } from "../src/features/administration/main.ts"
 
 const snapshot = {
   byKind: { "room-created": 3, "recipient-joined": 2, "transfer-completed": 1, "transfer-failed": 1, "path-direct": 1, "path-relayed": 1 },

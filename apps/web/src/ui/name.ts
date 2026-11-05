@@ -3,8 +3,8 @@ import { Option, Redacted, Schema } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
 import { defineView } from "foldkit/submodel"
-import { privateValue } from "../privateValue.ts"
-import { renameProblem } from "../selection.ts"
+import { privateValue } from "./privateValue.ts"
+import { renameProblem } from "./selection.ts"
 
 export const Model = Schema.Struct({ identifier: Schema.String, editing: Schema.Boolean, draft: privateValue<string>(), problem: Schema.Option(Schema.String) })
 

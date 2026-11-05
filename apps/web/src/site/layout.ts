@@ -1,6 +1,6 @@
 import * as Nav from "@foldkit/ui/nav"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import { howItWorksRouter, libraryRouter, privacyRouter, quickShareRouter, runYourOwnRouter, securityRouter, thirdPartyNoticesRouter } from "../routes.ts"
+import { howItWorksRouter, libraryRouter, privacyRouter, quickShareRouter, runYourOwnRouter, securityRouter, thirdPartyNoticesRouter } from "../app/routes.ts"
 import { icon } from "../ui/icon.ts"
 
 /** Operators of modified versions should point this at their own source. */

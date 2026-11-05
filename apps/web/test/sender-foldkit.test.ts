@@ -1,7 +1,7 @@
 import { Option, Redacted } from "effect"
 import { FileDrop } from "@foldkit/ui"
 import { describe, expect, it } from "vite-plus/test"
-import * as Sender from "../src/sender/main.ts"
+import * as Sender from "../src/features/quick-share/main.ts"
 import * as Name from "../src/ui/name.ts"
 
 describe("Quick Share Library handoff", () => {

@@ -1,6 +1,6 @@
 import { Effect, Fiber } from "effect"
 import { describe, expect, it, vi } from "vite-plus/test"
-import { saveAll } from "../src/recipient/downloads.ts"
+import { saveAll } from "../src/features/receive/downloads.ts"
 
 describe("recipient downloads", () => {
   it("interrupts a pending picker and ignores a late selection", async () => {

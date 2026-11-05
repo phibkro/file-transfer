@@ -17,7 +17,7 @@
  */
 import { decodeControlMessage, decodeUnit, encodeControlMessage, encodeUnit, pingFrame } from "@file-transfer/transport/protocol"
 import type { ControlMessage, Role, Unit } from "@file-transfer/transport/protocol"
-import { isSecurePage, pageHost } from "./address.ts"
+import { isSecurePage, pageHost } from "../../app/address.ts"
 import { openDirectPath } from "./direct.ts"
 import type { DirectPath } from "./direct.ts"
 

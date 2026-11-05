@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test"
-import { installLeaveGuard } from "../src/leaveGuard.ts"
-import { currentStatus, setStatus } from "../src/report.ts"
-import { startTransfer } from "../src/sender.ts"
-import type { SenderEvent } from "../src/sender.ts"
+import { installLeaveGuard } from "../src/app/leaveGuard.ts"
+import { currentStatus, setStatus } from "../src/capabilities/transfer/report.ts"
+import { startTransfer } from "../src/features/quick-share/session.ts"
+import type { SenderEvent } from "../src/features/quick-share/session.ts"
 
 const entries = () => [{ file: new File(["content"], "example.txt"), name: "example.txt" }]
 

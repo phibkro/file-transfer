@@ -1,5 +1,5 @@
 import { Data, Effect, Fiber, FiberHandle, Function, Option } from "effect"
-import type { RecipientSession } from "../recipient.ts"
+import type { RecipientSession } from "./session.ts"
 
 export interface Download {
   readonly name: string

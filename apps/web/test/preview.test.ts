@@ -2,8 +2,8 @@ import { Dialog } from "@foldkit/ui"
 import { Redacted } from "effect"
 import * as v from "valibot"
 import { describe, expect, test } from "vite-plus/test"
-import { init, Message, update } from "../src/preview/main.ts"
-import { FrameReply, ParentMessage } from "../src/preview/protocol.ts"
+import { init, Message, update } from "../src/capabilities/preview/main.ts"
+import { FrameReply, ParentMessage } from "../src/capabilities/preview/protocol.ts"
 
 describe("preview dialog", () => {
   test("opening retains private input without exposing the name in diagnostics", () => {

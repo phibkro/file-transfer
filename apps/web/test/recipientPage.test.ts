@@ -1,7 +1,7 @@
 import { Redacted } from "effect"
 import { describe, expect, it } from "vite-plus/test"
-import { boot, init, Message, update } from "../src/recipient/main.ts"
-import type { RecipientSnapshot } from "../src/recipient.ts"
+import { boot, init, Message, update } from "../src/features/receive/main.ts"
+import type { RecipientSnapshot } from "../src/features/receive/session.ts"
 import * as Name from "../src/ui/name.ts"
 
 const offer: RecipientSnapshot = {

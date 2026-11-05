@@ -6,7 +6,7 @@ import { Command } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
 import { load } from "foldkit/navigation"
 import { defineView } from "foldkit/submodel"
-import { privateValue } from "../privateValue.ts"
+import { privateValue } from "./privateValue.ts"
 import { icon } from "./icon.ts"
 
 const PrivateLink = privateValue<string>()

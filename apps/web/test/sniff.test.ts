@@ -1,6 +1,6 @@
 import * as fc from "fast-check"
 import { describe, expect, it } from "vite-plus/test"
-import { sniff } from "../src/sniff.ts"
+import { sniff } from "../src/capabilities/preview/sniff.ts"
 
 /** The UTF-8 bytes of `value`. */
 const text = (value: string): readonly number[] => Array.from(new TextEncoder().encode(value))

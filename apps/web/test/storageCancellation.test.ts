@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test"
-import { openStorage } from "../src/storage.ts"
+import { openStorage } from "../src/capabilities/transfer/storage.ts"
 
 afterEach(() => {
   vi.unstubAllGlobals()

@@ -2,7 +2,7 @@ import { Effect } from "effect"
 import { describe, expect, it } from "vite-plus/test"
 import { deriveMyFiles } from "@file-transfer/catalog"
 import type { IndexedVersion, LibrarySnapshot } from "@file-transfer/catalog"
-import { indexCatalogFiles, inspectCatalogSource, reviewCatalogFiles } from "../src/localLibrary.ts"
+import { indexCatalogFiles, inspectCatalogSource, reviewCatalogFiles } from "../src/capabilities/catalog/browser.ts"
 
 const storedFile = (entry: IndexedVersion, identifier = 1) => ({ ...entry, identifier, revision: 3 })
 

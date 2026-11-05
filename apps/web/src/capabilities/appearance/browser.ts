@@ -1,5 +1,5 @@
-import { appearanceStorageKey, isAppearance } from "./appearance.ts"
-import type { Appearance } from "./appearance.ts"
+import { appearanceStorageKey, isAppearance } from "./preference.ts"
+import type { Appearance } from "./preference.ts"
 
 export const storedAppearance = (): Appearance => {
   try {

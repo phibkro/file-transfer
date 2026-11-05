@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from "vite-plus/test"
-import { createRecipientSession } from "../src/recipient.ts"
+import { createRecipientSession } from "../src/features/receive/session.ts"
 
 const boundary = vi.hoisted(() => ({ direct: vi.fn(), connect: vi.fn() }))
 
-vi.mock("../src/directSettings.ts", () => ({ directOption: boundary.direct }))
+vi.mock("../src/capabilities/connection/directSettings.ts", () => ({ directOption: boundary.direct }))
 
-vi.mock("../src/connection.ts", () => ({ openConnection: boundary.connect }))
+vi.mock("../src/capabilities/connection/connection.ts", () => ({ openConnection: boundary.connect }))
 
 describe("recipient session", () => {
   it("reports an invalid link and stops publishing after disposal", async () => {

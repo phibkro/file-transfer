@@ -5,9 +5,9 @@ import type { Update } from "foldkit"
 import { Command } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
 import { defineView } from "foldkit/submodel"
-import { transferSummary } from "../report.ts"
-import { directText, edgeLocation, megabytesPerSecond, pathText, reportText } from "../summary.ts"
-import { formatSize } from "../view.ts"
+import { transferSummary } from "../capabilities/transfer/report.ts"
+import { directText, edgeLocation, megabytesPerSecond, pathText, reportText } from "../capabilities/transfer/summary.ts"
+import { formatSize } from "./view.ts"
 import { icon } from "./icon.ts"
 
 const Summary = Schema.Struct({

@@ -5,8 +5,8 @@
  * still waiting for its recipient (the link stops working when the sender leaves), or received files not yet saved
  * (they are deleted on the next visit, storage.ts). Browsers show their own wording; the page cannot set it.
  */
-import { currentPublishedUnsavedFiles, currentStatus, onReport } from "./report.ts"
-import type { Status } from "./report.ts"
+import { currentPublishedUnsavedFiles, currentStatus, onReport } from "../capabilities/transfer/report.ts"
+import type { Status } from "../capabilities/transfer/report.ts"
 
 // Reviewing an offer or connecting loses nothing: the link can simply be opened again.
 const statusesToKeep = new Set<Status>(["labelling", "creating-room", "waiting-for-recipient", "offering", "reconnecting", "transferring"])

@@ -1,7 +1,7 @@
 import { Redacted, Schema } from "effect"
 import { assert, property, string } from "fast-check"
 import { describe, expect, it } from "vite-plus/test"
-import { privateValue } from "../src/privateValue.ts"
+import { privateValue } from "../src/ui/privateValue.ts"
 
 const PrivatePayload = privateValue<{ readonly name: string; readonly secret: string }>()
 const jsonCodec = Schema.toCodecJson(PrivatePayload)

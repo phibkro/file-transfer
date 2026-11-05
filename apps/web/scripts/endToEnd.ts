@@ -262,7 +262,7 @@ const startLocalServer = async () => {
       // Everything the server prints goes to files the leak probe reads (serverKeptNoSecrets).
       "--log-level",
       "log",
-      // Counting on with a known admin token, so the operator page can be checked (src/admin.ts).
+      // Counting on with a known admin token, so the operator page can be checked (src/features/administration/main.ts).
       "--var",
       "COUNTERS:on",
       "--var",
@@ -420,7 +420,7 @@ const openPage = async (browser: Browser, routed = true, persistent = false, dir
   }
 
   if (!direct) {
-    // The setting a person turns off under "Direct connections" (apps/web/src/directSettings.ts).
+    // The setting a person turns off under "Direct connections" (apps/web/src/capabilities/connection/directSettings.ts).
     await context.addInitScript(() => {
       localStorage.setItem("file-transfer:direct-connections", "off")
     })
@@ -1179,7 +1179,7 @@ const previewsAndNames = async (browser: Browser, base: string) => {
 const localAdminToken = "end-to-end-admin-token"
 
 /**
- * The operator page (src/admin.ts) against the local server, after the transfers above: a wrong token is refused, the
+ * The operator page (src/features/administration/main.ts) against the local server, after the transfers above: a wrong token is refused, the
  * right one shows the counts and draws the chart, and the page ships nothing that identifies a transfer.
  */
 const operatorPage = async (browser: Browser, base: string) => {
@@ -1515,7 +1515,7 @@ const releaseStorage = async (page: Page) => {
 }
 
 /**
- * The recipient's life cycle (src/recipientPhase.ts) at the points spike 0006 found broken: R2, a failure while the offer
+ * The recipient's life cycle (src/features/receive/phase.ts) at the points spike 0006 found broken: R2, a failure while the offer
  * is on screen; R3, an abort while storage is opening; a rejoin while storage is opening (found in review of #18); R1,
  * saving the files fails. Faults come from the network (an
  * abort frame on the routed socket) and from the browser's storage API (an init script that delays or breaks it).
@@ -1867,7 +1867,7 @@ const latency = async (browser: Browser, origin: string) => {
     }
   }
 
-  console.log(`   latency results (128 MB, credit window from apps/web/src/recipient.ts): ${rows.join(", ")}`)
+  console.log(`   latency results (128 MB, credit window from apps/web/src/features/receive/session.ts): ${rows.join(", ")}`)
 }
 
 /** Strikes one planned fault on a side's current socket or direct path. */

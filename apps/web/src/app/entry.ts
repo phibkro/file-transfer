@@ -2,7 +2,7 @@ import { Effect, Redacted } from "effect"
 import { Runtime } from "foldkit"
 import { linkFragment, pageOrigin, pagePath, workspaceAnchor } from "./address.ts"
 import { Flags, Message, Model, init, managedResources, subscriptions, update, view } from "./main.ts"
-import { sweepStaleTransfers } from "./storage.ts"
+import { sweepStaleTransfers } from "../capabilities/transfer/storage.ts"
 import { AppRoute, libraryRouter } from "./routes.ts"
 
 const flags = Effect.gen(function* () {

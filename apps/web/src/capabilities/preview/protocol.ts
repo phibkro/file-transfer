@@ -1,5 +1,5 @@
 import * as v from "valibot"
-import { appearanceValues } from "../appearance.ts"
+import { appearanceValues } from "../appearance/preference.ts"
 
 export const frameReplyKinds = ["ready", "shown", "failed", "close"] as const
 export const FrameReply = v.object({ type: v.picklist(frameReplyKinds) })

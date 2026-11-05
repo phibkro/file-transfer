@@ -152,7 +152,7 @@ Services are declared once as Effect services with an in-memory reference layer 
 
 The [Catalog library](../libraries/catalog/src/index.ts) defines device catalog behavior independently of browser storage and Foldkit. Pure decisions own consent, revisions, collection membership and approval baselines. The Catalog service exposes reads and semantic commands. Its reference Layer holds transient state in an Effect Ref.
 
-The [browser adapter](../apps/web/src/localLibrary.ts) reads, decides and applies each mutation inside one IndexedDB transaction. IndexedDB allocates identifiers. Native file handles remain adapter-owned sidecars. Transient Files stay in page memory. Portable snapshots contain metadata and source strings, not native resources or file bytes. Existing version 1 and version 2 records remain readable.
+The [browser adapter](../apps/web/src/capabilities/catalog/browser.ts) reads, decides and applies each mutation inside one IndexedDB transaction. IndexedDB allocates identifiers. Native file handles remain adapter-owned sidecars. Transient Files stay in page memory. Portable snapshots contain metadata and source strings, not native resources or file bytes. Existing version 1 and version 2 records remain readable.
 
 Mutation results describe committed state. Cancellation aborts pending transactions, and native source publication follows commit. Reconnection preserves the approved baseline. Collection approval requires the exact reviewed membership and current revisions. The [shared contract scenarios](../libraries/catalog/test/scenarios.ts) run against the reference Layer and the browser Catalog Layer.
 

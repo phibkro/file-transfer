@@ -18,7 +18,7 @@ Options compared:
 
 1. **Wire contracts are defined once, with Valibot, and exposed as Standard Schema.** `ControlMessage` in `libraries/transport/src/protocol.ts` is a Valibot schema; the browser and the room server both decode with it, and Effect code that wants it reads it through `~standard`. One definition, so the two ends cannot drift.
 2. **The browser imports the protocol entry only** (`@file-transfer/transport/protocol`), never the package root, which declares the Effect-based `Transport` interface. The web app no longer depends on Effect.
-3. **Decoding returns plain data**: `Decoded<T>` is `{ ok: true, value }` or `{ ok: false, reason }`, and never throws. The same holds for the app's own results (`spansFor` in `apps/web/src/files.ts`). Effect code keeps `Data.TaggedError` and `Result`.
+3. **Decoding returns plain data**: `Decoded<T>` is `{ ok: true, value }` or `{ ok: false, reason }`, and never throws. The same holds for the app's own results (`spansFor` in `apps/web/src/features/receive/files.ts`). Effect code keeps `Data.TaggedError` and `Result`.
 4. **Semantics match the previous Effect schema.** Unknown keys are dropped (`object`, not `strictObject`), so newer peers may add fields; integers must be safe integers (`safeInteger`), as Effect's `Int` required. Before the switch, the new decoder was fuzzed against the old Effect decoder on 200,000 generated inputs (valid and invalid messages, arbitrary JSON, arbitrary text). The first run found Valibot's `integer` accepting integers beyond 2^53 that Effect refused; after the change to `safeInteger`, the two agreed on every input.
 
 ## Consequences

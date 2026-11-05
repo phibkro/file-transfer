@@ -24,15 +24,24 @@ import {
 } from "@file-transfer/parcel"
 import type { Contract, ManifestFile, ParcelSealer, RecordReader } from "@file-transfer/parcel"
 import type { ControlMessage } from "@file-transfer/transport/protocol"
-import { pageOrigin } from "./address.ts"
-import { receiveCredit, spendCredit } from "./credits.ts"
-import type { CreditBalance } from "./credits.ts"
-import { openConnection } from "./connection.ts"
-import type { Connection, PathName } from "./connection.ts"
-import { directOption } from "./directSettings.ts"
-import { addRecord, createRecordSet, createSchedule, markSent, peekNext, prioritise, rangesAreValid, replaceDebt } from "./ranges.ts"
-import type { Schedule } from "./ranges.ts"
-import { setPath, setProgress, setStatus, setTotalBytes } from "./report.ts"
+import { pageOrigin } from "../../app/address.ts"
+import { receiveCredit, spendCredit } from "../../capabilities/connection/credits.ts"
+import type { CreditBalance } from "../../capabilities/connection/credits.ts"
+import { openConnection } from "../../capabilities/connection/connection.ts"
+import type { Connection, PathName } from "../../capabilities/connection/connection.ts"
+import { directOption } from "../../capabilities/connection/directSettings.ts"
+import {
+  addRecord,
+  createRecordSet,
+  createSchedule,
+  markSent,
+  peekNext,
+  prioritise,
+  rangesAreValid,
+  replaceDebt,
+} from "../../capabilities/connection/ranges.ts"
+import type { Schedule } from "../../capabilities/connection/ranges.ts"
+import { setPath, setProgress, setStatus, setTotalBytes } from "../../capabilities/transfer/report.ts"
 
 const sequence = 0
 

@@ -1,7 +1,7 @@
 import * as Machine from "@file-transfer/machine"
 import { describe, expect, it } from "vite-plus/test"
-import { isAccepted, isSettled, nextPhase, recipientMachine } from "../src/recipientPhase.ts"
-import type { RecipientCommand, RecipientPhase } from "../src/recipientPhase.ts"
+import { isAccepted, isSettled, nextPhase, recipientMachine } from "../src/features/receive/phase.ts"
+import type { RecipientCommand, RecipientPhase } from "../src/features/receive/phase.ts"
 
 /** The phase a sequence of commands ends in from Opening, or the first command the table rejects. */
 const run = (commands: readonly RecipientCommand[]) => {
