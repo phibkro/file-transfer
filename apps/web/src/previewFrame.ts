@@ -6,7 +6,7 @@ import type { HtmlBuilder } from "foldkit/html"
 import { defineMessageUnion } from "foldkit/message"
 import * as v from "valibot"
 import { AnnotationMode, getDocument, VerbosityLevel } from "pdfjs-dist"
-import type { PDFDocumentLoadingTask, PDFDocumentProxy, PDFPageProxy, RenderTask } from "pdfjs-dist"
+import type { PDFDocumentLoadingTask, PDFDocumentProxy, RenderTask } from "pdfjs-dist"
 import * as pdfWorker from "pdfjs-dist/build/pdf.worker.mjs"
 import { privateValue } from "./privateValue.ts"
 import { ParentMessage } from "./preview/protocol.ts"
@@ -29,7 +29,7 @@ export interface FrameMessage {
 
 type Content =
   | { readonly kind: "empty" }
-  | { readonly kind: "pdf"; readonly blob: Blob; readonly page: number; readonly pages: number; readonly generation: number }
+  | { readonly kind: "pdf"; readonly document: PDFDocumentProxy; readonly page: number; readonly pages: number; readonly generation: number }
   | { readonly kind: "text"; readonly text: string; readonly truncated: boolean }
   | { readonly kind: "image" | "audio" | "video"; readonly url: string }
 
@@ -42,6 +42,7 @@ const Message = defineMessageUnion({
   Loaded: {},
   LoadedPdf: { page: Schema.Int, pages: Schema.Int, generation: Schema.Int },
   RequestedPage: { page: Schema.Int },
+  FailedPdf: { page: Schema.Int, generation: Schema.Int },
   Failed: {},
   CompletedPreviewReply: {},
 })
@@ -73,6 +74,13 @@ const update = (model: Model, message: Message): Update.Return<Model, Message> =
 
       return { model: { ...model, content: Redacted.make({ ...content, pages }) }, commands: [PreviewReply({ type: "shown" })] }
     },
+    FailedPdf: ({ page, generation }) => {
+      const content = Redacted.value(model.content)
+
+      return content.kind === "pdf" && content.page === page && content.generation === generation
+        ? { model, commands: [PreviewReply({ type: "failed" })] }
+        : { model }
+    },
     RequestedPage: ({ page }) => {
       const content = Redacted.value(model.content)
 
@@ -94,6 +102,7 @@ const subscriptions = Subscription.make<Model, Message>()((entry) => ({
             yield* Effect.acquireRelease(
               Effect.sync(() => {
                 let currentUrl: string | undefined
+                let currentPdf: PDFDocumentLoadingTask | undefined
                 let generation = 0
                 let active = true
 
@@ -105,6 +114,8 @@ const subscriptions = Subscription.make<Model, Message>()((entry) => ({
                   }
 
                   currentUrl = undefined
+                  void currentPdf?.destroy().catch(() => undefined)
+                  currentPdf = undefined
                   Queue.offerUnsafe(queue, Message.ChangedContent({ content: Redacted.make({ kind: "empty" }) }))
                 }
 
@@ -132,9 +143,45 @@ const subscriptions = Subscription.make<Model, Message>()((entry) => ({
                   if (kind === "pdf") {
                     if (blob.size > 25 * 1024 * 1024) {
                       Queue.offerUnsafe(queue, Message.Failed())
-                    } else {
-                      Queue.offerUnsafe(queue, Message.ChangedContent({ content: Redacted.make({ kind, blob, page: 1, pages: 0, generation: current }) }))
+
+                      return
                     }
+
+                    void blob
+                      .arrayBuffer()
+                      .then((buffer): Promise<PDFDocumentProxy> | null => {
+                        if (!active || generation !== current) {
+                          return null
+                        }
+
+                        currentPdf = getDocument({
+                          data: new Uint8Array(buffer),
+                          disableFontFace: false,
+                          useSystemFonts: true,
+                          useWorkerFetch: false,
+                          useWasm: false,
+                          enableXfa: false,
+                          verbosity: VerbosityLevel.ERRORS,
+                          maxImageSize: 16_000_000,
+                        })
+
+                        return currentPdf.promise
+                      })
+                      .then((document) => {
+                        if (active && generation === current && document !== null) {
+                          Queue.offerUnsafe(
+                            queue,
+                            Message.ChangedContent({ content: Redacted.make({ kind, document, page: 1, pages: document.numPages, generation: current }) }),
+                          )
+                        }
+
+                        return null
+                      })
+                      .catch(() => {
+                        if (active && generation === current) {
+                          Queue.offerUnsafe(queue, Message.Failed())
+                        }
+                      })
 
                     return
                   }
@@ -228,49 +275,21 @@ const MediaEvents = Mount.defineStream("PreviewMediaEvents", {
 Object.assign(globalThis, { pdfjsWorker: pdfWorker })
 
 const PdfPage = Mount.defineStream("PreviewPdfPage", {
-  args: { blob: privateValue<Blob>(), page: Schema.Int, generation: Schema.Int },
-  messages: [Message.LoadedPdf, Message.Failed],
-  execute: ({ element, blob, page, generation }) =>
-    Stream.callback<typeof Message.LoadedPdf.Type | typeof Message.Failed.Type>((queue) =>
+  args: { document: privateValue<PDFDocumentProxy>(), page: Schema.Int, generation: Schema.Int },
+  messages: [Message.LoadedPdf, Message.FailedPdf],
+  execute: ({ element, document, page, generation }) =>
+    Stream.callback<typeof Message.LoadedPdf.Type | typeof Message.FailedPdf.Type>((queue) =>
       Effect.gen(function* () {
         yield* Effect.acquireRelease(
           Effect.sync(() => {
             let active = true
-            let loading: PDFDocumentLoadingTask | undefined
             let rendering: RenderTask | undefined
             const canvas = element instanceof HTMLCanvasElement ? element : undefined
-            let pages = 0
 
-            void Redacted.value(blob)
-              .arrayBuffer()
-              .then((buffer): Promise<PDFDocumentProxy> | null => {
-                if (!active || canvas === undefined) {
-                  return null
-                }
-
-                loading = getDocument({
-                  data: new Uint8Array(buffer),
-                  disableFontFace: true,
-                  useWorkerFetch: false,
-                  useWasm: false,
-                  enableXfa: false,
-                  verbosity: VerbosityLevel.ERRORS,
-                  maxImageSize: 16_000_000,
-                })
-
-                return loading.promise
-              })
-              .then((document): Promise<PDFPageProxy> | null => {
-                if (!active || document === null) {
-                  return null
-                }
-
-                pages = document.numPages
-
-                return document.getPage(page)
-              })
+            void Redacted.value(document)
+              .getPage(page)
               .then((pdfPage): Promise<void> | null => {
-                if (!active || pdfPage === null || canvas === undefined) {
+                if (!active || canvas === undefined) {
                   return null
                 }
 
@@ -286,21 +305,20 @@ const PdfPage = Mount.defineStream("PreviewPdfPage", {
               })
               .then(() => {
                 if (active) {
-                  Queue.offerUnsafe(queue, Message.LoadedPdf({ page, pages, generation }))
+                  Queue.offerUnsafe(queue, Message.LoadedPdf({ page, pages: Redacted.value(document).numPages, generation }))
                 }
 
                 return null
               })
               .catch(() => {
                 if (active) {
-                  Queue.offerUnsafe(queue, Message.Failed())
+                  Queue.offerUnsafe(queue, Message.FailedPdf({ page, generation }))
                 }
               })
 
             return () => {
               active = false
               rendering?.cancel()
-              void loading?.destroy()
 
               if (canvas !== undefined) {
                 canvas.width = 0
@@ -345,7 +363,7 @@ const view = (model: Model, h: HtmlBuilder<Message>) => {
               ),
               h.keyed("canvas")(`${content.generation}:${content.page}`, [
                 h.AriaLabel(`PDF page ${content.page}`),
-                h.OnMount(PdfPage({ blob: Redacted.make(content.blob), page: content.page, generation: content.generation })),
+                h.OnMount(PdfPage({ document: Redacted.make(content.document), page: content.page, generation: content.generation })),
               ]),
             ],
           )

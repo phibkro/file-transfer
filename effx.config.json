@@ -168,7 +168,13 @@
         "adapterDependencies": ["foldkit", "@foldkit/ui", "@effect/platform-browser", "uplot", "uqr", "valibot"]
       },
       {
-        "files": ["apps/web/src/entry.ts", "apps/web/src/previewFrame.ts", "apps/web/src/admin/entry.ts"],
+        "files": ["apps/web/src/previewFrame.ts"],
+        "role": "composition-root",
+        "platform": "browser",
+        "adapterDependencies": ["foldkit", "pdfjs-dist"]
+      },
+      {
+        "files": ["apps/web/src/entry.ts", "apps/web/src/admin/entry.ts"],
         "role": "composition-root",
         "platform": "browser",
         "adapterDependencies": ["foldkit"]
