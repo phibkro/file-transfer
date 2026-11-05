@@ -2,7 +2,7 @@ import { createHash } from "node:crypto"
 import { NodeServices } from "@effect/platform-node"
 import { Data, Effect, FileSystem, Path } from "effect"
 import tailwindcss from "@tailwindcss/vite"
-import { build } from "vite-plus"
+import { build, normalizePath } from "vite-plus"
 import type { Plugin } from "vite-plus"
 
 class PreviewBuildError extends Data.TaggedError("PreviewBuildError")<{ readonly message: string; readonly cause?: unknown }> {}
@@ -23,8 +23,8 @@ export const previewBundle = (): Plugin => {
         Effect.gen(function* () {
           const path = yield* Path.Path
           const filesystem = yield* FileSystem.FileSystem
-          const entry = path.resolve(root, "src/capabilities/preview/frame/entry.ts")
-          const style = path.resolve(root, "src/capabilities/preview/frame/style.css")
+          const entry = normalizePath(path.resolve(root, "src/capabilities/preview/frame/entry.ts"))
+          const style = normalizePath(path.resolve(root, "src/capabilities/preview/frame/style.css"))
 
           const result = yield* Effect.tryPromise({
             try: async () =>
