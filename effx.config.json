@@ -156,7 +156,9 @@
           "apps/web/src/admin/main.ts",
           "apps/web/src/admin/data.ts",
           "apps/web/src/admin/chart.ts",
-          "apps/web/src/preview/**",
+          "apps/web/src/preview/main.ts",
+          "apps/web/src/preview/protocol.ts",
+          "apps/web/src/preview/pdfResources.ts",
           "apps/web/src/ui/**",
           "apps/web/src/site/**",
           "apps/web/src/privateValue.ts",
@@ -166,6 +168,12 @@
         "role": "runtime-adapter",
         "platform": "browser",
         "adapterDependencies": ["foldkit", "@foldkit/ui", "@effect/platform-browser", "uplot", "uqr", "valibot"]
+      },
+      {
+        "files": ["apps/web/src/preview/pdfResourceManifest.ts"],
+        "role": "runtime-adapter",
+        "platform": "browser",
+        "adapterDependencies": ["pdfjs-dist"]
       },
       {
         "files": ["apps/web/src/previewFrame.ts"],

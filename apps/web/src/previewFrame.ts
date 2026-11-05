@@ -10,6 +10,7 @@ import type { PDFDocumentLoadingTask, PDFDocumentProxy, RenderTask } from "pdfjs
 import * as pdfWorker from "pdfjs-dist/build/pdf.worker.mjs"
 import { privateValue } from "./privateValue.ts"
 import { ParentMessage } from "./preview/protocol.ts"
+import { pdfResource } from "./preview/pdfResources.ts"
 import type { PreviewKind } from "./sniff.ts"
 import { textPreviewLength } from "./sniff.ts"
 
@@ -156,9 +157,10 @@ const subscriptions = Subscription.make<Model, Message>()((entry) => ({
 
                         currentPdf = getDocument({
                           data: new Uint8Array(buffer),
-                          disableFontFace: false,
-                          useSystemFonts: true,
+                          disableFontFace: true,
+                          useSystemFonts: false,
                           useWorkerFetch: false,
+                          BinaryDataFactory: PdfBinaryDataFactory,
                           useWasm: false,
                           enableXfa: false,
                           verbosity: VerbosityLevel.ERRORS,
@@ -270,6 +272,16 @@ const MediaEvents = Mount.defineStream("PreviewMediaEvents", {
       }),
     ),
 })
+
+// PDF.js calls this composition-root bridge through its Promise-based factory ABI.
+class PdfBinaryDataFactory {
+  private readonly read = pdfResource
+
+  // oxlint-disable-next-line typescript/promise-function-async -- PDF.js requires this Promise-returning method.
+  fetch({ kind, filename }: { readonly kind: string; readonly filename: string }): Promise<Uint8Array> {
+    return Effect.runPromise(this.read(kind, filename))
+  }
+}
 
 // PDF.js uses its bundled main-thread worker rather than fetching a worker from the opaque origin.
 Object.assign(globalThis, { pdfjsWorker: pdfWorker })
